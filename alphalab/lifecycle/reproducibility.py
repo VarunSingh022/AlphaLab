@@ -75,12 +75,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import Enum, auto
 from typing import Any, Final, Protocol
 
 from alphalab.backtesting.algorithmic import ExecutionPlan
-from alphalab.backtesting.schedule import RunSchedule, ScheduleKind
+from alphalab.backtesting.provenance import RunProvenance, SubjectKind, delivery_disagreement
+from alphalab.backtesting.schedule import RunSchedule
 from alphalab.backtesting.state import AlgorithmicResult, BacktestResult
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.lifecycle.fingerprint import (
@@ -99,6 +100,7 @@ from alphalab.runtime.run_snapshot import capture as capture_run
 from alphalab.strategy.adaptive import AdaptiveReplay
 
 __all__ = [
+    "MANIFEST_IDENTITY_VERSIONS",
     "REPRODUCIBILITY_MANIFEST_SCHEME",
     "AdaptiveReplayAssessment",
     "DatasetProvenanceView",
@@ -127,6 +129,11 @@ __all__ = [
 #: Scheme tag, and the first line of every canonical manifest key. Frozen for
 #: the life of the scheme; changing it is an ADR.
 REPRODUCIBILITY_MANIFEST_SCHEME: Final = "alphalab.reproducibility_manifest.v1"
+
+#: The manifest identity contracts this build makes and reads (ADR-0052 option C,
+#: ADR-0053). Version 1 is every manifest made before v4.3 and the default; version 2,
+#: opt-in, records the instrument registry a run held and cites the run's provenance.
+MANIFEST_IDENTITY_VERSIONS: Final = (1, 2)
 
 
 def _sha256(text: str) -> str:
@@ -434,6 +441,15 @@ class ReproducibilityManifest:
             borrow, margin model and surfaces -- when the producer asked for it
             (phase 4), or ``None``. The run's record names the registry by type
             only (ADR-0023); rendered into the identity only when present.
+        provenance_id: The :attr:`~alphalab.backtesting.provenance.RunProvenance.provenance_id`
+            of the run's provenance (v4.3, ADR-0053), cited by an identity-version-2
+            manifest made with it, or ``None``. Rendered into the identity only
+            when present.
+        identity_version: The identity contract the manifest was made under
+            (ADR-0052 option C): ``1``, every manifest made before v4.3 and the
+            default, or ``2``, which records the instrument registry a run held
+            and cites its provenance when given. Rendered into the identity only
+            when it is not ``1``, so every version-1 manifest keeps its id.
     """
 
     manifest_id: str
@@ -453,6 +469,26 @@ class ReproducibilityManifest:
     execution_plan_id: str | None = None
     queue_model: str | None = None
     instruments_digest: str | None = None
+    provenance_id: str | None = None
+    identity_version: int = 1
+
+    def __serializable__(self) -> dict[str, Any]:
+        """Every field, less the two v4.3 added while they hold their defaults (ADR-0053).
+
+        A version-1 manifest made by this build is then the value v4.2.1 made,
+        stored as well as identified: an evidence store refuses a different value
+        under an identity it already holds, so a manifest filed under 4.2.1 and
+        filed again under 4.3 must serialize to the same bytes
+        (``tests/regression/test_schema_upgrades_v4_2_1.py``). A field still at
+        its default reads back as that default.
+        """
+
+        projected = {field.name: getattr(self, field.name) for field in fields(self)}
+        if self.provenance_id is None:
+            del projected["provenance_id"]
+        if self.identity_version == 1:
+            del projected["identity_version"]
+        return projected
 
     @property
     def evidence_kind(self) -> str:
@@ -512,6 +548,8 @@ def canonical_manifest_key(
     execution_plan_id: str | None = None,
     queue_model: str | None = None,
     instruments_digest: str | None = None,
+    provenance_id: str | None = None,
+    identity_version: int = 1,
 ) -> str:
     """Render the canonical key a manifest's identity is derived from.
 
@@ -552,6 +590,10 @@ def canonical_manifest_key(
         lines.append(f"inputs.queue_model={queue_model!r}")
     if instruments_digest is not None:
         lines.append(f"inputs.instruments={instruments_digest!r}")
+    if provenance_id is not None:
+        lines.append(f"inputs.provenance={provenance_id!r}")
+    if identity_version != 1:
+        lines.append(f"identity.version={identity_version}")
     return "\n".join(lines)
 
 
@@ -571,6 +613,8 @@ def derive_manifest_id(
     execution_plan_id: str | None = None,
     queue_model: str | None = None,
     instruments_digest: str | None = None,
+    provenance_id: str | None = None,
+    identity_version: int = 1,
 ) -> str:
     """SHA-256 over :func:`canonical_manifest_key`. Derived, never minted."""
 
@@ -591,6 +635,8 @@ def derive_manifest_id(
             execution_plan_id,
             queue_model,
             instruments_digest,
+            provenance_id,
+            identity_version,
         )
     )
 
@@ -611,6 +657,8 @@ def _manifest(
     execution_plan_id: str | None = None,
     queue_model: str | None = None,
     instruments_digest: str | None = None,
+    provenance_id: str | None = None,
+    identity_version: int = 1,
 ) -> ReproducibilityManifest:
     configuration_id = _sha256(configuration)
     return ReproducibilityManifest(
@@ -630,6 +678,8 @@ def _manifest(
             execution_plan_id,
             queue_model,
             instruments_digest,
+            provenance_id,
+            identity_version,
         ),
         kind=kind,
         result_id=result_id,
@@ -647,6 +697,8 @@ def _manifest(
         execution_plan_id=execution_plan_id,
         queue_model=queue_model,
         instruments_digest=instruments_digest,
+        provenance_id=provenance_id,
+        identity_version=identity_version,
     )
 
 
@@ -732,6 +784,8 @@ def manifest_for_run(
     schedule: RunSchedule | None = None,
     execution: ExecutionPlan | None = None,
     instruments: bool = False,
+    provenance: RunProvenance | None = None,
+    identity_version: int = 1,
 ) -> ReproducibilityManifest:
     """The manifest of a finished run, with every identity read from its owner.
 
@@ -765,6 +819,17 @@ def manifest_for_run(
             model and surfaces, as the registry snapshot writes them -- read off
             the run itself, never supplied. ``False`` by default, so a manifest
             asked for nothing new keeps its identity.
+        provenance: The run's
+            :class:`~alphalab.backtesting.provenance.RunProvenance` (v4.3,
+            ADR-0053), or ``None``. Checked, not trusted: it must be of this
+            run, bind the schedule named -- or none, where none is named -- and
+            record the registry the run held. Under identity version 1 it is
+            checked and not recorded, so the manifest's identity is the one it
+            would have without it.
+        identity_version: The identity contract (ADR-0052 option C): ``1``,
+            the default, as every manifest before v4.3; or ``2``, which records
+            the instrument registry the run held whatever ``instruments`` says,
+            and cites ``provenance`` by its id when given.
 
     Raises:
         DataValidationError: If ``dataset`` carries no provenance.
@@ -776,20 +841,27 @@ def manifest_for_run(
             observations than the run delivered, or not its last delivery; or
             if ``execution`` is given for a run that filled its orders whole, is
             missing for one that worked them in children, or is not the plan
-            its book was produced under.
+            its book was produced under; if ``provenance`` is of another run,
+            binds another schedule or registry, binds one where none is named
+            or none where one is; or if ``identity_version`` is not one this
+            build makes.
     """
 
+    if identity_version not in MANIFEST_IDENTITY_VERSIONS:
+        raise LifecycleInputError(
+            f"A manifest is made under identity version 1 or 2, not {identity_version!r}."
+        )
     digest = digest_run(result)
-    provenance = _identifying(dataset)
+    source = _identifying(dataset)
     if digest.dataset_id is None:
         raise LifecycleInputError(
             "The run names no dataset, so a manifest could not say what it was measured on. "
             "A run driven through BacktestEngine.run carries its dataset's identity."
         )
-    if provenance.dataset_version != digest.dataset_id:
+    if source.dataset_version != digest.dataset_id:
         raise LifecycleInputError(
             f"The run read {digest.dataset_id!r} and the dataset supplied is "
-            f"{provenance.dataset_version!r}. A manifest naming the second would send every "
+            f"{source.dataset_version!r}. A manifest naming the second would send every "
             "rerun to data the result was never measured on."
         )
     if digest.seed is None:
@@ -802,6 +874,8 @@ def manifest_for_run(
     _require_verified(fingerprint)
     _require_schedule_of(result, schedule)
     _require_plan_of(result, execution)
+    if provenance is not None:
+        _require_provenance_of(result, digest.result_id, provenance, schedule)
     if fingerprint.strategy_id not in digest.strategy_ids:
         raise LifecycleInputError(
             f"The fingerprint is of strategy {fingerprint.strategy_id!r} and the run "
@@ -811,8 +885,8 @@ def manifest_for_run(
     return _manifest(
         kind=ResultKind.RUN,
         result_id=digest.result_id,
-        dataset_version=provenance.dataset_version,
-        dataset_content_hash=provenance.content_hash,
+        dataset_version=source.dataset_version,
+        dataset_content_hash=source.content_hash,
         configuration=digest.configuration,
         seed=digest.seed,
         seed_role=SeedRole.IDENTIFIER_STREAM,
@@ -820,12 +894,64 @@ def manifest_for_run(
         fingerprint=fingerprint,
         build=build,
         schedule_digest=None if schedule is None or not schedule else schedule.digest,
-        dataset_parts=_parts_of(provenance),
+        dataset_parts=_parts_of(source),
         execution_plan_id=None if execution is None else execution.plan_id,
         # Read off the result, which names the model it ran under (FUT-011).
         queue_model=result.execution_assumptions.queue_model,
-        instruments_digest=_registry_digest(result) if instruments else None,
+        instruments_digest=(
+            _registry_digest(result) if instruments or identity_version >= 2 else None
+        ),
+        provenance_id=(
+            provenance.provenance_id if provenance is not None and identity_version >= 2 else None
+        ),
+        identity_version=identity_version,
     )
+
+
+def _require_provenance_of(
+    result: BacktestResult,
+    result_id: str,
+    provenance: RunProvenance,
+    schedule: RunSchedule | None,
+) -> None:
+    """The run's provenance must be of this run, and agree with what the manifest names.
+
+    Each refusal is a manifest the caller's own evidence contradicts (ADR-0053
+    D-53-3): provenance of another run, another schedule, none named where the
+    run was given one, one named where it was given none, or another registry.
+    """
+
+    if provenance.subject_kind != SubjectKind.RESULT or provenance.subject_digest != result_id:
+        raise LifecycleInputError(
+            f"The provenance is of {provenance.subject_kind} {provenance.subject_digest}, and "
+            f"the run is {result_id}: provenance of another run says nothing about this one."
+        )
+    named = (schedule if schedule is not None else RunSchedule()).binding
+    bound = provenance.schedule
+    if named != bound:
+        if named.digest is None:
+            reason = (
+                f"no schedule is named, and the run's provenance binds schedule {bound.digest}: "
+                "a manifest naming none would leave out inputs the run was given."
+            )
+        elif bound.digest is None:
+            reason = (
+                f"schedule {named.digest} is named, and the run's provenance says it was given "
+                "none."
+            )
+        else:
+            reason = (
+                f"schedule {named.digest} is named, and the run's provenance binds "
+                f"{bound.digest} under {bound.scheme!r}: it is not the schedule this run was "
+                "given."
+            )
+        raise LifecycleInputError(f"The manifest cannot be made: {reason}")
+    held = _registry_digest(result)
+    if provenance.instruments_digest != held:
+        raise LifecycleInputError(
+            f"The run's provenance records registry {provenance.instruments_digest}, and the run "
+            f"held {held}: it describes a run under other terms."
+        )
 
 
 def _registry_digest(result: BacktestResult) -> str | None:
@@ -872,58 +998,13 @@ def _require_schedule_of(result: BacktestResult, schedule: RunSchedule | None) -
     by source and version: a manifest of such a run must name a schedule, and
     that schedule must hold each one (phase 6, REP-009). Nothing about a run
     says whether it was given rates or settlements, so those are taken as given.
+    The rule is :func:`~alphalab.backtesting.provenance.delivery_disagreement`,
+    which run provenance applies too (v4.3).
     """
 
-    run = result.run
-    _require_deliveries_of(run, schedule)
-    if schedule is None:
-        return
-    delivered = {
-        entry.identity for entry in schedule.entries if entry.kind is ScheduleKind.OBSERVATION
-    }
-    if run.observations_delivered > len(delivered):
-        raise LifecycleInputError(
-            f"The run delivered {run.observations_delivered} observations and the schedule "
-            f"holds {len(delivered)}: a manifest naming it would claim inputs the run did "
-            "not read."
-        )
-    last = run.last_observation
-    if last is not None and last[1] not in delivered:
-        raise LifecycleInputError(
-            f"The run's last delivery was {last[1]!r}, which the schedule does not hold; "
-            "it is not the schedule this run was given."
-        )
-
-
-def _require_deliveries_of(run: Any, schedule: RunSchedule | None) -> None:
-    """Every surface and auction publication the run kept is one ``schedule`` holds (REP-009)."""
-
-    pipeline = run.pipeline
-    kept = [
-        (ScheduleKind.SURFACE, f"{o.source}|{o.version}|{underlying}")
-        for underlying, items in pipeline.risk.surfaces.items()
-        for o in items
-    ] + [
-        (ScheduleKind.AUCTION, f"{d.source}|{d.version}|{asset}")
-        for asset, items in pipeline.market.auctions.items()
-        for d in items
-    ]
-    if not kept:
-        return
-    if schedule is None:
-        raise LifecycleInputError(
-            f"The run was delivered {len(kept)} surfaces or auction publications and no "
-            "schedule was given: a manifest naming none would claim the run read no input "
-            "beyond its dataset."
-        )
-    held = {(entry.kind, entry.identity) for entry in schedule.entries}
-    missing = [identity for identity in kept if identity not in held]
-    if missing:
-        kind, identity = missing[0]
-        raise LifecycleInputError(
-            f"The run was delivered {kind.value} {identity!r}, which the schedule does not "
-            "hold; it is not the schedule this run was given."
-        )
+    disagreement = delivery_disagreement(result.run, schedule)
+    if disagreement is not None:
+        raise LifecycleInputError(disagreement)
 
 
 def manifest_for_study(
@@ -1023,6 +1104,8 @@ def verify_manifest(manifest: ReproducibilityManifest) -> bool:
         manifest.dataset_content_hash,
     ):
         return False
+    if manifest.identity_version not in MANIFEST_IDENTITY_VERSIONS:
+        return False
     return manifest.manifest_id == derive_manifest_id(
         manifest.kind,
         manifest.result_id,
@@ -1039,6 +1122,8 @@ def verify_manifest(manifest: ReproducibilityManifest) -> bool:
         manifest.execution_plan_id,
         manifest.queue_model,
         manifest.instruments_digest,
+        manifest.provenance_id,
+        manifest.identity_version,
     )
 
 
@@ -1051,6 +1136,16 @@ def manifest_gaps(manifest: ReproducibilityManifest) -> tuple[str, ...]:
     """
 
     gaps: list[str] = []
+    if (
+        manifest.identity_version >= 2
+        and manifest.instruments_digest is None
+        and _held_a_registry(manifest)
+    ):
+        gaps.append(
+            "identity version 2 records the instrument registry a run held, and this manifest "
+            "of a run that held one does not: its terms, controls, borrow, margin model and "
+            "surfaces are not identified."
+        )
     if manifest.build is None:
         gaps.append(
             "no engine build recorded: the engine is identified by its version alone, so "
@@ -1363,9 +1458,23 @@ def _input_differences(
         ("queue model", repr(original.queue_model), repr(rerun.queue_model)),
         ("instruments", repr(original.instruments_digest), repr(rerun.instruments_digest)),
     ):
+        # A version-1 original recorded no registry; a version-2 rerun's is not a
+        # difference of inputs but of what was recorded (ADR-0052 option C).
+        if label == "instruments" and _by_version_1(original, rerun):
+            continue
         if before != after:
             differences.append(f"{label}: {before} -> {after}")
     return differences
+
+
+def _by_version_1(original: ReproducibilityManifest, rerun: ReproducibilityManifest) -> bool:
+    """Whether a version-2 rerun of a version-1 original is compared by version 1's rules."""
+
+    return (
+        original.identity_version == 1
+        and rerun.identity_version >= 2
+        and original.instruments_digest is None
+    )
 
 
 def assess_reproducibility(
@@ -1409,7 +1518,11 @@ def assess_reproducibility(
             "a live run: its fills came from a venue, so the manifest identifies the result "
             "and cannot reproduce it."
         )
-    if manifest.instruments_digest is None and _held_a_registry(manifest):
+    if (
+        manifest.identity_version == 1
+        and manifest.instruments_digest is None
+        and _held_a_registry(manifest)
+    ):
         # A finding, not a gap (phase 5): a gap would turn every manifest asked
         # for nothing new incomplete; whether to is the maintainer's decision.
         findings.append(
@@ -1417,6 +1530,17 @@ def assess_reproducibility(
             "controls, borrow, margin model and surfaces are not identified, so a rerun given "
             "different terms whose record agreed would reproduce it. "
             "manifest_for_run(instruments=True) records them."
+        )
+
+    if (
+        manifest.identity_version >= 2
+        and manifest.kind is ResultKind.RUN
+        and manifest.provenance_id is None
+    ):
+        findings.append(
+            "an identity-version-2 manifest made without the run's provenance: the schedule "
+            "it names is its producer's statement, held only to what the run's record kept "
+            "(ADR-0053)."
         )
 
     identity_verified = verify_manifest(manifest)
@@ -1435,6 +1559,11 @@ def assess_reproducibility(
                 "record was altered is not evidence of reproduction."
             )
         differences = _input_differences(manifest, rerun)
+        if _by_version_1(manifest, rerun):
+            detail.append(
+                "the rerun's manifest is identity version 2 and the original's version 1: "
+                "compared by version 1's rules, under which no registry was recorded."
+            )
         if differences:
             outcome = RerunOutcome.INPUTS_DIFFER
             detail.extend(differences)

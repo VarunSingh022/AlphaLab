@@ -41,14 +41,14 @@ Never:
 - Deleting Git history or force-pushing.
 - Disabling security controls or rulesets to bypass a failure.
 
-## Current state (2026-11-10)
+## Current state (2026-11-14)
 
 | | |
 | --- | --- |
 | Remote head | `1593381784309502724eff8cc0b6249c6a6e08b5` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | Push M0's remaining commits (7dacb33..31324fd and this register update) and record their hosted CI. Then M1 (WS-02): ADR-0053 revision 3, accepted under G0 item 6's delegation; the schedule binding and verification vocabulary; checkpoint schema 3; run provenance; manifest provenance and the opt-in identity version 2. |
+| Next | Push da77ad5 and the manifest commit; record their hosted CI. Then S-11: a rerun in a fresh process REPRODUCED against pinned identities, run on Linux and macOS by CI; a wrong schedule refused at continuation. Then M1's mutation series (CR-53-9) and its acceptance record. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -82,6 +82,7 @@ Never:
 - **2026-11-10** M0 closed locally: the mutation series ran (23 of 24 caught; the N04 survivor's gap closed in 31324fd), the stress scenario passed, and the full gate passed on 31324fd. The M0 commits after 1593381 are pushed next, then M1 begins with ADR-0053 revision 3.
 - **2026-11-10** M1 begun: ADR-0053 revision 3 accepted under G0 item 6's delegation (TD-06 records where it departs from R53-1's letter); its three known limitations classified in the ledger (LIM-009, FUT-047, FUT-042).
 - **2026-11-10** M1's first increment built: the schedule binding and vocabulary, checkpoint schema 3, run provenance; ADR-0053's limitations in the ledger (LIM-009, FUT-047).
+- **2026-11-14** M1's second increment built: manifest provenance (D-53-3) and the opt-in identity version 2; D-F42 decided under delegation (G0 item 11); TD-07 recorded; FUT-046 delivered. The scratch toolchain was rebuilt after macOS's /tmp cleaning removed parts of the old one.
 
 ## Milestones
 
@@ -121,7 +122,7 @@ Never:
 | 8 | ADR-0055 | Streaming capture and trace identity | Delegated (2026-11-10): decided at its milestone | Before M3 | — |
 | 9 | D-54-R3 | Researcher entry point alphalab.lab | Delegated (2026-11-10): decided at its milestone | Before M4 | — |
 | 10 | D-F45 | FUT-045 in M8 | Confirmed by the owner's brief | Before M8 | The implementation brief (Part 18) places FUT-045 in its agreed programme position. The owner is asked to confirm this reading. |
-| 11 | D-F42 | FUT-042 opt-in in 4.3; default flip in 5.0 | Delegated (2026-11-10): decided at its milestone | Before M1 | — |
+| 11 | D-F42 | FUT-042 opt-in in 4.3; default flip in 5.0 | Decided under delegation (2026-11-14) | Before M1 | FUT-042 opt-in in 4.3: ADR-0052 accepted as option C, manifest_for_run(identity_version=2) records the registry and cites the run's provenance; run provenance records the registry by default. The default flip stays FUT-042, for 5.0. |
 | 12 | D-F44 | FUT-044 in M13 | Confirmed by the owner's brief | Before M13 | Inclusion confirmed by the brief (Part 18). Whether it is the cut line stays the owner's decision. The cut-line clause is delegated (2026-11-10). |
 | 13 | D-W1 | Release Preflight by label or dispatch at release time | Delegated (2026-11-10): decided at its milestone | Before the first release candidate | — |
 | 14 | D-W2 | Release rehearsal: fake-API tests and a scratch-repository rehearsal | Delegated (2026-11-10): decided at its milestone | M13 | — |
@@ -207,6 +208,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0053-run-and-input-provenance.md (Departures from the plan's text); CHANGELOG [4.3.0].
 - **Tests:** tests/integration/test_run_provenance.py (25 tests).
 
+### TD-07: Manifest provenance: what identity version 2 records, and where the unattested finding belongs (WS-02, 2026-11-14)
+
+- **Problem:** Three questions were left open. (1) D-53-3 asks for 'unchanged behaviour plus a finding' when no provenance is given, but a version-1 manifest can never cite provenance, so the finding would land on every manifest ever made, changing every assessment. (2) ADR-0052's migration step refused instruments=False under version 2, and instruments defaults to False, so a refusal cannot be told apart from the default. (3) Provenance carries the result id, an output; comparing it as an input would report a rerun that did not reproduce as one whose inputs differ.
+- **Alternatives:** (1) The finding on every manifest without provenance; only under version 2; or none. (2) Refuse instruments=False under version 2, or record the registry under version 2 whatever instruments says. (3) Compare provenance_id between original and rerun, or compare only the inputs it binds -- the schedule's and the registry's digests, which are already compared.
+- **Decision:** (1) The finding only under version 2, the contract that asks for provenance. (2) Version 2 records the registry the run held whatever instruments says. (3) provenance_id is not an input; a version-2 rerun of a version-1 original is compared by version 1's rules, and a detail line says so.
+- **Rationale:** Version-1 manifests, their assessments and the certificate's evidence stay exactly as they were (CR-53-7, CR-53-8). A version-2 producer is told what it did not attest, and an outcome names what actually differed.
+- **Compatibility:** Version 1 is unchanged in identity, verification, gaps and findings; version 2 is opt-in. ReproducibilityManifest, canonical_manifest_key and derive_manifest_id gain trailing fields and parameters with defaults, rendered only when given. A version-1 manifest is also stored as v4.2.1 stored it: ReproducibilityManifest projects without the two new fields while they hold their defaults, because an evidence store refuses another value under an identity it holds (the frozen v4.2.1 evidence store's test found the first draft writing them).
+- **Recorded in:** docs/ADR/0053-run-and-input-provenance.md section 6; docs/ADR/0052 (status: accepted, option C, opt-in); CHANGELOG [4.3.0].
+- **Tests:** tests/integration/test_manifest_provenance.py (12 tests); tests/regression/test_schema_upgrades_v4_2_1.py::test_the_evidence_store_reads_back_verified_and_this_build_computes_the_same.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -288,7 +299,7 @@ Evidence:
 - [Local validation passed] M1: ScheduleBinding and the verification vocabulary (VERIFIED, DECLARED, UNRECORDED, NONE_GIVEN); RunSchedule.binding, ScheduleCursor.binding
 - [Local validation passed] M1: A continuation held to its schedule: ScheduleCursor.start(expected=), checkpoint schema 3 written only when given, restore_checkpoints(schedule_binding=)
 - [Local validation passed] M1: Run provenance: RunProvenance, run_provenance, payload_provenance, verify_provenance, filed as evidence (RUN_PROVENANCE_SCHEMA 1)
-- [In progress] M1: manifest_for_run(provenance=) with the D-53-3 refusals, and the opt-in identity version 2 (ADR-0052 option C, FUT-042)
+- [Local validation passed] M1: manifest_for_run(provenance=) with the D-53-3 refusals, and the opt-in identity version 2 (ADR-0052 option C, FUT-042)
 - [Not started] M1: S-11 end to end: a rerun in a fresh process REPRODUCED against pinned identities on Linux and macOS; a wrong schedule refused at continuation
 
 Evidence:
@@ -299,6 +310,7 @@ Evidence:
 - Local gate on c48f5f7 (clean clone, CPython 3.12.4): ruff, format, strict mypy, pytest -W error (10,987 passed), every example under -W error, certificate check, register check, build, twine --strict, fresh-environment install and smoke of the wheel and the sdist. New tests also pass on CPython 3.13.18 and 3.14.10, where the certificate check matches.
 - Hosted CI passed on 643d947 (CI run 42763156527, six cells; CodeQL 42763156687), carrying 58920fc, 04b3e10 and c48f5f7.
 - M1, first increment: alphalab/runtime/schedule_check.py, alphalab/backtesting/provenance.py, ScheduleCursor.start(expected=), checkpoint schema 3. tests/integration/test_run_provenance.py (25 tests): chains checkpointed after 1, 3 and 4 records continue under their schedule to the uninterrupted result_id; another schedule, none, and two bindings in one chain are refused; an unbound chain is UNRECORDED; provenance is the result's id, draws nothing, refuses another schedule, run, registry and an edit; a payload's provenance is DECLARED; round trip and evidence filing. The public API grew by 13 names (2,767 exports); checkpoint and restore_checkpoints each gained one keyword-only parameter defaulting to None (CR-53-2). Certificate: the source digest and API-1's manifest digest and count moved; no DET, REP or PAR evidence did (CR-53-8). Suite: 11,097 passed once the two schema-constant inventories admitted RUN_PROVENANCE_SCHEMA.
+- M1, second increment: manifest_for_run(provenance=, identity_version=) in alphalab/lifecycle/reproducibility.py; the delivery-record rule (REP-009) is now one function, backtesting.provenance.delivery_disagreement, used by both manifests and provenance, its messages unchanged. tests/integration/test_manifest_provenance.py (12 tests, on example 72's registry-holding run): under version 1 a manifest made with provenance is the manifest made without it; provenance of another run, another schedule, none named, one named where none, and another registry are refused; version 2 records the registry and cites the provenance, verifies, and has a new identity by design; a version-2 manifest lacking its registry is a gap; an unknown version is refused and does not verify; a version-2 rerun of a version-1 original REPRODUCED by version 1's rules; the unattested finding under version 2 alone; a version-1 manifest stored as v4.2.1 stored it, which the frozen v4.2.1 evidence store holds. The full gate's first run on this increment found the draft writing the two new fields into every stored manifest -- a value an evidence store holding v4.2.1's copy would refuse -- and the projection was fixed before the push. Ledger: FUT-046 implemented (v4.3.0) with its criteria amended (D-53-7); FUT-042 restated as the default flip for 5.0; ADR-0052 accepted (option C, opt-in). Certificate: only the source digest and API-1 moved, so no version-1 manifest identity in the certificate's evidence moved (CR-53-7).
 
 ### WS-20: Documentation, guides and examples
 

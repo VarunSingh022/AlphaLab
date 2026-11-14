@@ -107,6 +107,29 @@ entry below says otherwise.
   no `result_id`, `configuration_id`, `manifest_id` or digest moves
   (`tests/integration/test_run_provenance.py`). Provenance is
   tamper-evident, not substitution-proof (LIM-009).
+* **A manifest held to the run's provenance, and an opt-in identity version
+  2** [ADR-0053 section 6, ADR-0052 option C, FUT-046, FUT-042]. Given the
+  run's provenance, `manifest_for_run` refuses provenance of another run,
+  another schedule, no schedule where the run was given one, one where it
+  was given none, and another registry -- claims the caller's own evidence
+  contradicts. Under identity version 1, the default, the manifest's
+  identity is unchanged by it. `manifest_for_run(identity_version=2)` makes
+  a version-2 manifest: its key renders `identity.version=2`, it records the
+  registry the run held, and it cites the provenance by its id when given
+  one; a version-2 manifest of a registry-holding run without the registry
+  is a gap, and one made without provenance carries a finding that its
+  schedule is unattested. `ReproducibilityManifest` gains `provenance_id`
+  and `identity_version` (last, defaulting to `None` and `1`), which
+  `canonical_manifest_key` and `derive_manifest_id` take as trailing
+  parameters, rendered only when given; `MANIFEST_IDENTITY_VERSIONS` names
+  the contracts this build makes. A version-2 rerun of a version-1 original
+  is compared by version 1's rules and says so. Every version-1 manifest --
+  each made before, and each default one made since -- keeps its id, its
+  verification and its assessment, and is stored as v4.2.1 stored it, byte for
+  byte: the two new fields are written only when they are not their defaults,
+  since an evidence store refuses another value under an identity it holds.
+  Making version 2 the default is FUT-042, for 5.0
+  (`tests/integration/test_manifest_provenance.py`).
 
 ## Changed
 

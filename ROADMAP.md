@@ -820,11 +820,10 @@ Every horizon is a proposal for the maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-042 | **A default manifest that names the registry** (a compatibility decision; options in ADR-0052, proposed) | `manifest_for_run(instruments=True)`; the assessment's finding | v5.0 | REP-006, REP-007 |
+| FUT-042 | **A default manifest that names the registry** (the default flip; ADR-0052's option C is adopted, opt-in) | `manifest_for_run(identity_version=2)` or `instruments=True`; run provenance records the registry; the assessment's finding | v5.0 | REP-006, REP-007, ADR-0053 |
 | FUT-044 | **Halts, bands and references delivered during a live run** | deliver the venue's halt messages as observations; declare known halts | v4.4 | venue controls, published auctions |
 | FUT-045 | **An execution model per venue in one simulated run** | one backtest per venue's model; the costliest for a conservative run | v4.4 | described execution models |
-| FUT-046 | **A run's record naming the schedule it was given** (an identity decision) | give `manifest_for_run` the schedule; a paused replay records it | v4.3 | the schedule in the manifest |
-| FUT-047 | **Every run held to its schedule by its own record** (option B of ADR-0053; an identity reset) | `run_provenance` beside each result; checkpoints written with `schedule=` | v5.0 | run provenance (FUT-046) |
+| FUT-047 | **Every run held to its schedule by its own record** (option B of ADR-0053; an identity reset) | `run_provenance` beside each result; checkpoints written with `schedule=` | v5.0 | run provenance (ADR-0053, delivered in v4.3) |
 
 ---
 
