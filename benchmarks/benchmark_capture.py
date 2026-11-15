@@ -7,17 +7,24 @@ second, every fourth, every eighth -- on the backtesting benchmark's engine
 workload, whose strategy does no work of its own, so the run is the engine's
 cost alone and every ratio is as large as it gets:
 
-* **the series** costs about 2 percent of the run at every density, inside the
-  plan's budget, and is judged against it;
+* **the series** costs 1.3 to 3.5 percent of the run, inside the plan's
+  budget, and is judged against it;
 * **the trace** adds a fixed cost per step -- the canonical serialization of
   what the step added, an equity point at the least, and one SHA-256 link --
-  of about 10 to 12 percent more, so series and trace together cost 12.6 to 14.4
-  percent on the reference machine (CPython 3.12, Apple arm64). Narrowing what
+  of about 10 percent more, so series and trace together cost 12.1 to 13.3
+  percent on the reference machine (CPython 3.12, Apple arm64), and cost 12.6 to
+  14.4 when PC-07 was proposed, before two output-identical changes to the
+  trace's writer. Narrowing what
   the trace covers would not bring it to 10 percent: with a trade on every
   eighth record it costs 12.2 percent without the order events and 11.4 without
-  the equity points, most of it the work it does every step. PC-07 records the
-  measurement and judges series and trace together against
-  ``MAX_TRACED_OVERHEAD``.
+  the equity points, most of it the work it does every step.
+
+The owner approved plan change PC-07 (2026-11-15). The series is held to the
+plan's 10 percent, ``MAX_SERIES_OVERHEAD``, and series and trace together to
+``MAX_TRACED_OVERHEAD``, 15 percent: a ceiling, not a target. A combined result
+above it fails this benchmark. That is a failed performance gate, to be taken
+to the owner for a new decision, never met by raising the limit or by narrowing
+what the trace covers.
 
 ``digest_run``'s share is printed beside each figure, not gated. Every ceiling is
 judged through ``_stable_timing``: CPU time, collector paused, workloads
@@ -62,7 +69,7 @@ from alphalab.strategy.supervisor import RuntimeSupervisor
 
 #: The plan's budget, which the series alone is judged against.
 MAX_SERIES_OVERHEAD = 0.10
-#: PC-07: series and trace together.
+#: PC-07, approved by the owner: series and trace together, a ceiling.
 MAX_TRACED_OVERHEAD = 0.15
 RECORDS = 4_000
 DENSITIES = (1, 2, 4, 8)
@@ -128,11 +135,11 @@ def run_benchmark() -> int:
         series = series_time / max(run_time, 1e-9) - 1.0
         traced = traced_time / max(run_time, 1e-9) - 1.0
         per_step = (traced_time - run_time) / (RECORDS + 2) * 1e6
-        verdict = (
-            "ok"
-            if series <= MAX_SERIES_OVERHEAD and traced <= MAX_TRACED_OVERHEAD
-            else "OVER BUDGET"
-        )
+        verdict = "ok"
+        if series > MAX_SERIES_OVERHEAD:
+            verdict = "OVER THE SERIES BUDGET"
+        if traced > MAX_TRACED_OVERHEAD:
+            verdict = "OVER PC-07's CEILING: a failed performance gate, for the owner"
         print(
             f"  a trade every {every}: run {run_time:.3f}s, digest_run "
             f"{digest_time / run_time:.0%} of it; series {series:+.1%} (budget "

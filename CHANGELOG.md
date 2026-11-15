@@ -330,10 +330,12 @@ entry below says otherwise.
     (`tests/integration/test_streaming_capture.py`,
     `tests/regression/test_capture_identities_are_pinned.py`).
   * **The cost** is measured by `benchmarks/benchmark_capture.py` at four trade
-    densities. The series costs 1 to 4 percent of the run. With the trace the
-    capture costs 12.6 to 14.4 percent on a strategy that does no work of its
-    own, against the plan's 10, where `digest_run` costs 76 to 105 percent
-    (plan change PC-07, ledger LIM-013).
+    densities. The series costs 1.3 to 3.5 percent of the run. With the trace
+    the capture costs 12.1 to 13.3 percent on a strategy that does no work of
+    its own, against the plan's 10, where `digest_run` costs 76 to 105 percent.
+    The owner approved plan change PC-07: the series at most 10 percent, and
+    series and trace at most 15, a ceiling the benchmark enforces and not a
+    target (ledger LIM-013).
 
   `_recorded_configuration` moved from the lifecycle into
   `alphalab.runtime.run_snapshot` unchanged, so the configuration a trace starts

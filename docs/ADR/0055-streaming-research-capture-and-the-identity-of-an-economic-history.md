@@ -201,7 +201,8 @@ None moves an identity made before; each is held by a test
   "rounded per H.1 for identity"). ADR-0058 (plan change PC-02) replaced H.1's
   rounding: a value enters an identity at full precision when it is class 1 or
   2, and the returns are class 2.
-- **The trace costs more than the plan's 10 percent** (plan change PC-07).
+- **The trace costs more than the plan's 10 percent** (plan change PC-07,
+  approved by the owner on 2026-11-15).
   `benchmarks/benchmark_capture.py` measures the capture at four trade
   densities on a strategy that does no work of its own, the case where every
   ratio is largest. The series costs 1 to 4 percent of the run, inside the
@@ -212,8 +213,15 @@ None moves an identity made before; each is held by a test
   either. With a trade on every eighth record it costs 12.2 percent without the
   order events, and 11.4 percent without the equity points: most of its cost is
   the work it does every step, whatever the step added. Unlike PC-06, no design
-  meets the budget, so the trace keeps what this record covers. The benchmark
-  holds the series to 10 percent, and series and trace together to 15.
+  meets the budget, so the trace keeps what this record covers. The owner
+  approved the limits: the series at most 10 percent, and series and trace
+  together at most 15, a ceiling and not a target. A combined result above 15
+  percent is a failed performance gate, taken to the owner for a new decision.
+  The trace's coverage is never narrowed to meet a budget, and optimisation
+  continues wherever it costs nothing in correctness. The plan's 10 percent
+  stays the record of what was targeted, and the benchmark enforces both limits.
+  After the approval, two output-identical changes to the trace's writer
+  brought series and trace to 12.1 to 13.3 percent, the series to 1.3 to 3.5.
 - **The grid's third member, a declared calendar's sessions, waits for the
   calendars.** Sessions come from ADR-0059's reference packs, which M3 begins.
   A grid from a pack is added when a pack can supply one. `EVERY_INSTANT` and
@@ -240,8 +248,9 @@ None moves an identity made before; each is held by a test
   not done here.
 - **A trace costs more than the plan's budget.** Series and trace together
   cost 12.6 to 14.4 percent of a run whose strategy does no work of its own,
-  against the plan's 10 (PC-07). The cost is a fixed amount of Python work per
-  step, so it is a smaller share of a run whose strategy computes anything.
+  against the plan's 10, within the 15 the owner approved (PC-07). The cost is
+  a fixed amount of Python work per step, so it is a smaller share of a run
+  whose strategy computes anything.
 
 # Consequences
 

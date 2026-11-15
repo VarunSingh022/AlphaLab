@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `0649893ac6b7b7e2794cdeb3d20fdaddb30f6325` |
+| Remote head | `acf4ce4b8e14a0b6e2b82091e0e923df41bcbb86` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M3's hosted exit gate: the capture commit (0649893) and WS-13's membership commit on hosted CI; then the owner's review of PC-07 and M4. |
+| Next | M3's close on hosted CI; then ADR-0072 (the plan's 0054B), M4's entry condition, and M4 (WS-05 ledger and executors, WS-23 runner registry and worker isolation, WS-19). |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -87,6 +87,10 @@ Never:
 | `fe3c80b` | CodeQL | 43612751471 | success |
 | `553b150` | Continuous Integration | 43613647630 | success: all six quality-gate cells, carrying ADR-0055 (8df5fdd) and ADR-0059 |
 | `553b150` | CodeQL | 43613647545 | success |
+| `0649893` | Continuous Integration | 43677456022 | success: all six quality-gate cells; the capture's pinned identities held on Linux and macOS |
+| `0649893` | CodeQL | 43677456015 | success |
+| `acf4ce4` | Continuous Integration | 43678927629 | success: all six quality-gate cells; GR-5 and the pack's pinned digest held |
+| `acf4ce4` | CodeQL | 43678927717 | success |
 
 ## Continuation log
 
@@ -126,6 +130,8 @@ Never:
 - **2026-11-14** M2's exit gate passed on hosted CI (fe3c80b, all six cells and CodeQL); GAP-10, GAP-33 and GAP-36 closed. GAP-09 stays open for M3's selection bridge. ADR-0055 and ADR-0059 pushed (553b150).
 - **2026-11-15** M3's capture (WS-04) and selection bridge (WS-06) implemented and locally validated: keep_equity, one private step loop, run_captured with its extractor and trace, and assess_captures, whose 16-variant PBO equals full history's exactly. TD-17 settles ADR-0055 at implementation: the trace starts from the configuration kept whole, after testing showed the run's configuration_id moves with retention. PC-07 records the trace's measured cost, 12.6 to 14.4 percent against the plan's 10.
 - **2026-11-15** Capture commit 0649893 passed the full local gate and was pushed. WS-13's M3 part implemented and locally validated: dated membership through the registry and the strategy's context, membership_review, and ReferencePack; GR-5 holds exactly. TD-18 settles ADR-0059 at implementation: a pack's format in data and its meaning in instrument, because the data package may not reach the execution path.
+- **2026-11-15** The owner approved PC-07: the return series at most 10 percent of the run, series and trace at most 15, a ceiling and not a target; a combined result above 15 percent is a failed gate brought to the owner, and trace coverage is never weakened to meet a budget. The plan's 10 percent target stays recorded with the measurements behind the change.
+- **2026-11-15** M3's exit gate met locally and its code commits on hosted CI: 16-variant PBO from captures equals full history's, GR-5 holds exactly, and the capture is within PC-07's approved limits (series 1.3 to 3.5 percent, series and trace 12.1 to 13.3). Mutation series T and U caught 33 of 33 on the first run. GAP-08, GAP-09 and GAP-43 closed.
 
 ## Milestones
 
@@ -135,7 +141,7 @@ Never:
 | M0 | Hosted CI passed | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
 | M1 | Hosted CI passed | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
 | M2 | Hosted CI passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
-| M3 | In progress | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
+| M3 | Local validation passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Not started | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Not started | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Not started | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
@@ -382,7 +388,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | PC-04 | 2026-11-10 | Delegated authority (TD-05) | The package version moves to 4.3.0 before M1, in a development state the release gate refuses: the CHANGELOG leads with '# [4.3.0] - Unreleased', the package and its records are 4.3.0's, and the release-facing documents describe 4.2.1. The release commit at M13 dates the heading and moves those documents (W.3 runbook, before step 1). | The plan did not say when the version moves, and M1 is the first milestone to change the public API. Since v4.2.1 the suite held every commit to the release state, so no commit after it could have passed before the version moved. |
 | PC-05 | 2026-11-14 | Delegated authority (TD-12) | WS-03's M2 item 'ml.linalg and ml's splits delegate (GAP-48)' delivers one authority on every path outside ml -- the duplicates documented, kept unchanged, and held off every other module by a regression test -- and GAP-48's deprecation, with the replacements a deprecation must name, moves to M7, GAP-48's own milestone, with WS-08's work on ml's public surface. Removal stays 5.0. | Delegation would change what the duplicates return to their callers. ml's splitters split sample indices and give the last fold the remainder; the research splitters split timestamps with a validation window, purging and no partial fold. ml.linalg's matrix_inverse refuses at an absolute pivot of 1e-12, and common.linalg has no general inverse, nor any matmul, transpose or identity to name as a replacement. ADR-0015 section 9 requires a deprecation to name its replacement and removal release, and the charter forbids a breaking change for convenience; the plan itself holds GAP-48 at M7 in its gap register. |
 | PC-06 | 2026-11-14 | Delegated authority (TD-11) | Plan H.1 names cyclic Jacobi as the symmetric eigensystem's algorithm. common.linalg.symmetric_eigensystem is Householder tridiagonalization and implicit QL (Bowdler, Martin, Reinsch and Wilkinson's tql2) instead; the thin SVD stays one-sided Jacobi as H.1 names it. H.1's validation -- reconstruction bounds, orthogonality, known matrices -- and WS-03's budget are kept. | The two parts of the plan could not both hold: cyclic Jacobi was written first and measured at 147.5 s for a 500 x 500 eigensystem against WS-03's 30 s budget; Householder and implicit QL, equally backward stable with orthonormal vectors, measured 20.7 s. Of an algorithm and a budget, the budget is the acceptance criterion. |
-| PC-07 | 2026-11-15 | Delegated authority (TD-17) | Plan K.1 budgets the capture at 10 percent of the run's time. The series meets it at 1 to 4 percent; with its trace the capture costs 12.6 to 14.4 percent on a strategy that does no work of its own, measured at four trade densities, where digest_run costs 76 to 105 percent. benchmarks/benchmark_capture.py holds the series to 10 percent, and series and trace together to 15. | Unlike PC-06, no design meets the budget. With a trade on every eighth record the trace costs 12.2 percent without the order events and 11.4 percent without the equity points: most of its cost is the work it does every step, after the canonical serialization was made 2.7 times faster, byte for byte. Covering less would make the trace identify less of the history, and still miss the budget. The trace is opt-in, its cost is a fixed amount per step, and so a smaller share of a run whose strategy computes anything (LIM-013). The owner's acceptance of M3 decides whether 15 percent stands. |
+| PC-07 | 2026-11-15 | Owner approved, 2026-11-15 (proposed under delegated authority, TD-17) | Plan K.1 budgets the capture at 10 percent of the run's time; that target stays the plan's record. Approved limits: the return series alone at most 10 percent, and the series with its complete economic-history trace at most 15 percent, measured at several trade densities, sparse and dense. 15 percent is a ceiling, not a target: optimisation continues wherever it costs nothing in correctness or research integrity, and trace coverage, canonical form and reproducibility are never weakened to meet a budget. A combined result above 15 percent is a failed performance gate, brought to the owner for a new decision; the limit is never raised silently. benchmarks/benchmark_capture.py enforces both limits. | Measured on a strategy that does no work of its own, the case where every ratio is largest: the series costs 1 to 4 percent of the run, and series and trace together 12.6 to 14.4 percent at a trade on every record and on every second, fourth and eighth, where digest_run costs 76 to 105 percent. Unlike PC-06, no design met 10 percent. The canonical serialization was made 2.7 times faster, byte for byte. Narrowing the trace would still miss: with a trade on every eighth record it costs 12.2 percent without the order events and 11.4 percent without the equity points, because most of its cost is the work it does every step. Covering less would make the trace identify less of the history. The cost is a fixed amount per step, so it is a smaller share of a run whose strategy computes anything (LIM-013). |
 
 ## Workstreams
 
@@ -495,10 +501,12 @@ Evidence:
 ### WS-04: Streaming research-result capture
 
 - [Hosted CI passed] M3: ADR-0055 accepted (TD-15), and settled at implementation (TD-17)
-- [Pushed] M3: RetentionPolicy.keep_equity: the equity curve kept whole under a results bound, recorded only when true
-- [Pushed] M3: One private step loop for BacktestEngine.run and run_captured; the schedule cursor's one loop, observable
-- [Pushed] M3: run_captured: the extractor (grid, costs, cash flows, currency, insolvency), the record, the trace from the configuration kept whole
-- [Pushed] M3: benchmarks/benchmark_capture.py at four trade densities (PC-07, LIM-013)
+- [Hosted CI passed] M3: RetentionPolicy.keep_equity: the equity curve kept whole under a results bound, recorded only when true
+- [Hosted CI passed] M3: One private step loop for BacktestEngine.run and run_captured; the schedule cursor's one loop, observable
+- [Hosted CI passed] M3: run_captured: the extractor (grid, costs, cash flows, currency, insolvency), the record, the trace from the configuration kept whole
+- [Hosted CI passed] M3: benchmarks/benchmark_capture.py at four trade densities (PC-07, LIM-013)
+- [Local validation passed] M3: The trace's writer made faster after PC-07's approval, output-identical (the pinned identities hold): series and trace 12.1 to 13.3 percent
+- [Local validation passed] M3: Mutation series T (16): the capture, its trace and series, keep_equity, the bridge -- 16 of 16 caught
 
 ### WS-06: Statistical research functions
 
@@ -507,7 +515,7 @@ Evidence:
 - [Hosted CI passed] M2: White's Reality Check and Hansen's SPA
 - [Hosted CI passed] M2: PBO by CSCV, with an exact-enumeration oracle
 - [Hosted CI passed] M2: MinTRL and the autocorrelation-adjusted PSR
-- [Pushed] M3: The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history
+- [Hosted CI passed] M3: The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history
 
 Evidence:
 
@@ -517,9 +525,10 @@ Evidence:
 
 - [Hosted CI passed] M2: Global day counts (N21)
 - [Hosted CI passed] M3: ADR-0059 accepted (TD-16), and settled at implementation (TD-18)
-- [Local validation passed] M3: Dated membership: MembershipChange, HistoricalUniverse (coverage and knowledge bounds), carried by the registry and read through UniverseView.members
-- [Local validation passed] M3: research.bias.membership_review, and GR-5: the point-in-time run clean, the survivorship control named, the bias measured exactly
-- [Local validation passed] M3: data.packs.ReferencePack: source, coverage, licence, typed entries, content digest; universe_from_pack
+- [Hosted CI passed] M3: Dated membership: MembershipChange, HistoricalUniverse (coverage and knowledge bounds), carried by the registry and read through UniverseView.members
+- [Hosted CI passed] M3: research.bias.membership_review, and GR-5: the point-in-time run clean, the survivorship control named, the bias measured exactly
+- [Hosted CI passed] M3: data.packs.ReferencePack: source, coverage, licence, typed entries, content digest; universe_from_pack
+- [Local validation passed] M3: Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught
 
 Evidence:
 
@@ -572,7 +581,7 @@ Evidence:
 
 ## Gaps
 
-45 open, 4 closed, 4 discarded.
+42 open, 7 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -583,8 +592,8 @@ Evidence:
 | GAP-05 | SEC-001 dotted-path resolution | H/P0 | Open | WS-23, WS-05 | M4 |
 | GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open: refused in code and documented; closes when M0 is accepted | WS-23 | M0 |
 | GAP-07 | v4.2.x formats not frozen | H/P0 | Open: acceptance met (REP-3 reads v4.2.1; hosted CI passed on dc61a75); closes when M0 is accepted | WS-01 | M0 |
-| GAP-08 | Return extraction; → retention trims equity | H/P0 | Open (scope = ADR-0055) | WS-04 | M3 |
-| GAP-09 | Selection statistics missing | C/P1 | Delivered at M2 (WS-06, TD-13): TrialMatrix, PBO by CSCV against an exact-enumeration oracle, RC, SPA, MinTRL, the adjusted PSR, the stationary bootstrap. The bridge to captured backtests (lifecycle.selection) is delivered locally at M3, and its 16-variant PBO equals full history's exactly; GAP-09 closes when hosted CI passes it. | WS-06 | M2 (bridge M3) |
+| GAP-08 | Return extraction; → retention trims equity | H/P0 | Closed at M3 (WS-04, ADR-0055, plan K.1): run_captured reads every trial's return series as the run records its equity, whatever it keeps, and keep_equity keeps a bounded run's whole curve; 16-variant PBO from bounded captures equals full history's exactly, on hosted CI (0649893, acf4ce4). | WS-04 | M3 |
+| GAP-09 | Selection statistics missing | C/P1 | Closed at M3 (WS-06, ADR-0054 and ADR-0055): the statistics delivered at M2 against their oracles, and connected to AlphaLab's own backtests through lifecycle.selection, whose 16-variant PBO equals full history's exactly; hosted CI passed on 0649893 and acf4ce4. | WS-06 | M2 (bridge M3) |
 | GAP-10 | No numerical foundation | C/P1 | Closed at M2's hosted exit gate (fe3c80b; WS-03, ADR-0058): distributions, linear algebra, optimisers, quadrature, the Estimate, each against its oracle. | WS-03 | M2 |
 | GAP-11 | No econometrics | H/P1 | Open | WS-07 | M6 |
 | GAP-12 | No model protocol | C/P1 | Open | WS-08 | M7 |
@@ -618,7 +627,7 @@ Evidence:
 | GAP-40 | (candidate) no history accessor | — | Discarded | — | — |
 | GAP-41 | (candidate) no fill or order hooks | — | Discarded | — | — |
 | GAP-42 | (candidate) no multi-currency trading | — | Discarded | — | — |
-| GAP-43 | No PIT universe membership | H/P1 | Delivered locally at M3 (WS-13, ADR-0059, TD-18): dated membership carried by the registry and read as known through the strategy's context, the survivorship review, and the reference-pack format; GR-5 holds exactly. Closes with M3's hosted exit gate. | WS-13 | M3 |
+| GAP-43 | No PIT universe membership | H/P1 | Closed at M3 (WS-13, ADR-0059, TD-18): dated membership carried by the registry and read as known through the strategy's context, the survivorship review and the reference-pack format; GR-5 holds exactly on hosted CI (acf4ce4). | WS-13 | M3 |
 | GAP-44 | Plan + queue mutually exclusive | M/P2 | Open | WS-11 | M8 |
 | GAP-45 | Child fills don't reach `on_fill` | L-M/P2 | Open | WS-10, WS-11 | M8 |
 | GAP-46 | RL environment invents limits | M/P2 | Open | WS-16 | M12 |

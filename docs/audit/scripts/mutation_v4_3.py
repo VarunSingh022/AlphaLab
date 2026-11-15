@@ -46,6 +46,16 @@ M2's series:
 M2's run caught 42 of 42. R04 survived the first run -- the trimming test
 compared PBOs, which coincided -- and is caught by the test added for it, which
 names the trimmed end by the trials selected.
+
+M3's series:
+
+* **T** -- WS-04 and WS-06, ADR-0055: the capture, its trace and its series,
+  ``keep_equity``, and the selection bridge.
+* **U** -- WS-13, ADR-0059: dated membership, what a strategy reads, the
+  survivorship review, and reference packs.
+
+M3's run caught 33 of 33 on the first run, none surviving. The test that caught
+each is recorded in the progress register, in M3's evidence.
 """
 
 from __future__ import annotations
@@ -689,11 +699,268 @@ RETARGETED: dict[str, Any] = {
     ),
 }
 
+_RETENTION = "alphalab/runtime/retention.py"
+_PIPELINE = "alphalab/runtime/execution_pipeline.py"
+_RUN_SNAPSHOT = "alphalab/runtime/snapshot.py"
+_CAPTURE = "alphalab/backtesting/capture.py"
+_ENGINE = "alphalab/backtesting/engine.py"
+_BRIDGE = "alphalab/lifecycle/selection.py"
+_MEMBERSHIP = "alphalab/instrument/membership.py"
+_REGISTRY = "alphalab/instrument/registry.py"
+_INSTRUMENT_SNAPSHOT = "alphalab/instrument/snapshot.py"
+_VIEWS = "alphalab/runtime/context_views.py"
+_BIAS = "alphalab/research/bias.py"
+_PACKS = "alphalab/data/packs.py"
+
+V43_M3: tuple[Any, ...] = (
+    # --- T: capture, its trace, keep_equity, the selection bridge (WS-04, WS-06)
+    Mutation(
+        "T01",
+        "keep_equity is ignored: the equity curve is trimmed with the results",
+        _PIPELINE,
+        "        bound = policy.equity_bound if name == "
+        '"portfolio_snapshots" else policy.results\n',
+        "        bound = policy.results\n",
+    ),
+    Mutation(
+        "T02",
+        "keep_equity is written into every snapshot, false included",
+        _RETENTION,
+        '        if self.keep_equity:\n            stored["keep_equity"] = True\n',
+        '        stored["keep_equity"] = self.keep_equity\n',
+    ),
+    Mutation(
+        "T03",
+        "a stored keep_equity is read back as false",
+        _RUN_SNAPSHOT,
+        '    keep_equity = payload.get("keep_equity", False)\n',
+        "    keep_equity = False\n",
+    ),
+    Mutation(
+        "T04",
+        "keep_equity accepts any value",
+        _RETENTION,
+        "        if not isinstance(self.keep_equity, bool):\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "T05",
+        "the trace starts from the run's own configuration, retention included",
+        _CAPTURE,
+        "            self._trace = _Trace(_sha256(whole))\n",
+        "            self._trace = _Trace(_sha256(configuration))\n",
+    ),
+    Mutation(
+        "T06",
+        "the trace leaves out the order events",
+        _CAPTURE,
+        "            trace.absorb(fills, transactions, order_events)\n",
+        "            trace.absorb(fills, transactions, ())\n",
+    ),
+    Mutation(
+        "T07",
+        "entries retention dropped before they were read are traced as if present",
+        _CAPTURE,
+        "    if added > kept:\n",
+        "    if added > kept + 1_000_000:\n",
+    ),
+    Mutation(
+        "T08",
+        "a return is taken over its end, not its start",
+        _CAPTURE,
+        "            value = float(_ACCOUNTING.divide(change, previous[1]))\n",
+        "            value = float(_ACCOUNTING.divide(change, equity))\n",
+    ),
+    Mutation(
+        "T09",
+        "every point is a grid instant, two at one instant included",
+        _CAPTURE,
+        "        elif latest is not None and timestamp > latest[0]:\n",
+        "        elif latest is not None and timestamp >= latest[0]:\n",
+    ),
+    Mutation(
+        "T10",
+        "a fixed grid instant reads the point before one exactly on it",
+        _CAPTURE,
+        "                while self._next < timestamp:\n",
+        "                while self._next <= timestamp:\n",
+    ),
+    Mutation(
+        "T11",
+        "GROSS adds back nothing",
+        _CAPTURE,
+        "                series.point((point.timestamp, "
+        "point.total_equity + commission, flows, rates))\n",
+        "                series.point((point.timestamp, point.total_equity, flows, rates))\n",
+    ),
+    Mutation(
+        "T12",
+        "EXCLUDED counts a withdrawal as cash coming in",
+        _CAPTURE,
+        "                amount = -event.amount\n",
+        "                amount = event.amount\n",
+    ),
+    Mutation(
+        "T13",
+        "a truncated series does not say where it ended",
+        _CAPTURE,
+        "            self.insolvent_at = instant\n",
+        "            self.insolvent_at = None\n",
+    ),
+    Mutation(
+        "T14",
+        "the record's operation is not observed: its point is read a step late",
+        _ENGINE,
+        "            if observe is not None:\n                observe(state, cursor.rates)\n"
+        "            if result is not None and result.queue is not None:\n",
+        "            if result is not None and result.queue is not None:\n",
+    ),
+    Mutation(
+        "T15",
+        "the bridge compares captures under two extractors",
+        _BRIDGE,
+        "        if record.extractor_id != first.extractor_id:\n",
+        "        if record.extractor_id != first.extractor_id and False:\n",
+    ),
+    Mutation(
+        "T16",
+        "the bridge's columns are not its labels' order",
+        _BRIDGE,
+        "            columns=tuple(record.returns for record in records),\n",
+        "            columns=tuple(record.returns for record in reversed(records)),\n",
+    ),
+    # --- U: dated membership, the survivorship review, reference packs (WS-13)
+    Mutation(
+        "U01",
+        "a change announced after it took effect is accepted",
+        _MEMBERSHIP,
+        "        if self.announced_at > self.effective_at:\n",
+        "        if self.announced_at > self.effective_at + 1e9:\n",
+    ),
+    Mutation(
+        "U02",
+        "membership reads changes before they were announced",
+        _MEMBERSHIP,
+        "            if change.announced_at <= as_of:\n",
+        "            if True:\n",
+    ),
+    Mutation(
+        "U03",
+        "an asset is added while already a member",
+        _MEMBERSHIP,
+        "            if change.kind is MembershipKind.ADDITION and held:\n",
+        "            if change.kind is MembershipKind.ADDITION and held and False:\n",
+    ),
+    Mutation(
+        "U04",
+        "an asset changes membership twice at one instant",
+        _MEMBERSHIP,
+        "            if last.get(asset) == change.effective_at:\n",
+        "            if last.get(asset) == change.effective_at and False:\n",
+    ),
+    Mutation(
+        "U05",
+        "a bounded universe answers outside its coverage",
+        _MEMBERSHIP,
+        "        if self.coverage is not None and not self.coverage[0] <= at < self.coverage[1]:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "U06",
+        "a bounded universe answers as known after its horizon",
+        _MEMBERSHIP,
+        "        if self.known_until is not None and as_of > self.known_until:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "U07",
+        "a pack's universe loses the pack's bounds",
+        _MEMBERSHIP,
+        "        name, changes, coverage=(pack.valid_from, "
+        "pack.valid_to), known_until=pack.as_of\n",
+        "        name, changes\n",
+    ),
+    Mutation(
+        "U08",
+        "a registry without universes writes an empty universes field",
+        _INSTRUMENT_SNAPSHOT,
+        '        if not self.universes:\n            del stored["universes"]\n',
+        "",
+    ),
+    Mutation(
+        "U09",
+        "a universe naming an unregistered asset is registered",
+        _REGISTRY,
+        "    if unknown:\n",
+        "    if unknown and False:\n",
+    ),
+    Mutation(
+        "U10",
+        "a strategy reads membership as known at the instant it asks about",
+        _VIEWS,
+        "        return history.members(at, as_of=self._as_of)\n",
+        "        return history.members(at, as_of=at)\n",
+    ),
+    Mutation(
+        "U11",
+        "a missing universe is not refused",
+        _VIEWS,
+        "        if history is None:\n",
+        "        if history is None and False:\n",
+    ),
+    Mutation(
+        "U12",
+        "the review never names a trade before its announcement",
+        _BIAS,
+        "        unannounced = later is not None and later.announced_at > fill.filled_at\n",
+        "        unannounced = False\n",
+    ),
+    Mutation(
+        "U13",
+        "the review reports trades in members",
+        _BIAS,
+        "        if taken and changes[taken - 1].kind is "
+        "MembershipKind.ADDITION:\n            continue\n",
+        "        if taken and changes[taken - 1].kind is "
+        "MembershipKind.ADDITION:\n            pass\n",
+    ),
+    Mutation(
+        "U14",
+        "a pack's stated digest is not checked",
+        _PACKS,
+        "        if computed != self.digest:\n",
+        "        if computed != self.digest and False:\n",
+    ),
+    Mutation(
+        "U15",
+        "a pack's digest depends on its entries' order",
+        _PACKS,
+        "    return tuple(sorted((_entry(value, index) for index, "
+        "value in enumerate(entries)), key=_order))\n",
+        "    return tuple(_entry(value, index) for index, value in enumerate(entries))\n",
+    ),
+    Mutation(
+        "U16",
+        "a pack holds an entry announced after it was taken",
+        _PACKS,
+        '            if entry["announced_at"] > self.as_of:\n',
+        '            if entry["announced_at"] > self.as_of + 1e9:\n',
+    ),
+    Mutation(
+        "U17",
+        "a pack answers a missing universe as empty",
+        _PACKS,
+        "        if not held:\n",
+        "        if False:\n",
+    ),
+)
+
 MUTATIONS: tuple[Any, ...] = (
     tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS)
     + V43_M0
     + V43_M1
     + V43_M2
+    + V43_M3
 )
 
 

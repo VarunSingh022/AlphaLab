@@ -730,6 +730,9 @@ def _write(value: Any) -> str:
     kind = type(value)
     if kind is str:
         return _quote(value)
+    if kind is Decimal:
+        # The encoder writes a Decimal as its exact text, quoted.
+        return _quote(str(value))
     if kind is float:
         return _float(value)
     if kind is int:
@@ -828,6 +831,18 @@ def _key(key: Any) -> str:
     raise TypeError(f"keys must be str, int, float, bool or None, not {type(key).__name__}")
 
 
+#: Each entry type's opening, ``["TypeName",``, written once per type.
+_PREFIXES: dict[type, str] = {}
+
+
+def _named(entry: Any) -> str:
+    kind = type(entry)
+    prefix = _PREFIXES.get(kind)
+    if prefix is None:
+        prefix = _PREFIXES[kind] = "[" + _quote(kind.__name__) + ","
+    return prefix
+
+
 def _payload(logs: Sequence[Sequence[Any]]) -> str:
     """One step's entries, each named by its type, as ``serialize`` writes them."""
 
@@ -836,14 +851,7 @@ def _payload(logs: Sequence[Sequence[Any]]) -> str:
             "["
             + ",".join(
                 [
-                    "["
-                    + ",".join(
-                        [
-                            "[" + _quote(type(entry).__name__) + "," + _write(entry) + "]"
-                            for entry in log
-                        ]
-                    )
-                    + "]"
+                    "[" + ",".join([_named(entry) + _write(entry) + "]" for entry in log]) + "]"
                     if log
                     else "[]"
                     for log in logs
