@@ -600,6 +600,19 @@
       "compatibility": "Additive. A full-sample experiment's records and pinned identities are ADR-0072's; the new record fields are written only when present; the ValidationMethod member is appended.",
       "record": "docs/ADR/0073-validation-over-backtests.md.",
       "tests": "M5's: the leak mutants (purge boundary, embargo off, warm-up scored, lockbox reused) and S-13."
+    },
+    {
+      "id": "TD-27",
+      "date": "2026-11-15",
+      "workstream": "WS-06",
+      "title": "The experiment assessment: each design's family, N, and members without a dispersion",
+      "problem": "ADR-0073 section 7 names trial_matrix_of(ledger, record), and the deflated Sharpe ratio with N the ledger's count of completed trials. But a record holds identities only, and a designed experiment's completed trials are the same candidates in every fold. Two of the statistics also divide by a member's dispersion. A candidate that never trades has none, and neither has a candidate measured against its own returns. Research refuses both: per_period_sharpe refuses returns without dispersion, and superior_predictive_ability refuses a model whose bootstrap deviation is zero. In the walk-forward reference experiment, the squeeze candidate's one trade precedes every window, so SPA against cash refused the whole assessment.",
+      "alternatives": "(a) Let the refusal stand. Then a search holding a candidate that never trades, measured against cash, has no assessment, and nor does one measured against a candidate's own returns, the benchmark section 7 names. (b) Give such a member a value: a Sharpe ratio or a studentized mean of 0 or of an infinity. Research defines these as undefined, not zero or infinite. Nor is the limit unique: a near-constant member's standardized bootstrap term stays of order one. (c) Make research's SPA accept a zero deviation. That changes ADR-0054's statistic and a refusal its tests pin. (d) Leave such a member out of each statistic that divides by its dispersion, name it, and report no statistic when fewer than two members remain.",
+      "decision": "(d). trial_matrix_of(spec, ledger, record, path=...) reads the family of at least two candidates. A full-sample experiment's family is its completed trials. A walk-forward or cross-validated experiment's is its fold series, joined when the windows tile the sample. A CPCV experiment's is one path, which the caller names. N is the family's members with a Sharpe ratio. The deflation leaves the flat members out; it is None if the selection is flat or fewer than two members remain. SPA tests the members whose relative performance varies and names the constant ones; it is None if fewer than two vary. The Reality Check takes the whole family. The assessment's identity covers the members each statistic left out.",
+      "rationale": "A statistic that refuses a member is right about it. The assessment keeps research's definitions rather than overriding them: what it cannot measure, it names. A constant relative performance is its own verdict -- the member beats the benchmark by its constant in every period, or by nothing -- so it needs no test. SPA's p-values remain those of the members it can studentize. A designed experiment's folds are the same candidates again, not further independent trials.",
+      "compatibility": "Additive: a new module, alphalab.lifecycle.assessment, and four exports. Research's statistics are unchanged, and nothing recorded before moves.",
+      "record": "docs/ADR/0073-validation-over-backtests.md, settled 11-14.",
+      "tests": "tests/integration/test_experiment_assessment.py (15): each design's family equals the ledger's series, joined. Every statistic equals research's own called by hand over the family, SPA's over the members left in. M3's bridge over the same trials, run again, gives the same PBO. Each refusal is held: another experiment's record, a path where none belongs or none named, a path out of range, windows that gap or overlap, fewer than two candidates, and a benchmark of the wrong length or not finite. The identity is pinned for three designs, and each choice moves it. tests/unit/lifecycle/test_assessment_members.py (5): the members left out, and the cases with no statistic."
     }
   ],
   "plan_changes": [
@@ -1276,10 +1289,16 @@
           "milestone": "M3",
           "item": "The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history",
           "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M5",
+          "item": "The statistics over a ledgered experiment: trial_matrix_of and assess_experiment -- PBO, the deflated Sharpe ratio, the Reality Check and SPA over each design's family, members without a dispersion left out and named (TD-27, ADR-0073 settled 11-14)",
+          "status": "Local validation passed"
         }
       ],
       "evidence": [
-        "research.selection (TrialMatrix, probability_of_backtest_overfitting, minimum_track_record_length, autocorrelation_adjusted_probabilistic_sharpe_ratio), research.data_snooping (reality_check, superior_predictive_ability) and research.perturbation.stationary_bootstrap_indices, pure over common. tests/unit/research/test_selection_statistics.py (50) and test_data_snooping.py (30): PBO equal to an exact-enumeration oracle (every split, means and Sharpe ratios compared in Fraction over integer data) for both measures and four shapes, trimming from either end held to the oracle on the trimmed data, a dominant trial at 0, identical trials at 1 (the lambda <= 0 convention); the Reality Check equal to its exact recomputation from the same positions; SPA's p_lower <= p_consistent <= p_upper over six seeds, and a hopeless model leaving p_lower and p_consistent unchanged while p_upper rises (Hansen's point); MinTRL's identity PSR = 1 - alpha at MinTRL observations; the adjusted PSR equal to the independent one at no lags and moving the standard error the way AR(1) dependence must; the bootstrap's continuation rate, uniform starts at q = 1, replication independence and its first draw recomputed from the stated scheme; pins identical under CPython 3.12.4, 3.13.18 and 3.14.10. Found while testing: comparing means after a division by the block length let rounding break exact ties the oracle kept; the mean is now compared by its exactly rounded sum."
+        "research.selection (TrialMatrix, probability_of_backtest_overfitting, minimum_track_record_length, autocorrelation_adjusted_probabilistic_sharpe_ratio), research.data_snooping (reality_check, superior_predictive_ability) and research.perturbation.stationary_bootstrap_indices, pure over common. tests/unit/research/test_selection_statistics.py (50) and test_data_snooping.py (30): PBO equal to an exact-enumeration oracle (every split, means and Sharpe ratios compared in Fraction over integer data) for both measures and four shapes, trimming from either end held to the oracle on the trimmed data, a dominant trial at 0, identical trials at 1 (the lambda <= 0 convention); the Reality Check equal to its exact recomputation from the same positions; SPA's p_lower <= p_consistent <= p_upper over six seeds, and a hopeless model leaving p_lower and p_consistent unchanged while p_upper rises (Hansen's point); MinTRL's identity PSR = 1 - alpha at MinTRL observations; the adjusted PSR equal to the independent one at no lags and moving the standard error the way AR(1) dependence must; the bootstrap's continuation rate, uniform starts at q = 1, replication independence and its first draw recomputed from the stated scheme; pins identical under CPython 3.12.4, 3.13.18 and 3.14.10. Found while testing: comparing means after a division by the block length let rounding break exact ties the oracle kept; the mean is now compared by its exactly rounded sum.",
+        "lifecycle.assessment (M5): trial_matrix_of reads an experiment's family from the ledger, and assess_experiment returns PBO, the deflated Sharpe ratio, the Reality Check and SPA over it, with the family count. tests/integration/test_experiment_assessment.py (15) and tests/unit/lifecycle/test_assessment_members.py (5). Each statistic equals research's own called by hand. A full-sample family's identity is the record's matrix_id (3d8b86b2...). The walk-forward reference experiment's squeeze candidate never trades in a window: it is left out of the deflation and of SPA against cash, and named in both. The reference assessments' identities are identical under CPython 3.12.4, 3.13.18 and 3.14.10, and so are their exact PBO, Reality Check and SPA fractions."
       ]
     },
     {
@@ -1567,12 +1586,12 @@
         {
           "milestone": "M5",
           "item": "Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M5",
           "item": "CV and CPCV over backtests: every candidate on every fold or test group, CPCV's paths joined per candidate, the experiment's selection by the mean score over every fold or path (ADR-0073 settled 10)",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -2480,7 +2499,7 @@
   },
   "state": {
     "updated": "2026-11-15",
-    "remote_head": "f55e4a5",
+    "remote_head": "cc52b7c",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2836,10 +2855,34 @@
         "workflow": "CodeQL",
         "run": 43713433204,
         "result": "success"
+      },
+      {
+        "sha": "f55e4a5",
+        "workflow": "Continuous Integration",
+        "run": 43714601853,
+        "result": "success: all six quality-gate cells, carrying walk-forward over backtests"
+      },
+      {
+        "sha": "f55e4a5",
+        "workflow": "CodeQL",
+        "run": 43714601851,
+        "result": "success"
+      },
+      {
+        "sha": "cc52b7c",
+        "workflow": "Continuous Integration",
+        "run": 43715428639,
+        "result": "success: all six quality-gate cells, carrying cross-validation and CPCV over backtests"
+      },
+      {
+        "sha": "cc52b7c",
+        "workflow": "CodeQL",
+        "run": 43715428550,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M5b: walk-forward over backtests -- runs restricted to a trial's window, the warm-up never scored, the ledger's selection recorded, REPORT trials after it, resume; then CV and CPCV, the ledger's statistics, the promotion method, S-13 and the leak mutants.",
+    "next": "M5e: promotion's selection-aware evidence -- ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, evaluate_policy refusing EXPERIMENT evidence without it; then S-13, the leak mutants, WS-06's PBO benchmark and the guides, M5's mutation series and close.",
     "open_questions": []
   },
   "log": [
@@ -3046,6 +3089,10 @@
     {
       "date": "2026-11-15",
       "entry": "M4 closed on hosted CI: its close (0d3c98c) passed all six cells and CodeQL, as did ADR-0073 (eef7556), M5's entry condition. M5's first part, the validation designs with research's CPCV splitter and a trial's window (d2e4359), passed the full gate (13,401 tests) and was pushed."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "M5b, walk-forward over backtests (f55e4a5), passed the full gate (13,408 tests). M5b and M5c, cross-validation and CPCV over backtests (cc52b7c), passed all six hosted cells and CodeQL; Release Preflight skipped, as on every pull-request push. M5d, the statistics over a ledgered experiment (TD-27), validated locally. Its walk-forward probe found that SPA refuses a candidate that never trades, measured against cash. The assessment now leaves such a member out of each statistic that divides by its dispersion, and names it."
     }
   ]
 }

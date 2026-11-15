@@ -200,6 +200,12 @@ when either changes, and no fingerprint key moved. It reads both through
 structural protocols and imports neither package (ADR-0043).
 """
 
+from alphalab.lifecycle.assessment import (
+    ASSESSMENT_SCHEME,
+    ExperimentAssessment,
+    assess_experiment,
+    trial_matrix_of,
+)
 from alphalab.lifecycle.certification import (
     CERTIFICATION_REPORT_SCHEME,
     CertificationEvidence,
@@ -534,6 +540,7 @@ from alphalab.lifecycle.views import (
 
 __all__ = [
     "ADAPTIVE_SETTING_PREFIX",
+    "ASSESSMENT_SCHEME",
     "BROKER_STATUS_EQUIVALENTS",
     "CAPITAL_SETTING_PREFIX",
     "CERTIFICATION_REPORT_SCHEME",
@@ -612,6 +619,7 @@ __all__ = [
     "EnvironmentPortability",
     "ExecutionAlgorithmIdentity",
     "ExecutionObservation",
+    "ExperimentAssessment",
     "ExperimentDefinition",
     "ExperimentError",
     "ExperimentRecord",
@@ -724,6 +732,7 @@ __all__ = [
     "archive_progression",
     "assess_adaptive_replay",
     "assess_captures",
+    "assess_experiment",
     "assess_reproducibility",
     "authorize_run",
     "begin_progression",
@@ -814,6 +823,7 @@ __all__ = [
     "strategy_names",
     "tracked_runs",
     "trial_matrix_from_captures",
+    "trial_matrix_of",
     "tz_database_version",
     "unmet_broker_requirements",
     "unmet_market_requirements",

@@ -161,7 +161,9 @@ Building M5 settled these points, each held by a test
 (`tests/unit/lifecycle/test_validation_designs.py`,
 `tests/unit/research/test_combinatorial_cv.py`,
 `tests/integration/test_walk_forward_over_backtests.py`,
-`tests/integration/test_cv_and_cpcv_over_backtests.py`).
+`tests/integration/test_cv_and_cpcv_over_backtests.py`,
+`tests/integration/test_experiment_assessment.py`,
+`tests/unit/lifecycle/test_assessment_members.py`).
 
 1. **A dataset's identity carries its instants.** `DatasetIdentity` gains
    `instants`, its records' distinct timestamps in order: what a design splits.
@@ -212,6 +214,53 @@ Building M5 settled these points, each held by a test
       whole sample. A path a trial left incomplete is `None`.
     * **The scores.** Fold and path scores use the design's measure, as the
       walk-forward selection does.
+11. **The statistics read an experiment's family.** A record holds
+    identities only, so `trial_matrix_of(spec, ledger, record, path=...)`
+    takes the experiment's specification too. The family is one column per
+    candidate that completed everywhere it was scored, and at least two:
+    * **A full-sample experiment:** its completed trials. Its identity is the
+      record's `matrix_id`.
+    * **A walk-forward or cross-validated experiment:** each candidate's
+      `SELECT` or `VALIDATE` series, joined over the folds. Windows that leave
+      gaps or overlap join into no one history, and are refused.
+    * **A CPCV experiment:** each candidate's series on one path, which the
+      caller names.
+    The assessment's `selected` is the family's best by the measure the
+    assessment states, ties to the first: the candidate the deflated Sharpe
+    ratio deflates.
+12. **`N` is the family's members with a Sharpe ratio.** Section 7's "count of
+    completed trials" is the family's columns for a full-sample experiment. A
+    designed experiment's folds are the same candidates' trials again, not
+    further independent ones, so `N` is the family's columns there too. A
+    member whose returns have no dispersion has no Sharpe ratio: research's
+    `per_period_sharpe` refuses it. It is left out of the trial Sharpe ratios
+    and of `N` (`flat`). The family count, every trial the ledger recorded,
+    stands beside it (`family`) for section 8.
+13. **A statistic never invents a member's dispersion.** Two statistics
+    divide by a member's dispersion, and a member can lack one: a candidate
+    that never trades has none, and a benchmark that is a candidate's own
+    returns leaves that candidate none relative to it.
+    * **The deflated Sharpe ratio** leaves the `flat` members out. It is
+      `None` if the selection is one, or fewer than two members remain.
+    * **SPA** studentizes each mean by its bootstrap deviation. It tests the
+      members whose relative performance varies and names the rest
+      (`constant`). Each of those has its constant as its verdict: it beats the
+      benchmark by that much in every period, or by nothing. SPA is `None` if
+      fewer than two members vary, research's least matrix.
+    * **The Reality Check** divides by nothing and takes the whole family.
+    Rejecting the assessment instead would refuse every search that holds a
+    candidate that never trades, measured against cash. It would also refuse
+    the benchmark section 7 names: a candidate's own returns.
+14. **The assessment's identity.** It is digested under
+    `alphalab.experiment_assessment.v1`, over:
+    * the record, the path, the family matrix and the benchmark;
+    * every choice: the blocks, measure, trim, replications, block length and
+      seed;
+    * the selection, the exact results (PBO's fraction and the Reality Check's
+      and SPA's p-values) and the members each statistic left out.
+    The deflated Sharpe ratio is libm-bound and enters no identity (ADR-0058).
+    The reference assessments' identities are pinned, and CPython 3.12, 3.13
+    and 3.14 agree on them.
 
 # Compatibility
 

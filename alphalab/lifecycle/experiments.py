@@ -115,7 +115,7 @@ from alphalab.lifecycle.reproducibility import digest_run
 from alphalab.lifecycle.selection import trial_matrix_from_captures
 from alphalab.model_registry.evidence import EvidenceStore
 from alphalab.persistence.serializer import serialize
-from alphalab.research.selection import SelectionMeasure
+from alphalab.research.selection import SelectionMeasure, TrialMatrix
 from alphalab.research.walk_forward_optimization import ParameterSpace, _render, _seed
 from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
 from alphalab.runtime.execution_pipeline import ContextFactory
@@ -1538,10 +1538,9 @@ class ExperimentRecord:
         return _digest_text(payload)
 
 
-def _matrix_id(captures: Sequence[CaptureRecord], labels: Sequence[str]) -> str | None:
-    if len(captures) < 2:
-        return None
-    matrix = trial_matrix_from_captures(captures, labels=labels)
+def _matrix_identity(matrix: TrialMatrix) -> str:
+    """A trial matrix's identity, under :data:`TRIAL_MATRIX_SCHEME`."""
+
     return _digest_text(
         {
             "columns": [list(column) for column in matrix.columns],
@@ -1551,6 +1550,12 @@ def _matrix_id(captures: Sequence[CaptureRecord], labels: Sequence[str]) -> str 
             "scheme": TRIAL_MATRIX_SCHEME,
         }
     )
+
+
+def _matrix_id(captures: Sequence[CaptureRecord], labels: Sequence[str]) -> str | None:
+    if len(captures) < 2:
+        return None
+    return _matrix_identity(trial_matrix_from_captures(captures, labels=labels))
 
 
 def run_experiment(
@@ -1700,8 +1705,14 @@ def _fold_scores(
     return scores
 
 
-def _join(ledger: TrialLedger, series_ids: Sequence[str | None], extractor_id: str) -> str | None:
-    """Series joined at the instants where one ends and the next begins, filed; else ``None``."""
+def _joined(
+    ledger: TrialLedger, series_ids: Sequence[str | None], extractor_id: str
+) -> CaptureRecord | None:
+    """Series joined at the instants where one ends and the next begins; else ``None``.
+
+    ``None`` too when any series is missing, or one does not begin where the
+    one before it ended: windows that do not tile have no one history.
+    """
 
     instants: list[float] = []
     returns: list[float] = []
@@ -1713,21 +1724,27 @@ def _join(ledger: TrialLedger, series_ids: Sequence[str | None], extractor_id: s
             return None
         instants.extend(held_instants if not instants else held_instants[1:])
         returns.extend(held_returns)
-    joined_id = _sha256(canonical_captured_series_key(instants, returns, None))
-    ledger.keep_series(
-        CaptureRecord(
-            extractor_id=extractor_id,
-            instants=tuple(instants),
-            returns=tuple(returns),
-            series_id=joined_id,
-            insolvent_at=None,
-            steps=0,
-            configuration_id=None,
-            trace_id=None,
-            traced=None,
-        )
+    return CaptureRecord(
+        extractor_id=extractor_id,
+        instants=tuple(instants),
+        returns=tuple(returns),
+        series_id=_sha256(canonical_captured_series_key(instants, returns, None)),
+        insolvent_at=None,
+        steps=0,
+        configuration_id=None,
+        trace_id=None,
+        traced=None,
     )
-    return joined_id
+
+
+def _join(ledger: TrialLedger, series_ids: Sequence[str | None], extractor_id: str) -> str | None:
+    """Series joined as :func:`_joined` joins them, filed in the ledger; their identity."""
+
+    joined = _joined(ledger, series_ids, extractor_id)
+    if joined is None:
+        return None
+    ledger.keep_series(joined)
+    return joined.series_id
 
 
 def _paths(

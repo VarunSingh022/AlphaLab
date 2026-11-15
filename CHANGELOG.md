@@ -551,6 +551,30 @@ entry below says otherwise.
     its test groups' series joined, each a history of the whole sample. A
     spawned CPCV experiment equals the sequential one
     (`tests/integration/test_cv_and_cpcv_over_backtests.py`).
+* **The statistics over a ledgered experiment** [plan WS-06, K.3, ADR-0073
+  section 7]. `alphalab.lifecycle.assessment` reads ADR-0054's statistics from
+  the ledger.
+  * **The family.** `trial_matrix_of(spec, ledger, record, path=...)` gives one
+    column per candidate that completed everywhere it was scored:
+    * a full-sample experiment's completed trials, whose identity is the
+      record's `matrix_id`;
+    * a walk-forward or cross-validated experiment's fold series, joined when
+      the windows tile the sample;
+    * one CPCV path, which the caller names.
+  * **The statistics.** `assess_experiment` returns an `ExperimentAssessment`
+    holding PBO, the deflated Sharpe ratio of the family's best, and White's
+    Reality Check and Hansen's SPA against a declared benchmark. Every choice
+    each statistic takes is required. The family count, every trial recorded,
+    stands beside them.
+  * **Members without a dispersion.** A member with no dispersion is left out
+    of the deflation's trial Sharpe ratios and of `N`, and named (`flat`). A
+    member whose performance relative to the benchmark is constant is left
+    out of SPA, and named (`constant`). Research refuses both; nothing invents
+    a value for them.
+  * **The identity.** `assessment_id` digests the record, every choice, the
+    exact results and the members left out, under
+    `alphalab.experiment_assessment.v1`. It is pinned, and CPython 3.12, 3.13
+    and 3.14 agree on it (`tests/integration/test_experiment_assessment.py`).
 
 ## Changed
 

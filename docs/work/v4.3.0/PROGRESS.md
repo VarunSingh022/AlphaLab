@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `f55e4a5` |
+| Remote head | `cc52b7c` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M5b: walk-forward over backtests -- runs restricted to a trial's window, the warm-up never scored, the ledger's selection recorded, REPORT trials after it, resume; then CV and CPCV, the ledger's statistics, the promotion method, S-13 and the leak mutants. |
+| Next | M5e: promotion's selection-aware evidence -- ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, evaluate_policy refusing EXPERIMENT evidence without it; then S-13, the leak mutants, WS-06's PBO benchmark and the guides, M5's mutation series and close. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -111,6 +111,10 @@ Never:
 | `eef7556` | CodeQL | 43712078208 | success |
 | `d2e4359` | Continuous Integration | 43713433219 | success: all six quality-gate cells, carrying M5's validation designs and research's CPCV splitter |
 | `d2e4359` | CodeQL | 43713433204 | success |
+| `f55e4a5` | Continuous Integration | 43714601853 | success: all six quality-gate cells, carrying walk-forward over backtests |
+| `f55e4a5` | CodeQL | 43714601851 | success |
+| `cc52b7c` | Continuous Integration | 43715428639 | success: all six quality-gate cells, carrying cross-validation and CPCV over backtests |
+| `cc52b7c` | CodeQL | 43715428550 | success |
 
 ## Continuation log
 
@@ -165,6 +169,7 @@ Never:
 - **2026-11-15** f82480c (reusable workers, example 80, the executor benchmark) passed hosted CI on all six cells. M4's close (0d3c98c: the mutation series EX, 40 of 40 caught on the final tree, and the tests it asked for) passed the full gate and was pushed; Draft PR #22 updated.
 - **2026-11-15** ADR-0073 accepted (TD-26): validation over backtests -- designs in the specification, research's splitters (CPCV among them), a trial per candidate, fold and phase over a window the ledger restricts, a warm-up never scored, selections recorded, the ledger's statistics and selection-aware promotion evidence. M5's entry conditions are M2 and M4, M4's close on hosted CI.
 - **2026-11-15** M4 closed on hosted CI: its close (0d3c98c) passed all six cells and CodeQL, as did ADR-0073 (eef7556), M5's entry condition. M5's first part, the validation designs with research's CPCV splitter and a trial's window (d2e4359), passed the full gate (13,401 tests) and was pushed.
+- **2026-11-15** M5b, walk-forward over backtests (f55e4a5), passed the full gate (13,408 tests). M5b and M5c, cross-validation and CPCV over backtests (cc52b7c), passed all six hosted cells and CodeQL; Release Preflight skipped, as on every pull-request push. M5d, the statistics over a ledgered experiment (TD-27), validated locally. Its walk-forward probe found that SPA refuses a candidate that never trades, measured against cash. The assessment now leaves such a member out of each statistic that divides by its dispersion, and names it.
 
 ## Milestones
 
@@ -491,6 +496,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0073-validation-over-backtests.md.
 - **Tests:** M5's: the leak mutants (purge boundary, embargo off, warm-up scored, lockbox reused) and S-13.
 
+### TD-27: The experiment assessment: each design's family, N, and members without a dispersion (WS-06, 2026-11-15)
+
+- **Problem:** ADR-0073 section 7 names trial_matrix_of(ledger, record), and the deflated Sharpe ratio with N the ledger's count of completed trials. But a record holds identities only, and a designed experiment's completed trials are the same candidates in every fold. Two of the statistics also divide by a member's dispersion. A candidate that never trades has none, and neither has a candidate measured against its own returns. Research refuses both: per_period_sharpe refuses returns without dispersion, and superior_predictive_ability refuses a model whose bootstrap deviation is zero. In the walk-forward reference experiment, the squeeze candidate's one trade precedes every window, so SPA against cash refused the whole assessment.
+- **Alternatives:** (a) Let the refusal stand. Then a search holding a candidate that never trades, measured against cash, has no assessment, and nor does one measured against a candidate's own returns, the benchmark section 7 names. (b) Give such a member a value: a Sharpe ratio or a studentized mean of 0 or of an infinity. Research defines these as undefined, not zero or infinite. Nor is the limit unique: a near-constant member's standardized bootstrap term stays of order one. (c) Make research's SPA accept a zero deviation. That changes ADR-0054's statistic and a refusal its tests pin. (d) Leave such a member out of each statistic that divides by its dispersion, name it, and report no statistic when fewer than two members remain.
+- **Decision:** (d). trial_matrix_of(spec, ledger, record, path=...) reads the family of at least two candidates. A full-sample experiment's family is its completed trials. A walk-forward or cross-validated experiment's is its fold series, joined when the windows tile the sample. A CPCV experiment's is one path, which the caller names. N is the family's members with a Sharpe ratio. The deflation leaves the flat members out; it is None if the selection is flat or fewer than two members remain. SPA tests the members whose relative performance varies and names the constant ones; it is None if fewer than two vary. The Reality Check takes the whole family. The assessment's identity covers the members each statistic left out.
+- **Rationale:** A statistic that refuses a member is right about it. The assessment keeps research's definitions rather than overriding them: what it cannot measure, it names. A constant relative performance is its own verdict -- the member beats the benchmark by its constant in every period, or by nothing -- so it needs no test. SPA's p-values remain those of the members it can studentize. A designed experiment's folds are the same candidates again, not further independent trials.
+- **Compatibility:** Additive: a new module, alphalab.lifecycle.assessment, and four exports. Research's statistics are unchanged, and nothing recorded before moves.
+- **Recorded in:** docs/ADR/0073-validation-over-backtests.md, settled 11-14.
+- **Tests:** tests/integration/test_experiment_assessment.py (15): each design's family equals the ledger's series, joined. Every statistic equals research's own called by hand over the family, SPA's over the members left in. M3's bridge over the same trials, run again, gives the same PBO. Each refusal is held: another experiment's record, a path where none belongs or none named, a path out of range, windows that gap or overlap, fewer than two candidates, and a benchmark of the wrong length or not finite. The identity is pinned for three designs, and each choice moves it. tests/unit/lifecycle/test_assessment_members.py (5): the members left out, and the cases with no statistic.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -646,10 +661,12 @@ Evidence:
 - [Hosted CI passed] M2: PBO by CSCV, with an exact-enumeration oracle
 - [Hosted CI passed] M2: MinTRL and the autocorrelation-adjusted PSR
 - [Hosted CI passed] M3: The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history
+- [Local validation passed] M5: The statistics over a ledgered experiment: trial_matrix_of and assess_experiment -- PBO, the deflated Sharpe ratio, the Reality Check and SPA over each design's family, members without a dispersion left out and named (TD-27, ADR-0073 settled 11-14)
 
 Evidence:
 
 - research.selection (TrialMatrix, probability_of_backtest_overfitting, minimum_track_record_length, autocorrelation_adjusted_probabilistic_sharpe_ratio), research.data_snooping (reality_check, superior_predictive_ability) and research.perturbation.stationary_bootstrap_indices, pure over common. tests/unit/research/test_selection_statistics.py (50) and test_data_snooping.py (30): PBO equal to an exact-enumeration oracle (every split, means and Sharpe ratios compared in Fraction over integer data) for both measures and four shapes, trimming from either end held to the oracle on the trimmed data, a dominant trial at 0, identical trials at 1 (the lambda <= 0 convention); the Reality Check equal to its exact recomputation from the same positions; SPA's p_lower <= p_consistent <= p_upper over six seeds, and a hopeless model leaving p_lower and p_consistent unchanged while p_upper rises (Hansen's point); MinTRL's identity PSR = 1 - alpha at MinTRL observations; the adjusted PSR equal to the independent one at no lags and moving the standard error the way AR(1) dependence must; the bootstrap's continuation rate, uniform starts at q = 1, replication independence and its first draw recomputed from the stated scheme; pins identical under CPython 3.12.4, 3.13.18 and 3.14.10. Found while testing: comparing means after a division by the block length let rounding break exact ties the oracle kept; the mean is now compared by its exactly rounded sum.
+- lifecycle.assessment (M5): trial_matrix_of reads an experiment's family from the ledger, and assess_experiment returns PBO, the deflated Sharpe ratio, the Reality Check and SPA over it, with the family count. tests/integration/test_experiment_assessment.py (15) and tests/unit/lifecycle/test_assessment_members.py (5). Each statistic equals research's own called by hand. A full-sample family's identity is the record's matrix_id (3d8b86b2...). The walk-forward reference experiment's squeeze candidate never trades in a window: it is left out of the deflation and of SPA against cash, and named in both. The reference assessments' identities are identical under CPython 3.12.4, 3.13.18 and 3.14.10, and so are their exact PBO, Reality Check and SPA fractions.
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -706,8 +723,8 @@ Evidence:
 
 - [Hosted CI passed] M5: ADR-0073 accepted (TD-26): validation over backtests, M5's entry condition
 - [Hosted CI passed] M5: Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)
-- [Pushed] M5: Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)
-- [Local validation passed] M5: CV and CPCV over backtests: every candidate on every fold or test group, CPCV's paths joined per candidate, the experiment's selection by the mean score over every fold or path (ADR-0073 settled 10)
+- [Hosted CI passed] M5: Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)
+- [Hosted CI passed] M5: CV and CPCV over backtests: every candidate on every fold or test group, CPCV's paths joined per candidate, the experiment's selection by the mean score over every fold or path (ADR-0073 settled 10)
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
