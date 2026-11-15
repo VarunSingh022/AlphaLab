@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `acf4ce4b8e14a0b6e2b82091e0e923df41bcbb86` |
+| Remote head | `a7f867f6127e196ccd18598ba417d8f5b96a9a6f` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M3's close on hosted CI; then ADR-0072 (the plan's 0054B), M4's entry condition, and M4 (WS-05 ledger and executors, WS-23 runner registry and worker isolation, WS-19). |
@@ -132,6 +132,7 @@ Never:
 - **2026-11-15** Capture commit 0649893 passed the full local gate and was pushed. WS-13's M3 part implemented and locally validated: dated membership through the registry and the strategy's context, membership_review, and ReferencePack; GR-5 holds exactly. TD-18 settles ADR-0059 at implementation: a pack's format in data and its meaning in instrument, because the data package may not reach the execution path.
 - **2026-11-15** The owner approved PC-07: the return series at most 10 percent of the run, series and trace at most 15, a ceiling and not a target; a combined result above 15 percent is a failed gate brought to the owner, and trace coverage is never weakened to meet a budget. The plan's 10 percent target stays recorded with the measurements behind the change.
 - **2026-11-15** M3's exit gate met locally and its code commits on hosted CI: 16-variant PBO from captures equals full history's, GR-5 holds exactly, and the capture is within PC-07's approved limits (series 1.3 to 3.5 percent, series and trace 12.1 to 13.3). Mutation series T and U caught 33 of 33 on the first run. GAP-08, GAP-09 and GAP-43 closed.
+- **2026-11-15** ADR-0072 accepted (TD-19): experiments and the trial ledger, M4's entry condition, from the plan's K.3 and O; BDY-029 records the worker isolation boundary. M4's entry conditions (M1, M3, ADR-0072) are met once M3's close passes hosted CI.
 
 ## Milestones
 
@@ -378,6 +379,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0059-historical-universes-and-reference-data-packs.md (Settled at implementation).
 - **Tests:** tests/unit/instrument/test_membership.py (21), tests/unit/data/test_reference_packs.py (17), tests/unit/research/test_membership_review.py (8), tests/integration/test_survivorship_is_caught.py (4).
 
+### TD-19: ADR-0072: an experiment that states everything a trial turns on, derived identities, six outcomes, records of digests, registry runners in submission order, resume, a lockbox read once (WS-05, 2026-11-15)
+
+- **Problem:** ADR-0054's statistics measure a search given its population, and nothing records the population: parameter_sweep and walk_forward_optimize keep what an objective returns in memory, a trial that raised is gone, a stopped search starts again, cloud_research resolves a dotted name to code (BDY-028), and a run that goes insolvent has no analytics (LIM-008), so a search that keeps analysed runs drops the trials a statistic most needs to count.
+- **Alternatives:** Placement: lifecycle.experiments (D-54-1 O2) or a new top. Executor: stdlib spawn in lifecycle (D-54-9) or an adapter over distributed. A trial's record: the BacktestResult, or digests and the series (R54-2). Interruptions: recorded, or not. The lockbox: read freely, or once (R54-10).
+- **Decision:** lifecycle.experiments, with alphalab.lab (ADR-0068) the researcher's facade; ExperimentSpec with no defaults, hypothesis hashed, configuration_type required; TrialSpec's trial_seed the existing walk-forward _seed formula; experiment_id, trial_id, trial_record_id, matrix_id and experiment_record_id derived under named schemes, beside ADR-0055's and ADR-0053's identities; outcomes COMPLETED, INSOLVENT, STRATEGY_FAILED, REFUSED and FAILED recorded and INTERRUPTED not; TrialRecord of digests and the series, never the result; SequentialExecutor and SpawnExecutor over a RunnerRegistry whose names never resolve to code, workers refusing the network by an audit hook installed before the researcher's code, results in submission order; resume by trial_id over an EvidenceStore whose conflict refusal catches nondeterminism; the lockbox read once; ledger DSR with N the completed count, PBO, RC and SPA.
+- **Rationale:** Every element is the plan's K.3 and O, checked against the code: ParameterSpace and _seed exist and are reused; EvidenceStore already refuses a second value under one identity; DET-007 (M0) already derives experiment_tracking's ids (D-54-7); GAP-31's one executor path is M4's. An interruption is not a fact about a trial, so recording it would count infrastructure as research.
+- **Compatibility:** Additive: a new module and a runner registry; no existing behaviour, signature or identity moves; resolve_task stays, documented as superseded, until 5.0 (D-54-6).
+- **Recorded in:** docs/ADR/0072-experiments-and-the-trial-ledger.md; ledger BDY-029.
+- **Tests:** Built in M4: the 48-trial ledgered experiment with failures and an insolvency counted; spawn equal to sequential, record for record; the spy-on-import refusal; resume and the nondeterminism refusal; the lockbox's second read refused; experiment_record_id pinned and held on Linux and macOS.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -399,7 +410,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-02 | Deterministic identity and provenance | M0, M1 | Hosted CI passed |
 | WS-03 | Scientific computing and numerical foundations | M2 | Hosted CI passed |
 | WS-04 | Streaming research-result capture | M3 | In progress |
-| WS-05 | Experiment and trial ledger, executor, runner registry | M4 | Not started |
+| WS-05 | Experiment and trial ledger, executor, runner registry | M4 | In progress |
 | WS-06 | Statistical research functions | M2, M3, M5 | In progress |
 | WS-07 | Econometrics and time series | M6 | Not started |
 | WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | Not started |
@@ -507,6 +518,10 @@ Evidence:
 - [Hosted CI passed] M3: benchmarks/benchmark_capture.py at four trade densities (PC-07, LIM-013)
 - [Local validation passed] M3: The trace's writer made faster after PC-07's approval, output-identical (the pinned identities hold): series and trace 12.1 to 13.3 percent
 - [Local validation passed] M3: Mutation series T (16): the capture, its trace and series, keep_equity, the bridge -- 16 of 16 caught
+
+### WS-05: Experiment and trial ledger, executor, runner registry
+
+- [Local validation passed] M4: ADR-0072 accepted (TD-19): experiments and the trial ledger, the plan's 0054B
 
 ### WS-06: Statistical research functions
 
@@ -647,7 +662,7 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | --- | --- | --- | --- | --- |
 | ADR-0053 | Run and input provenance | WS-02 | G0 | Accepted (2026-11-10), revision 3; implemented in M1 |
 | ADR-0054 | Selection statistics (pure) (plan 0054A) | WS-06 | G0 | Accepted (2026-11-14) |
-| ADR-0072 | Experiments and trial ledger (plan 0054B) | WS-05 | Before M4 | Not drafted in the repository |
+| ADR-0072 | Experiments and trial ledger (plan 0054B) | WS-05 | Before M4 | Accepted (2026-11-15) |
 | ADR-0055 | Streaming research capture, extractor identity, trace identity, retention | WS-04 | Before M3 | Accepted (2026-11-14) |
 | ADR-0056 | Product charter (D-V1) | WS-00 | G0 | Accepted (2026-11-10) |
 | ADR-0057 | Optional distributions and backend protocols (D-V2); includes the screening evaluator (B9) | WS-09 | G0 | Not drafted in the repository |

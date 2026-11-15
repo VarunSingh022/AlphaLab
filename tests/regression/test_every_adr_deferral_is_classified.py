@@ -192,6 +192,8 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     # ADR-0059, v4.3: historical universes and reference-data packs.
     ("0059", "A delisting does not settle a held position"): "FUT-050",
     ("0059", "AlphaLab ships no membership data"): "BDY-013",
+    # ADR-0072, v4.3: experiments and the trial ledger.
+    ("0072", "A worker's isolation is the host's"): "BDY-029",
 }
 
 

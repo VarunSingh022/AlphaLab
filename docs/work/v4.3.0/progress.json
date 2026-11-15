@@ -496,6 +496,19 @@
       "compatibility": "Additive. A registry without universes snapshots and digests byte for byte as v4.2.1 wrote it (InstrumentRegistrySnapshot.universes is written only when one is carried); the frozen fixtures and pinned registry digests are unchanged.",
       "record": "docs/ADR/0059-historical-universes-and-reference-data-packs.md (Settled at implementation).",
       "tests": "tests/unit/instrument/test_membership.py (21), tests/unit/data/test_reference_packs.py (17), tests/unit/research/test_membership_review.py (8), tests/integration/test_survivorship_is_caught.py (4)."
+    },
+    {
+      "id": "TD-19",
+      "date": "2026-11-15",
+      "workstream": "WS-05",
+      "title": "ADR-0072: an experiment that states everything a trial turns on, derived identities, six outcomes, records of digests, registry runners in submission order, resume, a lockbox read once",
+      "problem": "ADR-0054's statistics measure a search given its population, and nothing records the population: parameter_sweep and walk_forward_optimize keep what an objective returns in memory, a trial that raised is gone, a stopped search starts again, cloud_research resolves a dotted name to code (BDY-028), and a run that goes insolvent has no analytics (LIM-008), so a search that keeps analysed runs drops the trials a statistic most needs to count.",
+      "alternatives": "Placement: lifecycle.experiments (D-54-1 O2) or a new top. Executor: stdlib spawn in lifecycle (D-54-9) or an adapter over distributed. A trial's record: the BacktestResult, or digests and the series (R54-2). Interruptions: recorded, or not. The lockbox: read freely, or once (R54-10).",
+      "decision": "lifecycle.experiments, with alphalab.lab (ADR-0068) the researcher's facade; ExperimentSpec with no defaults, hypothesis hashed, configuration_type required; TrialSpec's trial_seed the existing walk-forward _seed formula; experiment_id, trial_id, trial_record_id, matrix_id and experiment_record_id derived under named schemes, beside ADR-0055's and ADR-0053's identities; outcomes COMPLETED, INSOLVENT, STRATEGY_FAILED, REFUSED and FAILED recorded and INTERRUPTED not; TrialRecord of digests and the series, never the result; SequentialExecutor and SpawnExecutor over a RunnerRegistry whose names never resolve to code, workers refusing the network by an audit hook installed before the researcher's code, results in submission order; resume by trial_id over an EvidenceStore whose conflict refusal catches nondeterminism; the lockbox read once; ledger DSR with N the completed count, PBO, RC and SPA.",
+      "rationale": "Every element is the plan's K.3 and O, checked against the code: ParameterSpace and _seed exist and are reused; EvidenceStore already refuses a second value under one identity; DET-007 (M0) already derives experiment_tracking's ids (D-54-7); GAP-31's one executor path is M4's. An interruption is not a fact about a trial, so recording it would count infrastructure as research.",
+      "compatibility": "Additive: a new module and a runner registry; no existing behaviour, signature or identity moves; resolve_task stays, documented as superseded, until 5.0 (D-54-6).",
+      "record": "docs/ADR/0072-experiments-and-the-trial-ledger.md; ledger BDY-029.",
+      "tests": "Built in M4: the 48-trial ledgered experiment with failures and an insolvency counted; spawn equal to sequential, record for record; the spy-on-import refusal; resume and the nondeterminism refusal; the lockbox's second read refused; experiment_record_id pinned and held on Linux and macOS."
     }
   ],
   "plan_changes": [
@@ -1045,8 +1058,14 @@
       "milestones": [
         "M4"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M4",
+          "item": "ADR-0072 accepted (TD-19): experiments and the trial ledger, the plan's 0054B",
+          "status": "Local validation passed"
+        }
+      ],
       "evidence": []
     },
     {
@@ -2076,7 +2095,7 @@
       "plan_section": "§O",
       "workstream": "WS-05",
       "needed": "Before M4",
-      "status": "Not drafted in the repository"
+      "status": "Accepted (2026-11-15)"
     },
     {
       "id": "ADR-0055",
@@ -2242,7 +2261,7 @@
   },
   "state": {
     "updated": "2026-11-14",
-    "remote_head": "acf4ce4b8e14a0b6e2b82091e0e923df41bcbb86",
+    "remote_head": "a7f867f6127e196ccd18598ba417d8f5b96a9a6f",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2636,6 +2655,10 @@
     {
       "date": "2026-11-15",
       "entry": "M3's exit gate met locally and its code commits on hosted CI: 16-variant PBO from captures equals full history's, GR-5 holds exactly, and the capture is within PC-07's approved limits (series 1.3 to 3.5 percent, series and trace 12.1 to 13.3). Mutation series T and U caught 33 of 33 on the first run. GAP-08, GAP-09 and GAP-43 closed."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "ADR-0072 accepted (TD-19): experiments and the trial ledger, M4's entry condition, from the plan's K.3 and O; BDY-029 records the worker isolation boundary. M4's entry conditions (M1, M3, ADR-0072) are met once M3's close passes hosted CI."
     }
   ]
 }
