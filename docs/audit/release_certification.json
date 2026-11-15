@@ -2,7 +2,7 @@
   "release": "4.3.0",
   "build": {
     "engine": "alphalab 4.3.0",
-    "source_digest": "def94d93f445534fc5de5b614d053c811062cc1c629203a7ea27c44d7ffb73e2",
+    "source_digest": "3d1e22420ebe3e4d00e5de240c3ea3bcaf10a4e8b665582eaa8098750f0e8668",
     "tz_database": "2024a"
   },
   "environment": {
@@ -134,10 +134,10 @@
       "claim": "The build's public API is the one docs/api/public_api.json records for this release.",
       "passed": true,
       "evidence": {
-        "manifest_digest": "939df649e903a5ea16c0acff1f72c8cd377962c9265d79b8ad49e0e32fa580a4",
+        "manifest_digest": "f29172c7095f7201f28d3e0cc5bfeda4f30fe1af597c582cbc076f95810d0df5",
         "packages": 44,
         "documented_modules": 12,
-        "exports": 2861,
+        "exports": 2891,
         "shared_names": 35
       }
     }

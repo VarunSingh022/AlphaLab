@@ -133,6 +133,7 @@ Never:
 - **2026-11-15** The owner approved PC-07: the return series at most 10 percent of the run, series and trace at most 15, a ceiling and not a target; a combined result above 15 percent is a failed gate brought to the owner, and trace coverage is never weakened to meet a budget. The plan's 10 percent target stays recorded with the measurements behind the change.
 - **2026-11-15** M3's exit gate met locally and its code commits on hosted CI: 16-variant PBO from captures equals full history's, GR-5 holds exactly, and the capture is within PC-07's approved limits (series 1.3 to 3.5 percent, series and trace 12.1 to 13.3). Mutation series T and U caught 33 of 33 on the first run. GAP-08, GAP-09 and GAP-43 closed.
 - **2026-11-15** ADR-0072 accepted (TD-19): experiments and the trial ledger, M4's entry condition, from the plan's K.3 and O; BDY-029 records the worker isolation boundary. M4's entry conditions (M1, M3, ADR-0072) are met once M3's close passes hosted CI.
+- **2026-11-15** M3's close (a7f867f) and ADR-0072 (60263cf) pushed. M4's first part implemented and locally validated: the trial ledger with its sequential executor, resume, nondeterminism refusal and lockbox; the 48-trial experiment counts every outcome exactly; the reference experiment's identities are pinned, identical under CPython 3.12, 3.13 and 3.14 (TD-20).
 
 ## Milestones
 
@@ -143,7 +144,7 @@ Never:
 | M1 | Hosted CI passed | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
 | M2 | Hosted CI passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Local validation passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
-| M4 | Not started | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
+| M4 | In progress | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Not started | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Not started | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Not started | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
@@ -389,6 +390,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0072-experiments-and-the-trial-ledger.md; ledger BDY-029.
 - **Tests:** Built in M4: the 48-trial ledgered experiment with failures and an insolvency counted; spawn equal to sequential, record for record; the spy-on-import refusal; resume and the nondeterminism refusal; the lockbox's second read refused; experiment_record_id pinned and held on Linux and macOS.
 
+### TD-20: ADR-0072 at implementation: a dataset held by its record digest, diagnostics outside every identity, the outcome rules, statistics at M5 (WS-05, 2026-11-15)
+
+- **Problem:** Building the ledger showed four places the ADR's text needed settling: a MarketDataset carries no source content hash for a manifest's dataset fields; a failed trial's error text differs between interpreter versions, which would make one experiment's record differ across hosts and a resume elsewhere look nondeterministic; the outcome of a runner's error, of inputs that are not the experiment's and of recorded strategy failures needed rules; and the plan's milestone table places the ledger's statistics at M5.
+- **Alternatives:** Dataset identity: the manifest's version and content hash, or the record digest replay already uses. Diagnostics: in the identity, out of it, or not kept. Statistics: in M4's record, or M5's.
+- **Decision:** dataset_identity is the dataset's id and dataset_digest. Diagnostics are kept with the first record and enter neither record_id, experiment_record_id nor the nondeterminism check. A runner raising AlphaLab's error is REFUSED, any other FAILED; inputs not the experiment's are REFUSED, naming the part; a run with recorded strategy failures is STRATEGY_FAILED with its identities. The ledger sets each run's seed and retention. TrialLimits holds only a time limit. M4's ExperimentRecord holds counts and the completed trials' matrix_id; DSR, SPA and PBO over it are M5's.
+- **Rationale:** Every trial can be held to the digest of the records it ran over. A record that differed only in an interpreter's wording would make O.3's cross-host requirement unmeetable for any experiment with a failure. The outcome rules follow ADR-0072's table: what is AlphaLab's refusal is REFUSED, what is the researcher's code is FAILED or STRATEGY_FAILED.
+- **Compatibility:** Additive: a new module, exported from alphalab.lifecycle (30 names); nothing existing moves.
+- **Recorded in:** docs/ADR/0072-experiments-and-the-trial-ledger.md (Settled at implementation).
+- **Tests:** tests/integration/test_trial_ledger.py (27), tests/regression/test_experiment_identities_are_pinned.py, the workload tests/integration/experiment_workload.py.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -424,7 +435,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-16 | ML/DL/RL research environments | M12 | Not started |
 | WS-17 | Market microstructure (depth, L2/L3) | After M13 | Not started |
 | WS-18 | Robustness, stress and regime analysis | M12 | Not started |
-| WS-19 | Researcher entry points, composition, reproducibility APIs | M4, M13 | Not started |
+| WS-19 | Researcher entry points, composition, reproducibility APIs | M4, M13 | In progress |
 | WS-20 | Documentation, guides and examples | M0, M7, M12, M13 | In progress |
 | WS-21 | Platform, CI and test infrastructure | M0, M11 | In progress |
 | WS-22 | Live venue controls (FUT-044) | M13 | Not started |
@@ -522,6 +533,9 @@ Evidence:
 ### WS-05: Experiment and trial ledger, executor, runner registry
 
 - [Local validation passed] M4: ADR-0072 accepted (TD-19): experiments and the trial ledger, the plan's 0054B
+- [Local validation passed] M4: lifecycle.experiments: ExperimentSpec, TrialSpec, the five derived identities, TrialOutcome, TrialRecord, LedgerCount, ExperimentRecord
+- [Local validation passed] M4: RunnerRegistry and SequentialExecutor; inputs held to the specification; resume; nondeterminism refused; the lockbox read once
+- [Local validation passed] M4: The 48-trial experiment with failures and insolvency counted; the reference experiment's identities pinned across interpreters
 
 ### WS-06: Statistical research functions
 
@@ -548,6 +562,10 @@ Evidence:
 Evidence:
 
 - conventions.daycount: 30E/360, 30E/360 (ISDA), ACT/ACT (ISDA), ACT/ACT (ICMA), ACT/365L, NL/365 and BUS/252 beside ACT/365F, ACT/360 and 30/360, by ISDA 2006 section 4.16 and ICMA Rule 251; DayCountTerms for what only an instrument states (coupon period and frequency, termination date, holidays and weekend), required where a basis needs them and refused where it does not; required_terms; days_in_year refusing the three variable-year bases; require_accrual_basis for daily accruals. Consumers: financing and borrow refuse a basis that cannot weight a day at construction; macro.bond accrues ICMA and ACT/365L by its own coupon period (a short first coupon against its notional regular period) and refuses BUS/252; an FX forward refuses a basis needing an instrument's terms. tests/unit/conventions/test_global_day_counts.py: each basis against an independent restatement of its definition in Fraction on worked and 300 random periods, the terms rule, the consumers. The three existing bases unchanged, so no accrual, run or result_id moves. ROADMAP, ADR-0039 (amended), BDY-014 (narrowed) record it. GR-2: the bases match the published worked examples -- ISDA's 1998 memorandum on EMU and market conventions for ACT/ACT (ISDA) and (ICMA), the long first coupon by the definition's sum over determination periods, and ISDA's 2008 note on 30/360 conventions for 30E/360 and 30E/360 (ISDA) with their termination dates, as QuantLib's day-counter tests reproduce them -- and BUS/252 matches QuantLib's reference values under the Brazilian holidays of each period. The full gate also caught test_persisted_enum_names's table (PER-004), extended as its rule for an additive member says.
+
+### WS-19: Researcher entry points, composition, reproducibility APIs
+
+- [Local validation passed] M4: lifecycle.experiments documented as a public module (R54-6): exported from alphalab.lifecycle and described in docs/COMPOSING_STRATEGIES.md
 
 ### WS-20: Documentation, guides and examples
 
@@ -600,7 +618,7 @@ Evidence:
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
-| GAP-01 | No experiment or trial ledger | C/P0 | Open | WS-05 | M4 |
+| GAP-01 | No experiment or trial ledger | C/P0 | In progress at M4 (WS-05, ADR-0072): the ledger, its identities, outcomes, records, resume and lockbox are delivered locally with the sequential executor; the spawning executor and the consumers follow. | WS-05 | M4 |
 | GAP-02 | Validation not over backtests | C/P0 | Open | WS-24 | M5 |
 | GAP-03 | DET-007 ambient ids | H/P0 | Open: scopes isolated and registry ids derived; awaiting hosted CI | WS-02 | M0 |
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |
@@ -626,7 +644,7 @@ Evidence:
 | GAP-24 | Fixed income foundation only | H/P2 | Open (D-V3) | WS-14 | M10 |
 | GAP-25 | No volatility models | M/P3 → P2 (needed for S-04) | Open (D-V3) | WS-28 | M10 |
 | GAP-26 | No combo orders | M/P2 | Open | WS-11 | M8 |
-| GAP-27 | No hypothesis record | L/P1 | Open | WS-05 | M4 |
+| GAP-27 | No hypothesis record | L/P1 | Delivered locally at M4 (ADR-0072, R54-9): ExperimentSpec.hypothesis is stated and its digest enters experiment_id; closes when hosted CI passes it. | WS-05 | M4 |
 | GAP-28 | Researcher boilerplate | M/P2 | Open | WS-19 | M13 |
 | GAP-29 | REL-001 v4.2.1 assets | — | Closed (D-V5): historical limitation | — | — |
 | GAP-30 | Stale documentation (CON-A/N/V/X) | M/P1 | Open: the seven High items corrected and guarded in M0; Medium and Low items follow by M13 | WS-20 | M0 (High) + every M |

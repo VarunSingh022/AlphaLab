@@ -409,6 +409,46 @@ entry below says otherwise.
   AlphaLab still ships no data (BDY-013). The loader and the distributions are
   M10's.
 
+* **The trial ledger** [plan WS-05, K.3, GAP-01, GAP-27, ADR-0072]. A search's
+  whole population, recorded in `alphalab.lifecycle.experiments`.
+  * **The specification.** `ExperimentSpec` states everything a trial turns on,
+    with no defaults:
+    * the hypothesis, whose digest enters the identity;
+    * the strategy's fingerprint, and the configuration type every candidate
+      is typed as;
+    * the `ParameterSpace`, the dataset's identity (`dataset_identity`), the
+      schedule's binding and the registry's digest;
+    * the execution assumptions, the `CaptureSpec`, the `RetentionPolicy`,
+      the validation design (`FullSample`, with or without a `Lockbox`), the
+      seed and the limits.
+
+    A trial's inputs that are not the experiment's are refused.
+  * **The runner.** A function registered by name in a `RunnerRegistry` builds
+    each `TrialSpec`'s inputs (`TrialInputs`); the name is looked up, never
+    resolved to code. A trial's seed is the walk-forward search's own formula.
+  * **Outcomes.** `run_experiment` runs each trial through `run_captured` and
+    records its outcome: `COMPLETED`, `INSOLVENT`, `STRATEGY_FAILED`,
+    `REFUSED` or `FAILED`, counted in `LedgerCount`. An interruption records
+    nothing.
+  * **Records.** A `TrialRecord` holds the run's `result_id`, `trace_id`,
+    `provenance_id`, `extractor_id` and `series_id`, never its result. The
+    series is filed beside it in a `TrialLedger` over an `EvidenceStore`. A
+    resume runs only what is missing, and a trial that leaves another record
+    is refused (`NondeterministicTrialError`). Diagnostics enter no identity,
+    so an interpreter's own error wording moves nothing.
+  * **The lockbox.** `read_lockbox` evaluates one candidate over the held-back
+    data once; a second read is a child experiment's that states why.
+  * **The experiment.** `ExperimentRecord` holds the records' ids in submission
+    order, the counts and the completed trials' `matrix_id`.
+
+  M4's exit gate, first part: 48 trials, with two failures in the runner, two
+  in the strategy, two refused and two insolvent, all counted
+  (`tests/integration/test_trial_ledger.py`). A reference experiment's
+  `experiment_id` and `experiment_record_id` are pinned, computed identically
+  under CPython 3.12, 3.13 and 3.14
+  (`tests/regression/test_experiment_identities_are_pinned.py`). The spawning
+  executor is M4's next part.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

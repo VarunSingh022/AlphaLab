@@ -509,6 +509,19 @@
       "compatibility": "Additive: a new module and a runner registry; no existing behaviour, signature or identity moves; resolve_task stays, documented as superseded, until 5.0 (D-54-6).",
       "record": "docs/ADR/0072-experiments-and-the-trial-ledger.md; ledger BDY-029.",
       "tests": "Built in M4: the 48-trial ledgered experiment with failures and an insolvency counted; spawn equal to sequential, record for record; the spy-on-import refusal; resume and the nondeterminism refusal; the lockbox's second read refused; experiment_record_id pinned and held on Linux and macOS."
+    },
+    {
+      "id": "TD-20",
+      "date": "2026-11-15",
+      "workstream": "WS-05",
+      "title": "ADR-0072 at implementation: a dataset held by its record digest, diagnostics outside every identity, the outcome rules, statistics at M5",
+      "problem": "Building the ledger showed four places the ADR's text needed settling: a MarketDataset carries no source content hash for a manifest's dataset fields; a failed trial's error text differs between interpreter versions, which would make one experiment's record differ across hosts and a resume elsewhere look nondeterministic; the outcome of a runner's error, of inputs that are not the experiment's and of recorded strategy failures needed rules; and the plan's milestone table places the ledger's statistics at M5.",
+      "alternatives": "Dataset identity: the manifest's version and content hash, or the record digest replay already uses. Diagnostics: in the identity, out of it, or not kept. Statistics: in M4's record, or M5's.",
+      "decision": "dataset_identity is the dataset's id and dataset_digest. Diagnostics are kept with the first record and enter neither record_id, experiment_record_id nor the nondeterminism check. A runner raising AlphaLab's error is REFUSED, any other FAILED; inputs not the experiment's are REFUSED, naming the part; a run with recorded strategy failures is STRATEGY_FAILED with its identities. The ledger sets each run's seed and retention. TrialLimits holds only a time limit. M4's ExperimentRecord holds counts and the completed trials' matrix_id; DSR, SPA and PBO over it are M5's.",
+      "rationale": "Every trial can be held to the digest of the records it ran over. A record that differed only in an interpreter's wording would make O.3's cross-host requirement unmeetable for any experiment with a failure. The outcome rules follow ADR-0072's table: what is AlphaLab's refusal is REFUSED, what is the researcher's code is FAILED or STRATEGY_FAILED.",
+      "compatibility": "Additive: a new module, exported from alphalab.lifecycle (30 names); nothing existing moves.",
+      "record": "docs/ADR/0072-experiments-and-the-trial-ledger.md (Settled at implementation).",
+      "tests": "tests/integration/test_trial_ledger.py (27), tests/regression/test_experiment_identities_are_pinned.py, the workload tests/integration/experiment_workload.py."
     }
   ],
   "plan_changes": [
@@ -680,7 +693,7 @@
       "deliverables": "Ledger, identities, outcomes (`INSOLVENT`), executor, lockbox, resume; `research_assistant` and `cloud_research` as consumers",
       "exit_gate": "48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal",
       "size": "L",
-      "status": "Not started",
+      "status": "In progress",
       "evidence": []
     },
     {
@@ -1064,6 +1077,21 @@
           "milestone": "M4",
           "item": "ADR-0072 accepted (TD-19): experiments and the trial ledger, the plan's 0054B",
           "status": "Local validation passed"
+        },
+        {
+          "milestone": "M4",
+          "item": "lifecycle.experiments: ExperimentSpec, TrialSpec, the five derived identities, TrialOutcome, TrialRecord, LedgerCount, ExperimentRecord",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M4",
+          "item": "RunnerRegistry and SequentialExecutor; inputs held to the specification; resume; nondeterminism refused; the lockbox read once",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M4",
+          "item": "The 48-trial experiment with failures and insolvency counted; the reference experiment's identities pinned across interpreters",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -1276,8 +1304,14 @@
         "M4",
         "M13"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M4",
+          "item": "lifecycle.experiments documented as a public module (R54-6): exported from alphalab.lifecycle and described in docs/COMPOSING_STRATEGIES.md",
+          "status": "Local validation passed"
+        }
+      ],
       "evidence": []
     },
     {
@@ -1443,7 +1477,7 @@
       "problem": "No experiment or trial ledger",
       "severity": "C/P0",
       "status": "Open",
-      "status_note": "",
+      "status_note": "In progress at M4 (WS-05, ADR-0072): the ledger, its identities, outcomes, records, resume and lockbox are delivered locally with the sequential executor; the spawning executor and the consumers follow.",
       "workstreams": [
         "WS-05"
       ],
@@ -1756,7 +1790,7 @@
       "problem": "No hypothesis record",
       "severity": "L/P1",
       "status": "Open",
-      "status_note": "",
+      "status_note": "Delivered locally at M4 (ADR-0072, R54-9): ExperimentSpec.hypothesis is stated and its digest enters experiment_id; closes when hosted CI passes it.",
       "workstreams": [
         "WS-05"
       ],
@@ -2659,6 +2693,10 @@
     {
       "date": "2026-11-15",
       "entry": "ADR-0072 accepted (TD-19): experiments and the trial ledger, M4's entry condition, from the plan's K.3 and O; BDY-029 records the worker isolation boundary. M4's entry conditions (M1, M3, ADR-0072) are met once M3's close passes hosted CI."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "M3's close (a7f867f) and ADR-0072 (60263cf) pushed. M4's first part implemented and locally validated: the trial ledger with its sequential executor, resume, nondeterminism refusal and lockbox; the 48-trial experiment counts every outcome exactly; the reference experiment's identities are pinned, identical under CPython 3.12, 3.13 and 3.14 (TD-20)."
     }
   ]
 }

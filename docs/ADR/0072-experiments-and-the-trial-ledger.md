@@ -184,6 +184,41 @@ records are M5's (WS-24).
 
 Nothing is removed before 5.0.
 
+# Settled at implementation (2026-11-15)
+
+Building M4's first part settled seven points, each held by a test
+(`tests/integration/test_trial_ledger.py`).
+
+1. **A dataset's identity is what every trial can be held to.**
+   `dataset_identity` is the dataset's id and `dataset_digest`, SHA-256 over its
+   records in their canonical form: the fingerprint a paused replay holds its
+   input to. A manifest's dataset version and content hash describe source
+   bytes that a `MarketDataset` need not carry.
+2. **Diagnostics enter no identity.** A record's `record_id`, the experiment's
+   `experiment_record_id` and the nondeterminism check cover everything but the
+   diagnostics. An interpreter's own error text differs between its versions,
+   and the same trial failing the same way is one record on every host. The
+   first record's diagnostics are kept.
+3. **Which outcome a trial has.**
+   * A runner that raises AlphaLab's own error is `REFUSED`, and any other
+     exception is `FAILED`.
+   * Inputs that are not the experiment's are `REFUSED`, saying which part.
+   * A run that recorded strategy failures is `STRATEGY_FAILED`, with its
+     result's identities, since it ran.
+   * A capture refused at insolvency, or a series ended there, is `INSOLVENT`.
+4. **The ledger sets what the experiment fixes.** It gives each run the trial's
+   seed and the experiment's retention, whatever the runner built.
+5. **`TrialLimits` holds a time limit only.** A trial never touches the network
+   (section 6), so there is nothing to choose.
+6. **The statistics over the ledger are M5's.** The plan's milestone table
+   places the ledger's DSR, SPA and PBO at M5 (WS-06, WS-24). M4's
+   `ExperimentRecord` holds the counts and the completed trials' `matrix_id`,
+   which those statistics read. Section 9 is read accordingly.
+7. **A lockbox is identified by the data it holds back.** That is the dataset's
+   digest and the lockbox's start. Its reads are counted under that identity
+   whichever experiment made them, and a second read needs a child experiment
+   stating `Lockbox.reread`.
+
 # Departures from the plan's text, and why
 
 - **Statistics in identities are full precision, not rounded strings** (plan

@@ -283,6 +283,37 @@ the run, the effective schedule's binding and the registry it held;
 provenance contradicts. Provenance is tamper-evident, not substitution-proof:
 only a rerun detects a consistent forgery.
 
+### Searching over candidates: the trial ledger (v4.3)
+
+A search over configurations measures the search as much as the strategy, so
+v4.3 records the population a statistic is given (ADR-0072).
+`alphalab.lifecycle.experiments` is that record.
+
+* **The specification.** An `ExperimentSpec` states everything a trial turns
+  on, with no defaults: the hypothesis, the strategy's fingerprint, the
+  configuration type every candidate is typed as, the `ParameterSpace`, the
+  dataset's identity, the schedule's binding, the registry's digest, the
+  execution assumptions, the capture, the retention, the validation design and
+  the seed.
+* **The runner.** A runner builds one trial's inputs from its typed
+  configuration. It is registered by name in a `RunnerRegistry`, and a name is
+  looked up, never resolved to code.
+* **The run.** `run_experiment(spec, registry, name, TrialLedger(store),
+  SequentialExecutor())` runs every trial the ledger has no record of. It holds
+  each trial's inputs to the specification, and captures each run
+  (`backtesting.run_captured`, ADR-0055).
+* **Outcomes.** Every trial ends `COMPLETED`, `INSOLVENT`, `STRATEGY_FAILED`,
+  `REFUSED` or `FAILED`, and is counted (`LedgerCount`); an interruption leaves
+  nothing, and a resume runs it again. A record holds digests and the series'
+  identity, never the run's result. A trial that runs again and leaves another
+  record is refused as nondeterminism.
+* **The lockbox.** A `Lockbox` holds the end of the data back from every trial.
+  `read_lockbox` evaluates one candidate over it once; a second read is a child
+  experiment's that states why.
+* **Statistics.** `lifecycle.selection.assess_captures` measures captured trials
+  directly (ADR-0054). The experiment's completed trials form the matrix its
+  `matrix_id` names.
+
 ## 8. Boundaries
 
 * AlphaLab ships no data, no vendor client, no broker adapter, no holiday
