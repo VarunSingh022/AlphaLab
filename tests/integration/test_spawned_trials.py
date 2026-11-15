@@ -6,7 +6,8 @@ researcher's. These tests hold it to ADR-0072 section 6:
 
 * the reference experiment spawned is the reference experiment run in this
   process, record for record and by ``experiment_record_id``;
-* records are kept in submission order, though later trials finish first;
+* records are kept in submission order, though later trials finish first,
+  and an executor yields them in that order;
 * a definition that reaches for the network as it is imported is refused
   before it reaches it, and every trial is recorded as failing, saying why;
 * a runner that reaches for the network while it runs is refused, and fails;
@@ -82,6 +83,28 @@ def test_records_keep_submission_order_whatever_order_trials_finish_in(
     )
 
     assert staggered.trial_record_ids == sequential.trial_record_ids
+
+
+@LIFETIMES
+def test_an_executor_yields_in_submission_order_whatever_order_trials_finish_in(
+    per_worker: int | None,
+) -> None:
+    """The protocol itself: a worker each, the first trial finishing last by 2.25 s.
+
+    ``run_experiment`` reads its records back in submission order, so its
+    record could not show the order an executor yields in; this reads the
+    executor directly.
+    """
+
+    spec = DEFINITION.spec
+    trials = spec.trials()
+    executor = SpawnExecutor(WHERE, workers=len(trials), trials_per_worker=per_worker)
+
+    yielded = [
+        ran.record.trial_id for ran in executor.execute(spec, REGISTRY, "slow_first", trials)
+    ]
+
+    assert yielded == [trial.trial_id for trial in trials]
 
 
 @LIFETIMES

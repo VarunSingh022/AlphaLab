@@ -37,7 +37,7 @@ from alphalab.backtesting.capture import (
 )
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE
-from alphalab.common.exceptions import AlphaLabRegistryError
+from alphalab.common.exceptions import AlphaLabRegistryError, AlphaLabValidationError
 from alphalab.lifecycle.experiments import (
     SEARCH,
     ExperimentError,
@@ -441,6 +441,25 @@ def test_a_runner_is_looked_up_by_name_never_resolved() -> None:
         REGISTRY.register("bands", build)
     with pytest.raises(AlphaLabRegistryError, match="never resolved to code"):
         run_experiment(_spec(), REGISTRY, "elsewhere", _ledger(), SequentialExecutor())
+
+
+def test_a_runner_raising_alphalabs_own_error_is_refused_and_any_other_error_failed() -> None:
+    """ADR-0072, settled 3: AlphaLab's refusal is REFUSED; the researcher's defect is FAILED."""
+
+    def refusing(trial: TrialSpec) -> TrialInputs:
+        raise AlphaLabValidationError("the venue's calendar has no session that day")
+
+    spec = _spec(space=ParameterSpace.of(_candidates()[:1]))
+    ledger = _ledger()
+    run_experiment(
+        spec, RunnerRegistry().register("bands", refusing), "bands", ledger, SequentialExecutor()
+    )
+    held = ledger.find(spec.trials()[0].trial_id)
+
+    assert held is not None and held.outcome is TrialOutcome.REFUSED
+    assert held.diagnostics == (
+        "AlphaLabValidationError: the venue's calendar has no session that day"
+    )
 
 
 def test_inputs_that_are_not_the_experiments_are_refused() -> None:

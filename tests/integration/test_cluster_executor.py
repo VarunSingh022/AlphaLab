@@ -84,6 +84,20 @@ def test_a_cluster_scheduler_policy_places_the_trials_over_several_cycles_and_mo
     assert record == sequential
 
 
+def test_a_cluster_yields_in_submission_order_whatever_order_trials_finish_in() -> None:
+    """The protocol itself, read directly: one cycle, the first trial finishing last."""
+
+    spec = DEFINITION.spec
+    trials = spec.trials()
+    executor = ClusterExecutor(WHERE, _cluster(workers=1, capacity=len(trials)))
+
+    yielded = [
+        ran.record.trial_id for ran in executor.execute(spec, REGISTRY, "slow_first", trials)
+    ]
+
+    assert yielded == [trial.trial_id for trial in trials]
+
+
 def test_a_policy_that_places_no_trial_is_refused_not_waited_on() -> None:
     def nowhere(state: DistributedState, timestamp: float) -> DistributedState:
         return state

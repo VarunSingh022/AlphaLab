@@ -152,6 +152,15 @@ def stagger(trial: TrialSpec) -> TrialInputs:
     return build(trial)
 
 
+def slow_first(trial: TrialSpec) -> TrialInputs:
+    """A runner whose first trial takes longest, a quarter second more than the next."""
+
+    import time
+
+    time.sleep(0.25 * (len(CANDIDATES) - CANDIDATES.index(dict(trial.candidate))))
+    return build(trial)
+
+
 def dies(trial: TrialSpec) -> TrialInputs:
     """A runner whose worker dies on the second trial. Only ever run spawned."""
 
@@ -181,6 +190,7 @@ REGISTRY = (
     .register("phone", phone)
     .register("sleepy", sleepy)
     .register("stagger", stagger)
+    .register("slow_first", slow_first)
     .register("dies", dies)
 )
 

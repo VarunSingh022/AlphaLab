@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `6267194` |
+| Remote head | `f82480c` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | Gate and push TD-25; the example 'a ledgered sweep' and the experiments guide; then M4's mutation series on the final tree, and its close (GAP-01 on hosted CI). |
+| Next | Push M4's close and read its hosted CI; update Draft PR #22; then M5 (WS-24, WS-06): an ADR for validation designs over backtests, before its code. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -101,6 +101,8 @@ Never:
 | `20ef953` | CodeQL | 43699261013 | success |
 | `98174f1` | Continuous Integration | 43701843005 | success: all six quality-gate cells, the registry path and the cluster executor included |
 | `98174f1` | CodeQL | 43701843009 | success |
+| `6267194` | Continuous Integration | 43704312816 | success: all six quality-gate cells; rerun_trial in a fresh process, zero identifier draws, the trial-timed limit |
+| `6267194` | CodeQL | 43704312808 | success |
 
 ## Continuation log
 
@@ -150,6 +152,8 @@ Never:
 - **2026-11-15** The trial ledger (08e2264) and SpawnExecutor (20ef953) passed hosted CI on all six cells, the ledger's pinned identities holding on Linux and macOS; GAP-27 closed. The consumers (98174f1) passed the full gate (13,339 tests, the installed distributions with 2,900 public names) and were pushed.
 - **2026-11-15** M4's first mutation run (EX01 to EX29) is not evidence: every catch it reported was the time-limit tests failing under the harness's load, whatever the mutation. Diagnosed with data -- 0 of 9 normal trials recorded under load, a worker's start alone outrunning the two-second limit -- and fixed at the root: the worker times its trial from the moment it has loaded the experiment (TD-24). Reading WS-05 and GAP-01 against M4 also added rerun_trial and an experiment that draws no identifier. The series is re-run on the final tree.
 - **2026-11-15** The consumers (98174f1) passed hosted CI on all six cells: GAP-05 and GAP-31 closed. rerun_trial, zero identifier draws and the trial-timed limit (6267194) passed the full gate and were pushed. Spawned workers now serve many trials (TD-25): the executor's own cost is 1.8 percent of the trials', inside WS-05's 5 percent.
+- **2026-11-15** 6267194 (rerun_trial, zero draws, the trial-timed limit) passed hosted CI on all six cells. a2c1616 (spawned workers serve many trials, TD-25), f1ea0be (example 80 and docs/EXPERIMENTS.md) and f82480c (the executor benchmark by the stabilized method, the gate having caught two benchmark guards on a2c1616) passed the full gate at f82480c and were pushed. M4's mutation series (EX01 to EX39) runs on the final tree.
+- **2026-11-15** M4's exit gate met locally on the final tree: 48 trials counted with their failures and insolvencies; spawned and cluster runs equal the sequential record for record; the spy-on-import refusal; rerun_trial reproduces a record in a fresh interpreter; the executor's own cost 2.1 percent. Mutation series EX caught 40 of 40 on the final tree, after an invalid first run (TD-24) and two tests added for EX05 and the yield order. GAP-01 closed.
 
 ## Milestones
 
@@ -160,7 +164,7 @@ Never:
 | M1 | Hosted CI passed | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
 | M2 | Hosted CI passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Hosted CI passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
-| M4 | In progress | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
+| M4 | Local validation passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Not started | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Not started | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Not started | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
@@ -603,14 +607,15 @@ Evidence:
 - [Hosted CI passed] M4: RunnerRegistry and SequentialExecutor; inputs held to the specification; resume; nondeterminism refused; the lockbox read once
 - [Hosted CI passed] M4: The 48-trial experiment with failures and insolvency counted; the reference experiment's identities pinned across interpreters
 - [Hosted CI passed] M4: SpawnExecutor: a fresh interpreter per trial, the network refused before the researcher's code, records in submission order; spawned equals sequential record for record
-- [Pushed] M4: One registry: RunnerRegistry in alphalab.common, taken by the ledger's executors and the cluster's cycle (D-54-11, TD-21)
-- [Pushed] M4: ClusterExecutor: trials as registered tasks on a cloud_research cluster, distributed's job lifecycle and a cluster_scheduler policy -- one executor path (GAP-31); cluster equals sequential record for record
-- [Pushed] M4: The consumers: research_assistant.candidate_space feeds an experiment's trials; the tracker linked by experiment_id in its tags (D-54-3, TD-22)
-- [Local validation passed] M4: rerun_trial: a record of every outcome reproduced in a fresh process (GAP-01's acceptance, WS-05 item 14)
-- [Local validation passed] M4: An experiment draws no identifier from the scope around it, under every executor (ADR-0029 D6); a candidate not of the configuration type refused (R54-3)
-- [Local validation passed] M4: A time limit times the trial from the worker's load, never its start (TD-24, found by M4's first mutation run)
-- [Local validation passed] M4: Spawned workers serve many trials (trials_per_worker); the executor's own cost 2.1 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)
-- [Local validation passed] M4: Example 80, a ledgered sweep (in the installed smoke test, the network refused), and docs/EXPERIMENTS.md, the experiments guide (WS-05 item 17)
+- [Hosted CI passed] M4: One registry: RunnerRegistry in alphalab.common, taken by the ledger's executors and the cluster's cycle (D-54-11, TD-21)
+- [Hosted CI passed] M4: ClusterExecutor: trials as registered tasks on a cloud_research cluster, distributed's job lifecycle and a cluster_scheduler policy -- one executor path (GAP-31); cluster equals sequential record for record
+- [Hosted CI passed] M4: The consumers: research_assistant.candidate_space feeds an experiment's trials; the tracker linked by experiment_id in its tags (D-54-3, TD-22)
+- [Hosted CI passed] M4: rerun_trial: a record of every outcome reproduced in a fresh process (GAP-01's acceptance, WS-05 item 14)
+- [Hosted CI passed] M4: An experiment draws no identifier from the scope around it, under every executor (ADR-0029 D6); a candidate not of the configuration type refused (R54-3)
+- [Hosted CI passed] M4: A time limit times the trial from the worker's load, never its start (TD-24, found by M4's first mutation run)
+- [Pushed] M4: Spawned workers serve many trials (trials_per_worker); the executor's own cost 2.1 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)
+- [Pushed] M4: Example 80, a ledgered sweep (in the installed smoke test, the network refused), and docs/EXPERIMENTS.md, the experiments guide (WS-05 item 17)
+- [Local validation passed] M4: Mutation series EX (40): the ledger, its executors, the one registry, the cluster, rerun_trial, identifiers drawn from no caller, the consumers -- 40 of 40 caught on the final tree
 
 ### WS-06: Statistical research functions
 
@@ -641,7 +646,7 @@ Evidence:
 ### WS-19: Researcher entry points, composition, reproducibility APIs
 
 - [Hosted CI passed] M4: lifecycle.experiments documented as a public module (R54-6): exported from alphalab.lifecycle and described in docs/COMPOSING_STRATEGIES.md
-- [Pushed] M4: D-54-R3 decided (TD-23): alphalab.lab, a third composition top, at M13
+- [Hosted CI passed] M4: D-54-R3 decided (TD-23): alphalab.lab, a third composition top, at M13
 
 ### WS-20: Documentation, guides and examples
 
@@ -669,7 +674,7 @@ Evidence:
 
 - [Hosted CI passed] M0: SEC-002: HttpTransport opens http:// and https:// only, and follows a redirect only to one of them
 - [Hosted CI passed] M4: The spy-on-import refusal (N18), and BDY-029 stated in SECURITY.md and held by a test
-- [Pushed] M4: cloud_research's cycle looks a task up in the registry: an unregistered name, a dotted path to a real task included, fails before anything is imported (GAP-05, D-54-6); resolve_task superseded until 5.0
+- [Hosted CI passed] M4: cloud_research's cycle looks a task up in the registry: an unregistered name, a dotted path to a real task included, fails before anything is imported (GAP-05, D-54-6); resolve_task superseded until 5.0
 
 Evidence:
 
@@ -692,11 +697,11 @@ Evidence:
 
 ## Gaps
 
-39 open, 10 closed, 4 discarded.
+38 open, 11 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
-| GAP-01 | No experiment or trial ledger | C/P0 | Delivered locally at M4 (WS-05, ADR-0072): the ledger, its identities, outcomes, records, resume and lockbox, with sequential, spawned and cluster executors and the research assistant and tracker as consumers. Closes at M4's close, on hosted CI. | WS-05 | M4 |
+| GAP-01 | No experiment or trial ledger | C/P0 | Closed at M4 (WS-05, ADR-0072): the ledger, its five identities, its outcomes with INSOLVENT, its records, resume, nondeterminism refused and the lockbox read once, under sequential, spawned and cluster executors, with the research assistant and the tracker as consumers; rerun_trial reproduces trial_record_id in a fresh interpreter (GAP-01's acceptance), on hosted CI on 6267194 with the rest on 08e2264, 20ef953 and 98174f1. | WS-05 | M4 |
 | GAP-02 | Validation not over backtests | C/P0 | Open | WS-24 | M5 |
 | GAP-03 | DET-007 ambient ids | H/P0 | Open: scopes isolated and registry ids derived; awaiting hosted CI | WS-02 | M0 |
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |

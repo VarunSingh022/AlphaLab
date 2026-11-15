@@ -56,6 +56,27 @@ M3's series:
 
 M3's run caught 33 of 33 on the first run, none surviving. The test that caught
 each is recorded in the progress register, in M3's evidence.
+
+M4's series:
+
+* **EX** -- WS-05 and WS-23, ADR-0072 (two letters: every single letter is
+  taken by an earlier table): the ledger's identities, outcomes, resume,
+  nondeterminism and lockbox; the spawned worker's refusals, its time limit,
+  its lifetime and its order; the one registry; the cluster's cycle and
+  executor; a record reproduced; identifiers drawn from no caller; and the
+  ledger's consumers.
+
+M4's first run (EX01 to EX29) is not evidence. Nearly every catch it reported
+was the time-limit tests failing under the harness's four parallel suites,
+whatever the mutation: a worker's start outran a two-second limit that counted
+it. The limit now times the trial (TD-24), and the series was re-run on the
+final tree. There, 37 of 39 were caught by the tests that exercise them. EX05
+survived: no runner raised AlphaLab's own error, a test that was added. EX15's
+first failure was the import-site scan flagging the mutation's own
+``__import__``, because ``run_experiment`` reads records back in submission
+order whatever an executor yields. It was restated as a reversed yield, and the
+yield order is tested on the executor itself, with EX40 for the cluster. The
+test that caught each is recorded in the progress register, in M4's evidence.
 """
 
 from __future__ import annotations
@@ -955,12 +976,325 @@ V43_M3: tuple[Any, ...] = (
     ),
 )
 
+_EXPERIMENTS = "alphalab/lifecycle/experiments.py"
+_WORKER = "alphalab/lifecycle/_trial_worker.py"
+_RUNNERS = "alphalab/common/registry.py"
+_GENERATION = "alphalab/research_assistant/generation.py"
+
+V43_M4: tuple[Any, ...] = (
+    # --- EX: the trial ledger, its executors, the one registry and its consumers
+    # (WS-05, WS-23, ADR-0072)
+    Mutation(
+        "EX01",
+        "the hypothesis leaves the experiment's identity",
+        _EXPERIMENTS,
+        '            "hypothesis_sha256": _sha256(spec.hypothesis),\n',
+        '            "hypothesis_sha256": _sha256(""),\n',
+    ),
+    Mutation(
+        "EX02",
+        "a trial's seed ignores its candidate",
+        _EXPERIMENTS,
+        "                trial_seed=_seed(self.seed, 0, SEARCH, _render(candidate)),\n",
+        '                trial_seed=_seed(self.seed, 0, SEARCH, ""),\n',
+    ),
+    Mutation(
+        "EX03",
+        "a trial's identity leaves out its experiment",
+        _EXPERIMENTS,
+        '                "experiment_id": self.experiment_id,\n'
+        '                "fold": self.fold,\n',
+        '                "experiment_id": "",\n                "fold": self.fold,\n',
+    ),
+    Mutation(
+        "EX04",
+        "a record's diagnostics enter its identity",
+        _EXPERIMENTS,
+        '    del payload["diagnostics"]\n    return payload\n',
+        "    return payload\n",
+    ),
+    Mutation(
+        "EX05",
+        "a runner raising AlphaLab's own error is FAILED, not REFUSED",
+        _EXPERIMENTS,
+        "        inputs = runner(trial)\n    except AlphaLabError as error:\n"
+        "        return record(TrialOutcome.REFUSED, _diagnosis(error))\n",
+        "        inputs = runner(trial)\n    except AlphaLabError as error:\n"
+        "        return record(TrialOutcome.FAILED, _diagnosis(error))\n",
+    ),
+    Mutation(
+        "EX06",
+        "a series truncated at insolvency is COMPLETED",
+        _EXPERIMENTS,
+        "        if captured.record.insolvent_at is not None\n",
+        "        if False\n",
+    ),
+    Mutation(
+        "EX07",
+        "a capture refused at insolvency is FAILED, not INSOLVENT",
+        _EXPERIMENTS,
+        "    except InsolventCaptureError as error:\n"
+        "        return record(TrialOutcome.INSOLVENT, _diagnosis(error))\n",
+        "    except InsolventCaptureError as error:\n"
+        "        return record(TrialOutcome.FAILED, _diagnosis(error))\n",
+    ),
+    Mutation(
+        "EX08",
+        "another dataset is not refused",
+        _EXPERIMENTS,
+        "    if dataset_identity(inputs.dataset) != spec.dataset:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "EX09",
+        "a run keeps the runner's seed, not the trial's",
+        _EXPERIMENTS,
+        "        seed=trial.trial_seed,\n",
+        "        seed=inputs.config.seed,\n",
+    ),
+    Mutation(
+        "EX10",
+        "a run keeps the runner's retention, not the experiment's",
+        _EXPERIMENTS,
+        "        pipeline=replace(inputs.config.pipeline, retention=spec.retention),\n",
+        "        pipeline=inputs.config.pipeline,\n",
+    ),
+    Mutation(
+        "EX11",
+        "a resume runs every trial again",
+        _EXPERIMENTS,
+        "    missing = [trial for trial in trials if ledger.find(trial.trial_id) is None]\n",
+        "    missing = list(trials)\n",
+    ),
+    Mutation(
+        "EX12",
+        "a trial that leaves another record replaces the first",
+        _EXPERIMENTS,
+        "            if _identified(held) != _identified(record):\n",
+        "            if False:\n",
+    ),
+    Mutation(
+        "EX13",
+        "the lockbox is not held back from the trials",
+        _EXPERIMENTS,
+        "    kept = tuple(record for record in dataset.records "
+        "if record.timestamp < lockbox.start)\n",
+        "    kept = tuple(dataset.records)\n",
+    ),
+    Mutation(
+        "EX14",
+        "the lockbox can be read twice",
+        _EXPERIMENTS,
+        "    if ledger.lockbox_reads(lockbox_id) and lockbox.reread is None:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "EX15",
+        "a spawned executor yields its trials in another order than submitted",
+        _EXPERIMENTS,
+        "            for future in running:\n                ran = future.result()\n",
+        "            for future in reversed(running):\n                ran = future.result()\n",
+    ),
+    Mutation(
+        "EX16",
+        "the worker imports the definition before it refuses the network",
+        _WORKER,
+        "    sys.addaudithook(refuse_the_network)\n",
+        '    sys.path[:0] = [entry for entry in header.get("path", ()) if entry not in sys.path]\n'
+        '    _load(header["definition"])\n'
+        "    sys.addaudithook(refuse_the_network)\n",
+    ),
+    Mutation(
+        "EX17",
+        "the worker never refuses the network",
+        _WORKER,
+        "    if event.startswith(NETWORK_EVENTS):\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "EX18",
+        "the worker runs another experiment's definition",
+        _WORKER,
+        '    if spec.experiment_id != request["experiment_id"]:\n',
+        "    if False:\n",
+    ),
+    Mutation(
+        "EX19",
+        "an interrupted trial is recorded as FAILED",
+        _EXPERIMENTS,
+        "    if answer is None:\n        return None\n    held = json.loads(answer)\n",
+        "    if answer is None:\n"
+        '        return _trial_left(spec, trial, TrialOutcome.FAILED, "interrupted")\n'
+        "    held = json.loads(answer)\n",
+    ),
+    Mutation(
+        "EX20",
+        "the registry resolves a dotted name it does not hold (SEC-001)",
+        _RUNNERS,
+        "        held = self.runners.get(name) if isinstance(name, str) else None\n",
+        "        held = self.runners.get(name) if isinstance(name, str) else None\n"
+        '        if held is None and isinstance(name, str) and "." in name:\n'
+        '            module, _, attribute = name.rpartition(".")\n'
+        '            held = getattr(__import__("importlib")'
+        ".import_module(module), attribute, None)\n",
+    ),
+    Mutation(
+        "EX21",
+        "a cycle given a registry still resolves a path it does not hold",
+        _CLUSTER,
+        '    except AlphaLabRegistryError as exc:\n        return f"{type(exc).__name__}: {exc}"\n',
+        "    except AlphaLabRegistryError:\n"
+        "        from alphalab.cloud_research.task import resolve_task\n\n"
+        "        task = resolve_task(name)\n",
+    ),
+    Mutation(
+        "EX22",
+        "the cycle ignores the assignment policy it is given",
+        _CLUSTER,
+        "    policy = DistributedEngine.assign_jobs if assign is None else assign\n",
+        "    policy = DistributedEngine.assign_jobs\n",
+    ),
+    Mutation(
+        "EX23",
+        "registered outcomes are applied in reverse submission order",
+        _CLUSTER,
+        "    for job_id, held in running:\n",
+        "    for job_id, held in reversed(running):\n",
+    ),
+    Mutation(
+        "EX24",
+        "a cluster with jobs of its own is accepted",
+        _EXPERIMENTS,
+        "        if distributed.queued_jobs or distributed.running_jobs:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "EX25",
+        "a cluster's trial that raised is taken as interrupted",
+        _EXPERIMENTS,
+        "                if raised:\n",
+        "                if False:\n",
+    ),
+    Mutation(
+        "EX26",
+        "a candidate space mixes templates",
+        _GENERATION,
+        "    if len(templates) != 1:\n",
+        "    if len(templates) > 2:\n",
+    ),
+    Mutation(
+        "EX27",
+        "a candidate space keeps only the first candidate",
+        _GENERATION,
+        "        return ParameterSpace.of([candidate.parameters for candidate in candidates])\n",
+        "        return ParameterSpace.of("
+        "[candidate.parameters for candidate in candidates[:1]])\n",
+    ),
+    Mutation(
+        "EX28",
+        "a tracker run cites the experiment's name, not its identity",
+        _EXPERIMENTS,
+        "    return {EXPERIMENT_TAG: spec.experiment_id}\n",
+        "    return {EXPERIMENT_TAG: spec.name}\n",
+    ),
+    Mutation(
+        "EX29",
+        "the runs of every experiment are its runs",
+        _EXPERIMENTS,
+        "        run for run in tracker.runs.values() "
+        "if run.tags.get(EXPERIMENT_TAG) == experiment_id\n",
+        "        run for run in tracker.runs.values() if EXPERIMENT_TAG in run.tags\n",
+    ),
+    Mutation(
+        "EX30",
+        "a rerun always reproduces its record",
+        _EXPERIMENTS,
+        "    return TrialRerun(trial_id, held.record_id, "
+        "left[0].record.record_id if left else None)\n",
+        "    return TrialRerun(trial_id, held.record_id, held.record_id)\n",
+    ),
+    Mutation(
+        "EX31",
+        "a rerun files the record it left",
+        _EXPERIMENTS,
+        "    left = list(executor.execute(spec, registry, runner, [trial]))\n",
+        "    left = list(executor.execute(spec, registry, runner, [trial]))\n"
+        "    for ran in left:\n"
+        "        ledger.keep(ran)\n",
+    ),
+    Mutation(
+        "EX32",
+        "the runner draws identifiers from the scope around the experiment",
+        _EXPERIMENTS,
+        "        with id_scope(_seed(trial.trial_seed, trial.fold, _RUNNER_PHASE, trial.label)):\n"
+        "            inputs = runner(trial)\n",
+        "        inputs = runner(trial)\n",
+    ),
+    Mutation(
+        "EX33",
+        "the cluster's submissions draw from the scope around the experiment",
+        _EXPERIMENTS,
+        "        with id_scope(None):\n            for trial in trials:\n",
+        "        if True:\n            for trial in trials:\n",
+    ),
+    Mutation(
+        "EX34",
+        "the cluster's cycles draw from the scope around the experiment",
+        _EXPERIMENTS,
+        "                with id_scope(None):\n                    state = run_cluster_cycle(\n",
+        "                if True:\n                    state = run_cluster_cycle(\n",
+    ),
+    Mutation(
+        "EX35",
+        "the parent times a worker's start against the trial's limit",
+        _EXPERIMENTS,
+        "                timeout=None if seconds is None else seconds + _START_ALLOWANCE\n",
+        "                timeout=seconds\n",
+    ),
+    Mutation(
+        "EX36",
+        "the worker never stops a trial at its limit",
+        _WORKER,
+        "    watchdog = _watch(spec.limits.seconds)\n",
+        "    watchdog = _watch(None)\n",
+    ),
+    Mutation(
+        "EX37",
+        "a worker never runs a second trial",
+        _EXPERIMENTS,
+        "            if answer is None or (limit is not None and held.served >= limit):\n",
+        "            if True:\n",
+    ),
+    Mutation(
+        "EX38",
+        "a worker that ended is asked for the next trial",
+        _EXPERIMENTS,
+        "            if answer is None or (limit is not None and held.served >= limit):\n",
+        "            if limit is not None and held.served >= limit:\n",
+    ),
+    Mutation(
+        "EX39",
+        "what a trial writes to its standard output reaches the worker's answers",
+        _WORKER,
+        "    os.dup2(sys.stderr.fileno(), sys.stdout.fileno())\n",
+        "    answers = sys.stdout\n",
+    ),
+    Mutation(
+        "EX40",
+        "a cluster yields a cycle's trials in another order than submitted",
+        _EXPERIMENTS,
+        "                    held = state.results.get(pending.pop(0))\n",
+        "                    held = state.results.get(pending.pop())\n",
+    ),
+)
+
 MUTATIONS: tuple[Any, ...] = (
     tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS)
     + V43_M0
     + V43_M1
     + V43_M2
     + V43_M3
+    + V43_M4
 )
 
 
