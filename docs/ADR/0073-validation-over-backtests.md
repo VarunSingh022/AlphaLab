@@ -159,7 +159,8 @@ event-window variant.
 
 Building M5 settled these points, each held by a test
 (`tests/unit/lifecycle/test_validation_designs.py`,
-`tests/unit/research/test_combinatorial_cv.py`).
+`tests/unit/research/test_combinatorial_cv.py`,
+`tests/integration/test_walk_forward_over_backtests.py`).
 
 1. **A dataset's identity carries its instants.** `DatasetIdentity` gains
    `instants`, its records' distinct timestamps in order: what a design splits.
@@ -181,6 +182,26 @@ Building M5 settled these points, each held by a test
    `research.combinatorial_purged_splits` derives the splits and their paths.
    It requires a purge policy, as `CVMethod.PURGED` does, because the method's
    name claims purging.
+6. **A window's series is the periods that end inside it.** The ledger keeps
+   the capture's points from the instant just before the window, so the
+   series' first return is the period ending at the window's first instant.
+   Every period ending in the warm-up is dropped. Consecutive test windows'
+   series join seamlessly, at the instant one ends and the next begins. A
+   trial that went insolvent in its warm-up keeps a one-point series at that
+   instant.
+7. **A walk-forward record joins its selections' test windows.** When every
+   fold's selection completed and the test windows tile the sample, the
+   joined series is filed in the ledger, and its identity is the record's
+   `out_of_sample`. A gap, a fold that selected nothing, or a selection that
+   did not complete leaves it `None`.
+8. **A design's folds share no one matrix.** Each fold's trials have their own
+   windows, so a designed experiment's `matrix_id` is `None`. Its statistics
+   are read per fold, or over the joined series (section 7).
+9. **A worker finds a test-window trial by its identity.** A spawned worker
+   cannot know which candidate the parent's ledger selected. It holds every
+   test-window trial the experiment could name -- each fold and each candidate,
+   `every_trial` -- and finds the one a request names, so a request still
+   carries identities only.
 
 # Compatibility
 

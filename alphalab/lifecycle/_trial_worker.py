@@ -64,7 +64,7 @@ class _Loaded:
     """An experiment's definition, loaded once, or why it did not load."""
 
     def __init__(self, location: str) -> None:
-        from alphalab.lifecycle.experiments import ExperimentDefinition
+        from alphalab.lifecycle.experiments import ExperimentDefinition, every_trial
 
         self.location = location
         self.definition: ExperimentDefinition | None = None
@@ -76,7 +76,9 @@ class _Loaded:
                 raise TypeError(
                     f"{location} is a {type(definition).__name__}, not an ExperimentDefinition"
                 )
-            self.trials = {trial.trial_id: trial for trial in definition.spec.trials()}
+            # Every trial the experiment can name -- a fold's test-window trial
+            # among them, whichever candidate the parent's ledger selected.
+            self.trials = {trial.trial_id: trial for trial in every_trial(definition.spec)}
             self.definition = definition
         except Exception as error:
             self.failure = f"{type(error).__name__}: {error}"

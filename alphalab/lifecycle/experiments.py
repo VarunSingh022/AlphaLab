@@ -51,6 +51,7 @@ experiment has the same record on every host.
 
 from __future__ import annotations
 
+import bisect
 import contextlib
 import hashlib
 import itertools
@@ -72,6 +73,7 @@ from alphalab.backtesting.capture import (
     CaptureSpec,
     InsolventCaptureError,
     TraceCounts,
+    canonical_captured_series_key,
     canonical_extractor_key,
     run_captured,
 )
@@ -93,20 +95,24 @@ from alphalab.experiment_tracking.tracker import ExperimentRun, ExperimentTracke
 from alphalab.instrument.snapshot import registry_digest
 from alphalab.lifecycle.designs import (
     DESIGNS,
+    REPORT,
     SEARCH,
     ExperimentError,
     FullSample,
     Lockbox,
     TrialWindow,
     ValidationDesign,
+    WalkForward,
     _require_text,
     design_key,
+    report_window,
     windows,
 )
 from alphalab.lifecycle.reproducibility import digest_run
 from alphalab.lifecycle.selection import trial_matrix_from_captures
 from alphalab.model_registry.evidence import EvidenceStore
 from alphalab.persistence.serializer import serialize
+from alphalab.research.selection import SelectionMeasure
 from alphalab.research.walk_forward_optimization import ParameterSpace, _render, _seed
 from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
 from alphalab.runtime.execution_pipeline import ContextFactory
@@ -149,8 +155,10 @@ __all__ = [
     "TrialSpec",
     "canonical_experiment_key",
     "dataset_identity",
+    "every_trial",
     "experiment_tags",
     "read_lockbox",
+    "report_trial",
     "rerun_trial",
     "run_experiment",
     "run_trial",
@@ -404,6 +412,46 @@ class ExperimentSpec:
             for fold, phase, window in windows(self.validation, self.dataset.instants)
             for candidate, configuration in typed
         )
+
+
+def report_trial(spec: ExperimentSpec, fold: int, candidate: Mapping[str, Any]) -> TrialSpec:
+    """A walk-forward fold's test-window trial of ``candidate``: the fold's selection reported.
+
+    Raises:
+        ExperimentError: If ``spec`` is not a walk-forward experiment.
+    """
+
+    design = spec.validation
+    if not isinstance(design, WalkForward):
+        raise ExperimentError(
+            f"Only a walk-forward experiment reports a selection on a test window; "
+            f"{spec.name}'s design is {type(design).__name__}."
+        )
+    return TrialSpec(
+        experiment_id=spec.experiment_id,
+        candidate=candidate,
+        configuration=_typed(candidate, spec.configuration_type),
+        fold=fold,
+        phase=REPORT,
+        trial_seed=_seed(spec.seed, fold, REPORT, _render(candidate)),
+        window=report_window(design, spec.dataset.instants, fold),
+    )
+
+
+def every_trial(spec: ExperimentSpec) -> tuple[TrialSpec, ...]:
+    """Every trial ``spec`` can name: its own, and every selection's test-window trial.
+
+    A spawned worker holds a request to these: it cannot know which candidate a
+    fold selected, and needs no more than the trial's identity to find it.
+    """
+
+    trials = spec.trials()
+    if not isinstance(spec.validation, WalkForward):
+        return trials
+    folds = sorted({trial.fold for trial in trials})
+    return trials + tuple(
+        report_trial(spec, fold, candidate) for fold in folds for candidate in spec.space.candidates
+    )
 
 
 def _typed(candidate: Mapping[str, Any], declared: type) -> Any:
@@ -680,6 +728,37 @@ def _refusal(spec: ExperimentSpec, inputs: TrialInputs) -> str | None:
     return None
 
 
+def _windowed(dataset: MarketDataset, window: TrialWindow | None) -> MarketDataset:
+    """The records from a trial's warm-up to its window's end: what its run sees."""
+
+    if window is None:
+        return dataset
+    end = window.evaluate[-1]
+    kept = tuple(record for record in dataset.records if window.start <= record.timestamp <= end)
+    return replace(dataset, records=kept)
+
+
+def _scored(capture: CaptureRecord, window: TrialWindow | None) -> CaptureRecord:
+    """The capture's periods that end inside ``window``: its warm-up is never scored.
+
+    The series starts at the capture's instant just before the window, so its
+    first return is the period ending at the window's first instant, and
+    consecutive windows' series join.
+    """
+
+    if window is None:
+        return capture
+    first = max(bisect.bisect_left(capture.instants, window.evaluate[0]) - 1, 0)
+    instants, returns = capture.instants[first:], capture.returns[first:]
+    insolvent_at = capture.insolvent_at
+    return replace(
+        capture,
+        instants=instants,
+        returns=returns,
+        series_id=_sha256(canonical_captured_series_key(instants, returns, insolvent_at)),
+    )
+
+
 def _held_back(dataset: MarketDataset, lockbox: Lockbox | None) -> MarketDataset:
     if lockbox is None:
         return dataset
@@ -771,7 +850,7 @@ def run_trial(spec: ExperimentSpec, runner: Runner, trial: TrialSpec) -> _Ran:
         pipeline=replace(inputs.config.pipeline, retention=spec.retention),
     )
     try:
-        dataset = _held_back(inputs.dataset, spec.validation.lockbox)
+        dataset = _windowed(_held_back(inputs.dataset, spec.validation.lockbox), trial.window)
         captured = run_captured(
             config,
             dataset,
@@ -801,7 +880,7 @@ def run_trial(spec: ExperimentSpec, runner: Runner, trial: TrialSpec) -> _Ran:
         return record(
             TrialOutcome.STRATEGY_FAILED,
             f"{len(failures)} strategy failure(s); the first: {first.error}",
-            captured=captured.record,
+            captured=_scored(captured.record, trial.window),
             result_id=digest.result_id,
             provenance_id=provenance.provenance_id,
         )
@@ -812,7 +891,7 @@ def run_trial(spec: ExperimentSpec, runner: Runner, trial: TrialSpec) -> _Ran:
     )
     return record(
         outcome,
-        captured=captured.record,
+        captured=_scored(captured.record, trial.window),
         result_id=digest.result_id,
         provenance_id=provenance.provenance_id,
     )
@@ -1336,11 +1415,7 @@ class TrialLedger:
 
         record = ran.record
         if ran.capture is not None:
-            self._store.put(
-                {"instants": list(ran.capture.instants), "returns": list(ran.capture.returns)},
-                kind=_SERIES_KIND,
-                identity=ran.capture.series_id,
-            )
+            self.keep_series(ran.capture)
         held = self.find(record.trial_id)
         if held is not None:
             if _identified(held) != _identified(record):
@@ -1353,6 +1428,15 @@ class TrialLedger:
             return held
         self._store.put(_record_payload(record), kind=_TRIAL_KIND, identity=record.trial_id)
         return record
+
+    def keep_series(self, capture: CaptureRecord) -> None:
+        """File a series under its ``series_id``: a trial's, or one its experiment derived."""
+
+        self._store.put(
+            {"instants": list(capture.instants), "returns": list(capture.returns)},
+            kind=_SERIES_KIND,
+            identity=capture.series_id,
+        )
 
     def series(self, series_id: str) -> tuple[tuple[float, ...], tuple[float, ...]]:
         """The instants and returns filed under ``series_id``."""
@@ -1401,27 +1485,42 @@ class ExperimentRecord:
         trial_record_ids: Each recorded trial's ``record_id``, in submission order.
         counts: How many trials ended each recorded way.
         matrix_id: The identity of the completed trials' trial matrix (ADR-0054),
-            or ``None`` with fewer than two.
+            or ``None`` with fewer than two, or for a design whose folds share
+            no one set of periods.
+        selections: For a walk-forward design, each fold and the candidate it
+            selected, rendered, or ``None`` when no candidate completed.
+        out_of_sample: For a walk-forward design whose test windows tile, the
+            ``series_id`` of its selections' test-window series, joined in fold
+            order; ``None`` when a fold left none.
     """
 
     experiment_id: str
     trial_record_ids: tuple[str, ...]
     counts: LedgerCount
     matrix_id: str | None
+    selections: tuple[tuple[int, str | None], ...] = ()
+    out_of_sample: str | None = None
 
     @property
     def experiment_record_id(self) -> str:
-        """SHA-256 of the record's canonical text, under :data:`EXPERIMENT_RECORD_SCHEME`."""
+        """SHA-256 of the record's canonical text, under :data:`EXPERIMENT_RECORD_SCHEME`.
 
-        return _digest_text(
-            {
-                "counts": self.counts,
-                "experiment_id": self.experiment_id,
-                "matrix_id": self.matrix_id,
-                "scheme": EXPERIMENT_RECORD_SCHEME,
-                "trial_record_ids": list(self.trial_record_ids),
-            }
-        )
+        The selections and the out-of-sample series enter it only when there
+        are any, so a full-sample experiment's record is ADR-0072's.
+        """
+
+        payload: dict[str, Any] = {
+            "counts": self.counts,
+            "experiment_id": self.experiment_id,
+            "matrix_id": self.matrix_id,
+            "scheme": EXPERIMENT_RECORD_SCHEME,
+            "trial_record_ids": list(self.trial_record_ids),
+        }
+        if self.selections:
+            payload["selections"] = [[fold, label] for fold, label in self.selections]
+        if self.out_of_sample is not None:
+            payload["out_of_sample"] = self.out_of_sample
+        return _digest_text(payload)
 
 
 def _matrix_id(captures: Sequence[CaptureRecord], labels: Sequence[str]) -> str | None:
@@ -1460,22 +1559,137 @@ def run_experiment(
 
     registry.runner(runner)
     trials = spec.trials()
-    missing = [trial for trial in trials if ledger.find(trial.trial_id) is None]
-    for ran in executor.execute(spec, registry, runner, missing):
-        ledger.keep(ran)
+    _run_missing(spec, registry, runner, ledger, executor, trials)
+    selections: tuple[tuple[int, str | None], ...] = ()
+    reports: tuple[TrialSpec, ...] = ()
+    design = spec.validation
+    if isinstance(design, WalkForward):
+        chosen = _select(spec, design.measure, ledger, trials)
+        selections = tuple(
+            (fold, None if candidate is None else _render(candidate)) for fold, candidate in chosen
+        )
+        reports = tuple(
+            report_trial(spec, fold, candidate) for fold, candidate in chosen if candidate
+        )
+        _run_missing(spec, registry, runner, ledger, executor, reports)
     records: list[TrialRecord] = []
-    for trial in trials:
+    for trial in (*trials, *reports):
         held = ledger.find(trial.trial_id)
         if held is not None:
             records.append(held)
-    completed = [record for record in records if record.outcome is TrialOutcome.COMPLETED]
-    captures = [_capture_of(ledger, record) for record in completed]
+    matrix_id = None
+    if isinstance(design, FullSample):
+        completed = [record for record in records if record.outcome is TrialOutcome.COMPLETED]
+        captures = [_capture_of(ledger, record) for record in completed]
+        matrix_id = _matrix_id(captures, [record.label for record in completed])
     return ExperimentRecord(
         experiment_id=spec.experiment_id,
         trial_record_ids=tuple(record.record_id for record in records),
         counts=LedgerCount.of(records),
-        matrix_id=_matrix_id(captures, [record.label for record in completed]),
+        matrix_id=matrix_id,
+        selections=selections,
+        out_of_sample=_out_of_sample(ledger, reports) if reports else None,
     )
+
+
+def _run_missing(
+    spec: ExperimentSpec,
+    registry: RunnerRegistry,
+    runner: str,
+    ledger: TrialLedger,
+    executor: TrialExecutor,
+    trials: Sequence[TrialSpec],
+) -> None:
+    missing = [trial for trial in trials if ledger.find(trial.trial_id) is None]
+    for ran in executor.execute(spec, registry, runner, missing):
+        ledger.keep(ran)
+
+
+def _score(returns: Sequence[float], measure: SelectionMeasure) -> float:
+    """A scored series by ``measure``, as research's selection statistics define it.
+
+    The mean is compared by the exactly rounded sum, which orders series of one
+    length as the mean does; the Sharpe ratio is the mean over the sample
+    standard deviation, and one with no dispersion is 0 for a zero mean and an
+    infinity of the mean's sign otherwise.
+    """
+
+    total = math.fsum(returns)
+    if measure is SelectionMeasure.MEAN:
+        return total
+    count = len(returns)
+    centre = total / count
+    variance = math.fsum((value - centre) * (value - centre) for value in returns) / (count - 1)
+    if variance == 0.0:
+        return 0.0 if centre == 0.0 else math.copysign(math.inf, centre)
+    return centre / math.sqrt(variance)
+
+
+def _select(
+    spec: ExperimentSpec,
+    measure: SelectionMeasure,
+    ledger: TrialLedger,
+    trials: Sequence[TrialSpec],
+) -> list[tuple[int, Mapping[str, Any] | None]]:
+    """Each fold's selection: its best completed candidate by ``measure``, ties to the first.
+
+    A candidate whose trial did not complete is counted, and never selected. A
+    fold with no completed candidate selects nothing.
+    """
+
+    chosen: list[tuple[int, Mapping[str, Any] | None]] = []
+    for fold in sorted({trial.fold for trial in trials}):
+        best: tuple[float, Mapping[str, Any]] | None = None
+        for trial in (each for each in trials if each.fold == fold):
+            held = ledger.find(trial.trial_id)
+            if held is None or held.outcome is not TrialOutcome.COMPLETED:
+                continue
+            assert held.series_id is not None
+            _, returns = ledger.series(held.series_id)
+            if len(returns) < 2:
+                continue
+            score = _score(returns, measure)
+            if best is None or score > best[0]:
+                best = (score, trial.candidate)
+        chosen.append((fold, None if best is None else best[1]))
+    return chosen
+
+
+def _out_of_sample(ledger: TrialLedger, reports: Sequence[TrialSpec]) -> str | None:
+    """The selections' test-window series joined in fold order, filed; ``None`` if they do not join.
+
+    They join when every fold's selection completed and each series starts at
+    the instant the previous one ended: test windows that tile the sample.
+    """
+
+    instants: list[float] = []
+    returns: list[float] = []
+    extractor_id = ""
+    for report in reports:
+        record = ledger.find(report.trial_id)
+        if record is None or record.outcome is not TrialOutcome.COMPLETED:
+            return None
+        if record.series_id is None:
+            return None
+        held_instants, held_returns = ledger.series(record.series_id)
+        if instants and held_instants[0] != instants[-1]:
+            return None
+        instants.extend(held_instants if not instants else held_instants[1:])
+        returns.extend(held_returns)
+        extractor_id = record.extractor_id
+    joined = CaptureRecord(
+        extractor_id=extractor_id,
+        instants=tuple(instants),
+        returns=tuple(returns),
+        series_id=_sha256(canonical_captured_series_key(instants, returns, None)),
+        insolvent_at=None,
+        steps=0,
+        configuration_id=None,
+        trace_id=None,
+        traced=None,
+    )
+    ledger.keep_series(joined)
+    return joined.series_id
 
 
 def _capture_of(ledger: TrialLedger, record: TrialRecord) -> CaptureRecord:
@@ -1521,7 +1735,7 @@ def read_lockbox(
             "experiment's that states why (Lockbox.reread), and it is counted."
         )
     whole = replace(spec, validation=FullSample(None))
-    ran = run_trial(whole, registry.runner(runner), trial)
+    ran = run_trial(whole, registry.runner(runner), replace(trial, window=None))
     ledger.keep_lockbox_read(
         LockboxRead(spec.experiment_id, lockbox_id, trial.trial_id, lockbox.reread)
     )

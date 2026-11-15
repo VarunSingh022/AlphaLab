@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `0d3c98c` |
+| Remote head | `d2e4359` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M4's close (0d3c98c) on hosted CI; then M5 (WS-24, WS-06) under ADR-0073: the designs, walk-forward over backtests with its warm-up, CV and CPCV, the ledger's statistics, the promotion method, the leak mutants and S-13. |
+| Next | M5b: walk-forward over backtests -- runs restricted to a trial's window, the warm-up never scored, the ledger's selection recorded, REPORT trials after it, resume; then CV and CPCV, the ledger's statistics, the promotion method, S-13 and the leak mutants. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -105,6 +105,10 @@ Never:
 | `6267194` | CodeQL | 43704312808 | success |
 | `f82480c` | Continuous Integration | 43707197973 | success: all six quality-gate cells; reusable workers under both lifetimes, example 80 in the installed smoke test with the network refused |
 | `f82480c` | CodeQL | 43707197928 | success |
+| `0d3c98c` | Continuous Integration | 43711320401 | success: all six quality-gate cells, carrying M4's close (the mutation series EX and the tests it asked for) |
+| `0d3c98c` | CodeQL | 43711320364 | success |
+| `eef7556` | Continuous Integration | 43712078205 | success: all six quality-gate cells, carrying ADR-0073 |
+| `eef7556` | CodeQL | 43712078208 | success |
 
 ## Continuation log
 
@@ -158,6 +162,7 @@ Never:
 - **2026-11-15** M4's exit gate met locally on the final tree: 48 trials counted with their failures and insolvencies; spawned and cluster runs equal the sequential record for record; the spy-on-import refusal; rerun_trial reproduces a record in a fresh interpreter; the executor's own cost 2.1 percent. Mutation series EX caught 40 of 40 on the final tree, after an invalid first run (TD-24) and two tests added for EX05 and the yield order. GAP-01 closed.
 - **2026-11-15** f82480c (reusable workers, example 80, the executor benchmark) passed hosted CI on all six cells. M4's close (0d3c98c: the mutation series EX, 40 of 40 caught on the final tree, and the tests it asked for) passed the full gate and was pushed; Draft PR #22 updated.
 - **2026-11-15** ADR-0073 accepted (TD-26): validation over backtests -- designs in the specification, research's splitters (CPCV among them), a trial per candidate, fold and phase over a window the ledger restricts, a warm-up never scored, selections recorded, the ledger's statistics and selection-aware promotion evidence. M5's entry conditions are M2 and M4, M4's close on hosted CI.
+- **2026-11-15** M4 closed on hosted CI: its close (0d3c98c) passed all six cells and CodeQL, as did ADR-0073 (eef7556), M5's entry condition. M5's first part, the validation designs with research's CPCV splitter and a trial's window (d2e4359), passed the full gate (13,401 tests) and was pushed.
 
 ## Milestones
 
@@ -168,8 +173,8 @@ Never:
 | M1 | Hosted CI passed | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
 | M2 | Hosted CI passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Hosted CI passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
-| M4 | Local validation passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
-| M5 | Not started | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
+| M4 | Hosted CI passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
+| M5 | In progress | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Not started | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Not started | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Not started | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
@@ -629,7 +634,7 @@ Evidence:
 - [Hosted CI passed] M4: A time limit times the trial from the worker's load, never its start (TD-24, found by M4's first mutation run)
 - [Hosted CI passed] M4: Spawned workers serve many trials (trials_per_worker); the executor's own cost 2.1 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)
 - [Hosted CI passed] M4: Example 80, a ledgered sweep (in the installed smoke test, the network refused), and docs/EXPERIMENTS.md, the experiments guide (WS-05 item 17)
-- [Pushed] M4: Mutation series EX (40): the ledger, its executors, the one registry, the cluster, rerun_trial, identifiers drawn from no caller, the consumers -- 40 of 40 caught on the final tree
+- [Hosted CI passed] M4: Mutation series EX (40): the ledger, its executors, the one registry, the cluster, rerun_trial, identifiers drawn from no caller, the consumers -- 40 of 40 caught on the final tree
 
 ### WS-06: Statistical research functions
 
@@ -697,8 +702,9 @@ Evidence:
 
 ### WS-24: Validation over actual backtests
 
-- [Implemented locally] M5: ADR-0073 accepted (TD-26): validation over backtests, M5's entry condition
-- [Local validation passed] M5: Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)
+- [Hosted CI passed] M5: ADR-0073 accepted (TD-26): validation over backtests, M5's entry condition
+- [Pushed] M5: Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)
+- [Local validation passed] M5: Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 

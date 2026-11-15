@@ -527,6 +527,20 @@ entry below says otherwise.
     group).
   * **Unchanged identities.** A full-sample experiment's identities are
     ADR-0072's: the reference experiment's pins hold.
+* **Walk-forward over backtests** [plan WS-24, K.4, ADR-0073]. Each trial's run
+  is restricted to its warm-up and window.
+  * **The scored series.** It is the periods ending inside the window: the
+    warm-up is run and never scored.
+  * **Selection.** After a fold's `SELECT` trials are recorded, the ledger
+    selects the best completed candidate by the design's measure, ties to the
+    first, and runs the selection on the fold's test window (`report_trial`).
+    `run_experiment` runs both stages, and a resume derives the second from
+    the recorded first.
+  * **The record.** `ExperimentRecord` gains `selections` and `out_of_sample`,
+    the selections' test-window series joined, written only when present.
+    A spawned walk-forward experiment equals the sequential one: a worker
+    finds a test-window trial among `every_trial`
+    (`tests/integration/test_walk_forward_over_backtests.py`).
 
 ## Changed
 

@@ -11,7 +11,7 @@ can compute the pins.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Any
 
@@ -24,6 +24,7 @@ from alphalab.backtesting.capture import (
     ReturnExtractor,
 )
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE
+from alphalab.lifecycle.designs import WalkForward
 from alphalab.lifecycle.experiments import (
     ExperimentDefinition,
     ExperimentRecord,
@@ -40,7 +41,9 @@ from alphalab.lifecycle.experiments import (
 )
 from alphalab.model_registry.artifact_store import MemoryArtifactStore
 from alphalab.model_registry.evidence import EvidenceStore, MemoryEvidenceIndex
-from alphalab.research.walk_forward_optimization import ParameterSpace
+from alphalab.research.selection import SelectionMeasure
+from alphalab.research.walk_forward import WindowMode
+from alphalab.research.walk_forward_optimization import ParameterSpace, Refit
 from alphalab.runtime.assumptions import execution_assumptions
 from alphalab.runtime.retention import RetentionPolicy
 from alphalab.strategy.context import StrategyContext
@@ -236,3 +239,31 @@ DEFINITION = ExperimentDefinition(spec(), REGISTRY)
 
 #: The same experiment with a two-second limit a trial may take.
 SLOW_DEFINITION = ExperimentDefinition(spec(TrialLimits(2.0)), REGISTRY)
+
+
+def walk_forward_spec(refit: Refit = Refit.TRAIN) -> ExperimentSpec:
+    """The reference experiment validated walk-forward (ADR-0073).
+
+    Three folds of 20 instants trained, 10 selected on and 10 tested, the test
+    windows tiling the sample's last 30 instants, with a warm-up of five.
+    """
+
+    return replace(
+        spec(),
+        validation=WalkForward(
+            train=20,
+            validation=10,
+            test=10,
+            mode=WindowMode.ROLLING,
+            step=None,
+            warm_up=5,
+            refit=refit,
+            measure=SelectionMeasure.MEAN,
+            purge=None,
+            lockbox=None,
+        ),
+    )
+
+
+#: The walk-forward experiment, where a spawned worker loads it.
+WALK_FORWARD_DEFINITION = ExperimentDefinition(walk_forward_spec(), REGISTRY)

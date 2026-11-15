@@ -772,7 +772,7 @@
       "deliverables": "Ledger, identities, outcomes (`INSOLVENT`), executor, lockbox, resume; `research_assistant` and `cloud_research` as consumers",
       "exit_gate": "48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal",
       "size": "L",
-      "status": "Local validation passed",
+      "status": "Hosted CI passed",
       "evidence": [
         "Exit gate, a 48-trial ledgered experiment with failures and an insolvency counted: tests/integration/test_trial_ledger.py. 48 candidates in one full-sample fold -- 40 completed, 2 insolvent, 2 strategy failures, 2 refused, 2 failed -- every one counted; a capture refused at insolvency is INSOLVENT too. S-01's 16 candidates in 3 folds is M5's, with its validation designs (ADR-0072, departures). Passed on hosted CI on 08e2264 and every push since.",
         "Exit gate, spawn = sequential: tests/integration/test_spawned_trials.py, eight workers, under both worker lifetimes, record for record and by experiment_record_id; an executor yields in submission order whatever order trials finish in, read on the executor itself. The cluster executor equals sequential under its own scheduler and cluster_scheduler's aging and affinity, over as many cycles as its capacity needs (tests/integration/test_cluster_executor.py).",
@@ -783,7 +783,8 @@
         "WS-05 item 17: example 80, a ledgered sweep, run by the installed smoke test from the built wheel with the network refused; docs/EXPERIMENTS.md, the experiments guide.",
         "Identities: the reference experiment's experiment_id, matrix_id and experiment_record_id pinned, computed identically under CPython 3.12, 3.13 and 3.14 (TD-20), held on Linux and macOS on hosted CI.",
         "Mutation series EX (WS-05, WS-23), 40 mutations, each caught on the final tree by: EX01 (the hypothesis leaves the experiment's identity): test_trial_ledger::test_the_experiment_id_moves_with_every_part_of_the_specification[changed0]; EX02 (a trial's seed ignores its candidate): test_trial_ledger::test_a_trial_draws_the_walk_forward_searchs_own_seed; EX03 (a trial's identity leaves out its experiment): test_trial_ledger::test_a_trial_id_is_its_experiment_candidate_fold_and_phase; EX04 (a record's diagnostics enter its identity): test_trial_ledger::test_diagnostics_enter_no_identity_so_an_interpreters_wording_moves_nothing; EX05 (a runner raising AlphaLab's own error is FAILED, not REFUSED): test_trial_ledger::test_a_runner_raising_alphalabs_own_error_is_refused_and_any_other_error_failed (added for it); EX06 (a series truncated at insolvency is COMPLETED): test_cluster_executor::test_an_experiment_on_a_cluster_is_the_sequential_one_record_for_record (the trial matrix refuses the truncated series, 58 grid instants against 61); EX07 (a capture refused at insolvency is FAILED, not INSOLVENT): test_trial_ledger::test_a_capture_refused_at_insolvency_is_insolvent_and_keeps_no_series; EX08 (another dataset is not refused): test_cluster_executor::test_an_experiment_on_a_cluster_is_the_sequential_one_record_for_record (the trial matrix refuses the other dataset's series, 60 grid instants against 61); EX09 (a run keeps the runner's seed, not the trial's): test_experiment_identities_are_pinned::test_the_reference_experiment_is_pinned; EX10 (a run keeps the runner's retention, not the experiment's): test_experiment_identities_are_pinned::test_the_reference_experiment_is_pinned; EX11 (a resume runs every trial again): test_trial_ledger::test_a_resume_runs_only_what_is_missing_and_records_the_same_experiment; EX12 (a trial that leaves another record replaces the first): test_trial_ledger::test_a_trial_that_leaves_another_record_is_refused_as_nondeterminism; EX13 (the lockbox is not held back from the trials): test_trial_ledger::test_the_lockbox_is_held_back_read_once_and_reread_only_by_a_declaring_child; EX14 (the lockbox can be read twice): test_trial_ledger::test_the_lockbox_is_held_back_read_once_and_reread_only_by_a_declaring_child; EX15 (a spawned executor yields its trials in another order than submitted): test_spawned_trials::test_an_executor_yields_in_submission_order_whatever_order_trials_finish_in[fresh] (added for it); EX16 (the worker imports the definition before it refuses the network): test_cluster_executor::test_a_definition_that_reaches_for_the_network_fails_every_trial_on_the_cluster; EX17 (the worker never refuses the network): test_cluster_executor::test_a_definition_that_reaches_for_the_network_fails_every_trial_on_the_cluster; EX18 (the worker runs another experiment's definition): test_cluster_executor::test_a_worker_that_loads_another_experiment_is_refused_on_the_cluster; EX19 (an interrupted trial is recorded as FAILED): test_cluster_executor::test_a_trial_past_its_limit_is_interrupted_and_a_resume_on_the_cluster_finishes; EX20 (the registry resolves a dotted name it does not hold (SEC-001)): test_trial_ledger::test_a_runner_is_looked_up_by_name_never_resolved; EX21 (a cycle given a registry still resolves a path it does not hold): test_registered_tasks::test_a_name_the_registry_does_not_hold_fails_before_anything_is_imported[tests.unit.common._never_imported.anything]; EX22 (the cycle ignores the assignment policy it is given): test_cluster_executor::test_a_policy_that_places_no_trial_is_refused_not_waited_on; EX23 (registered outcomes are applied in reverse submission order): test_registered_tasks::test_outcomes_through_a_registry_are_applied_in_submission_order; EX24 (a cluster with jobs of its own is accepted): test_cluster_executor::test_a_cluster_with_no_worker_or_with_jobs_of_its_own_is_refused; EX25 (a cluster's trial that raised is taken as interrupted): test_cluster_executor::test_a_worker_that_loads_another_experiment_is_refused_on_the_cluster; EX26 (a candidate space mixes templates): test_research_assistant::test_a_candidate_space_is_one_templates_non_empty_and_repeats_nothing; EX27 (a candidate space keeps only the first candidate): test_ledger_consumers::test_the_assistants_candidates_are_the_experiments_trials_in_its_order; EX28 (a tracker run cites the experiment's name, not its identity): test_ledger_consumers::test_a_tracker_run_cites_its_experiment_by_id_and_is_found_by_it; EX29 (the runs of every experiment are its runs): test_ledger_consumers::test_a_tracker_run_cites_its_experiment_by_id_and_is_found_by_it; EX30 (a rerun always reproduces its record): test_ledger_reproduces::test_a_rerun_that_leaves_another_record_says_so_and_files_nothing; EX31 (a rerun files the record it left): test_ledger_reproduces::test_a_rerun_that_leaves_another_record_says_so_and_files_nothing; EX32 (the runner draws identifiers from the scope around the experiment): test_ledger_reproduces::test_an_experiment_draws_no_identifier_from_the_scope_around_it[sequential]; EX33 (the cluster's submissions draw from the scope around the experiment): test_ledger_reproduces::test_an_experiment_draws_no_identifier_from_the_scope_around_it[cluster]; EX34 (the cluster's cycles draw from the scope around the experiment): test_ledger_reproduces::test_an_experiment_draws_no_identifier_from_the_scope_around_it[cluster]; EX35 (the parent times a worker's start against the trial's limit): test_spawned_trials::test_a_limit_times_the_trial_never_the_workers_start[fresh]; EX36 (the worker never stops a trial at its limit): test_cluster_executor::test_a_trial_past_its_limit_is_interrupted_and_a_resume_on_the_cluster_finishes; EX37 (a worker never runs a second trial): test_spawned_trials::test_a_worker_loads_the_experiment_once_and_runs_as_many_trials_as_it_is_given[None-1]; EX38 (a worker that ended is asked for the next trial): test_spawned_trials::test_a_worker_that_dies_records_nothing_for_its_trial[reused]; EX39 (what a trial writes to its standard output reaches the worker's answers): test_spawned_trials::test_what_a_trial_writes_never_reaches_the_workers_answers[fresh]; EX40 (a cluster yields a cycle's trials in another order than submitted): test_cluster_executor::test_an_experiment_on_a_cluster_is_the_sequential_one_record_for_record (the reversed prefix drops the trials later cycles run).",
-        "Mutation history: the first run (EX01 to EX29) is not evidence -- its catches were the time-limit tests failing under the harness's load whatever the mutation -- and the defect it exposed was fixed (TD-24). On the final tree 37 of 39 were caught by the tests that exercise them; EX05 survived, and the test it needed was added; EX15's first failure was the import-site scan flagging the mutation's own __import__, because run_experiment reads records in submission order whatever an executor yields, so it was restated as a reversed yield and the yield order tested on the executor itself, with EX40 for the cluster. Baseline: 13,278 passed, 90 deselected (the tests that read a clock, and the certificate's source digest)."
+        "Mutation history: the first run (EX01 to EX29) is not evidence -- its catches were the time-limit tests failing under the harness's load whatever the mutation -- and the defect it exposed was fixed (TD-24). On the final tree 37 of 39 were caught by the tests that exercise them; EX05 survived, and the test it needed was added; EX15's first failure was the import-site scan flagging the mutation's own __import__, because run_experiment reads records in submission order whatever an executor yields, so it was restated as a reversed yield and the yield order tested on the executor itself, with EX40 for the cluster. Baseline: 13,278 passed, 90 deselected (the tests that read a clock, and the certificate's source digest).",
+        "Hosted CI: 60263cf (ADR-0072), 08e2264 (the ledger), 20ef953 (SpawnExecutor), 98174f1 (the consumers), 6267194 (rerun_trial, zero draws, the trial-timed limit), f82480c (reusable workers, example 80, the executor benchmark) and 0d3c98c (M4's close: the mutation series and the tests it asked for) each passed all six quality-gate cells -- Linux and macOS, CPython 3.12, 3.13 and 3.14 -- and CodeQL. Release Preflight is skipped by design and not counted."
       ]
     },
     {
@@ -796,7 +797,7 @@
       "deliverables": "WF, CV and CPCV over backtests; promotion `ValidationMethod`; ledger DSR, SPA, PBO",
       "exit_gate": "S-13; leak mutants caught; promotion refusal",
       "size": "L",
-      "status": "Not started",
+      "status": "In progress",
       "evidence": []
     },
     {
@@ -1231,7 +1232,7 @@
         {
           "milestone": "M4",
           "item": "Mutation series EX (40): the ledger, its executors, the one registry, the cluster, rerun_trial, identifiers drawn from no caller, the consumers -- 40 of 40 caught on the final tree",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -1556,11 +1557,16 @@
         {
           "milestone": "M5",
           "item": "ADR-0073 accepted (TD-26): validation over backtests, M5's entry condition",
-          "status": "Implemented locally"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M5",
           "item": "Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M5",
+          "item": "Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)",
           "status": "Local validation passed"
         }
       ],
@@ -2469,7 +2475,7 @@
   },
   "state": {
     "updated": "2026-11-15",
-    "remote_head": "0d3c98c",
+    "remote_head": "d2e4359",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2789,10 +2795,34 @@
         "workflow": "CodeQL",
         "run": 43707197928,
         "result": "success"
+      },
+      {
+        "sha": "0d3c98c",
+        "workflow": "Continuous Integration",
+        "run": 43711320401,
+        "result": "success: all six quality-gate cells, carrying M4's close (the mutation series EX and the tests it asked for)"
+      },
+      {
+        "sha": "0d3c98c",
+        "workflow": "CodeQL",
+        "run": 43711320364,
+        "result": "success"
+      },
+      {
+        "sha": "eef7556",
+        "workflow": "Continuous Integration",
+        "run": 43712078205,
+        "result": "success: all six quality-gate cells, carrying ADR-0073"
+      },
+      {
+        "sha": "eef7556",
+        "workflow": "CodeQL",
+        "run": 43712078208,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M4's close (0d3c98c) on hosted CI; then M5 (WS-24, WS-06) under ADR-0073: the designs, walk-forward over backtests with its warm-up, CV and CPCV, the ledger's statistics, the promotion method, the leak mutants and S-13.",
+    "next": "M5b: walk-forward over backtests -- runs restricted to a trial's window, the warm-up never scored, the ledger's selection recorded, REPORT trials after it, resume; then CV and CPCV, the ledger's statistics, the promotion method, S-13 and the leak mutants.",
     "open_questions": []
   },
   "log": [
@@ -2995,6 +3025,10 @@
     {
       "date": "2026-11-15",
       "entry": "ADR-0073 accepted (TD-26): validation over backtests -- designs in the specification, research's splitters (CPCV among them), a trial per candidate, fold and phase over a window the ledger restricts, a warm-up never scored, selections recorded, the ledger's statistics and selection-aware promotion evidence. M5's entry conditions are M2 and M4, M4's close on hosted CI."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "M4 closed on hosted CI: its close (0d3c98c) passed all six cells and CodeQL, as did ADR-0073 (eef7556), M5's entry condition. M5's first part, the validation designs with research's CPCV splitter and a trial's window (d2e4359), passed the full gate (13,401 tests) and was pushed."
     }
   ]
 }
