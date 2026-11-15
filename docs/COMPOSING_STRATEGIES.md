@@ -285,6 +285,8 @@ only a rerun detects a consistent forgery.
 
 ### Searching over candidates: the trial ledger (v4.3)
 
+`docs/EXPERIMENTS.md` is the guide; this is its summary.
+
 A search over configurations measures the search as much as the strategy, so
 v4.3 records the population a statistic is given (ADR-0072).
 `alphalab.lifecycle.experiments` is that record.

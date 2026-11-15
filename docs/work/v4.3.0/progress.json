@@ -1198,6 +1198,11 @@
           "milestone": "M4",
           "item": "Spawned workers serve many trials (trials_per_worker); the executor's own cost 1.8 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)",
           "status": "Local validation passed"
+        },
+        {
+          "milestone": "M4",
+          "item": "Example 80, a ledgered sweep (in the installed smoke test, the network refused), and docs/EXPERIMENTS.md, the experiments guide (WS-05 item 17)",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []

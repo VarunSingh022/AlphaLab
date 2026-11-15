@@ -97,6 +97,7 @@ API.
 | 77 | `77_a_short_squeezed_by_its_lender.py` | **A short squeezed by its lender** (phase 3): a lender's recall bought in after its deadline, the buy-in resting through a halt and crossing at the reopening auction, a bid amended in place, a day's borrow fee accrued and posted once, and the run replayed and resumed |
 | 78 | `78_a_tender_split_between_holders.py` | **A tender split between holders** (phase 4): holders of one position electing apart, a prorated cash alternative, a record instant, and the issuer's delayed then corrected payment, reconciled from the ledger |
 | 79 | `79_bid_into_a_reopening_auction.py` | **Bid into a reopening auction** (phase 5): the venue's published book and indications shown to a strategy as published, a withdrawal among them, a bid above the indicated price, the uncross computed from the book, and the venue conditions the result states |
+| 80 | `80_a_ledgered_sweep.py` | **A ledgered sweep** (v4.3): the research assistant's candidates run as trials in spawned workers that refuse the network, every trial counted with its failures, a resume that runs nothing, one record reproduced in a fresh interpreter, the tracker citing the experiment, and the lockbox read once |
 
 ## Reading order
 

@@ -610,6 +610,7 @@ Evidence:
 - [Local validation passed] M4: An experiment draws no identifier from the scope around it, under every executor (ADR-0029 D6); a candidate not of the configuration type refused (R54-3)
 - [Local validation passed] M4: A time limit times the trial from the worker's load, never its start (TD-24, found by M4's first mutation run)
 - [Local validation passed] M4: Spawned workers serve many trials (trials_per_worker); the executor's own cost 1.8 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)
+- [Local validation passed] M4: Example 80, a ledgered sweep (in the installed smoke test, the network refused), and docs/EXPERIMENTS.md, the experiments guide (WS-05 item 17)
 
 ### WS-06: Statistical research functions
 

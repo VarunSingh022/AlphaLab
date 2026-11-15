@@ -504,6 +504,13 @@ entry below says otherwise.
     interpreter's start and its imports are not counted. M4's first mutation
     run found the parent's timer counting them: on a busy host a worker's start
     alone outran a two-second limit.
+  * **A ledgered sweep, end to end** [plan WS-05 item 17]. Example 80
+    (`examples/80_a_ledgered_sweep.py`, run by the installed smoke test with
+    the network refused) runs the research assistant's nine candidates as
+    trials in spawned workers. The two that are not crossovers fail and are
+    counted. A resume runs nothing, one record is reproduced in a fresh
+    interpreter, a tracker run cites the experiment, and the lockbox is read
+    once. `docs/EXPERIMENTS.md` is the guide.
 
 ## Changed
 

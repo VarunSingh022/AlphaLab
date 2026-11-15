@@ -150,7 +150,10 @@ def main(expected_version: str) -> None:
     # a venue's and an issuer's declared terms; and a short squeezed by its
     # lender's recall, through a halt and its reopening auction; and a tender
     # split between holders, prorated, its payment delayed and corrected; and
-    # (phase 5) a bid into a reopening auction from the venue's indications.
+    # (phase 5) a bid into a reopening auction from the venue's indications;
+    # and (v4.3) a ledgered sweep, its trials run in spawned workers that refuse
+    # the network, every trial counted, one record reproduced and the lockbox
+    # read once.
     for name in (
         "11_unified_backtest.py",
         "70_build_a_strategy.py",
@@ -163,6 +166,7 @@ def main(expected_version: str) -> None:
         "77_a_short_squeezed_by_its_lender.py",
         "78_a_tender_split_between_holders.py",
         "79_bid_into_a_reopening_auction.py",
+        "80_a_ledgered_sweep.py",
     ):
         # Loaded as a module, registered first: a dataclass with postponed
         # annotations looks its module up in sys.modules while it is built.
@@ -192,7 +196,7 @@ def main(expected_version: str) -> None:
     print(
         f"installed alphalab {installed} at {location.parent}: pip check clean, no runtime "
         f"requirement, {len(imported)} modules, {public} public names as the manifest records, "
-        "py.typed present, examples 11 and 70 to 79 and the consumer contract ran with the "
+        "py.typed present, examples 11 and 70 to 80 and the consumer contract ran with the "
         "network refused"
     )
 
