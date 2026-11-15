@@ -102,7 +102,7 @@
       "title": "Researcher entry point alphalab.lab",
       "status": "Decided under delegation (2026-11-15)",
       "due": "Before M4",
-      "note": "TD-23: alphalab.lab, a third composition top that imports lifecycle and is imported by nothing, delivered at M13 (N20, WS-19); until then the ledger is reached from alphalab.lifecycle."
+      "note": "TD-23: alphalab.lab, a documented module and composition top that imports lifecycle and is imported by nothing, delivered at M13 under ADR-0068 (N20, WS-19); its documented-module part before M4 is R54-6's, delivered at M4."
     },
     {
       "item": 10,
@@ -556,11 +556,24 @@
       "title": "D-54-R3: the researcher entry point is alphalab.lab, a third composition top, at M13",
       "problem": "The plan (section E.9, sign-off item 9) leaves open where the researcher's entry point lives, alphalab.lab or a workflow module, and its register places the decision before M4, when the ledger becomes public. Nothing may import lifecycle, so the entry point cannot live below it.",
       "alternatives": "alphalab.lab; a workflow module; the ledger reached from alphalab.lifecycle alone.",
-      "decision": "alphalab.lab: a top-level module that imports lifecycle and is imported by nothing -- a third composition top beside lifecycle and alphalab.api -- delivered with its 60-line example at M13 (N20, WS-19). Until then experiments are reached from alphalab.lifecycle, where M4 exports them (R54-6). The name workflow is not used: research_assistant.workflow already holds it, and it names a process, not a place.",
+      "decision": "alphalab.lab: a documented module and composition top that imports lifecycle and is imported by nothing -- a third top beside lifecycle and alphalab.api -- holding thin, choice-requiring builders over the layers below (plan E.9), delivered with its 60-line example at M13 (N20, WS-19) under ADR-0068, the plan's number for it, accepted before M13. The plan's 'documented-module part before M4' is R54-6's, delivered at M4: lifecycle.experiments is a documented public module, exported from alphalab.lifecycle and described in docs/COMPOSING_STRATEGIES.md. The name workflow is not used: research_assistant.workflow already holds it, and it names a process, not a place.",
       "rationale": "The plan recommends lab. A top that imports lifecycle keeps the rule that nothing imports lifecycle, and deciding it now means M4's public names are the ones lab will compose.",
       "compatibility": "No code at M4; alphalab.lab is additive when it lands.",
-      "record": "This register (decision 9).",
-      "tests": "At M13, with alphalab.lab."
+      "record": "This register (decision 9); ADR-0068 before M13 (plan E.9 and the ADR programme).",
+      "tests": "At M13, with alphalab.lab and the plan's 'nothing imports lab' test (E.4); R54-6's part by tests/regression/test_public_api_manifest.py."
+    },
+    {
+      "id": "TD-24",
+      "date": "2026-11-15",
+      "workstream": "WS-05",
+      "title": "rerun_trial, an experiment that draws no identifier, and a time limit that times the trial",
+      "problem": "Reading WS-05 and GAP-01 against what M4 had delivered showed three things missing or wrong. GAP-01's acceptance and WS-05's item 14 ask that rerun_trial reproduce a record in a fresh process, and there was none. ADR-0054's review asks for zero identifier draws, and a sequential experiment drew 36 from a seeded scope around it -- four per trial whose runner built inputs, all of them the runner's, none the ledger's -- while a cluster's events drew from the caller's stream too. And M4's first mutation run caught every mutation through the time-limit tests, whatever the mutation: under its four parallel suites a spawned worker's start (0.46 s idle, about 1.15 s under load, against a 50 ms trial) outran the two-second limit, because the parent's timer counted the interpreter's start and its imports.",
+      "alternatives": "rerun_trial: filing the rerun's record (the ledger refuses a different one anyway) or reporting it. The runner's draws: an isolated uuid4 scope, or a scope seeded by the trial. The limit: a longer limit in the tests, which would hide the defect rather than remove it; the worker signalling when it has loaded so the parent's timer starts then; or the worker timing its own trial, with the parent keeping a start allowance as a backstop.",
+      "decision": "rerun_trial(spec, registry, runner, ledger, trial_id, executor) runs one recorded trial again and returns a TrialRerun holding the held and the rerun record ids; it files nothing. run_trial runs the runner in id_scope over the trial's own formula in a phase no trial has, and ClusterExecutor enters id_scope(None) around each of the cluster's calls, never across a yield. The worker starts a watchdog once it has loaded the experiment, and a trial still running at the limit ends the process with TIMED_OUT; the parent waits the limit plus a 600-second start allowance before treating a silent worker as dead.",
+      "rationale": "A rerun is a check, not a record. A seeded scope makes a runner's identifiers the trial's in every process and order -- the same reason a run mints from its seed -- and an isolated scope for the cluster keeps its bookkeeping out of the caller's stream. A researcher's limit is on their trial: a busy host slows an interpreter's start, and that must never interrupt a trial that runs in milliseconds. Measured: under sixteen busy processes and three concurrent suites the old code recorded 0 of 9 normal trials in each time-limit test, and the new code passes all three.",
+      "compatibility": "Additive (TrialRerun, rerun_trial); the ledger and its executors are unreleased. No record moved: the reference experiment's pinned identities hold, because a runner's identifiers do not enter its run's.",
+      "record": "docs/ADR/0072-experiments-and-the-trial-ledger.md (settled at implementation, points 5, 12 and 13; two departures).",
+      "tests": "tests/integration/test_ledger_reproduces.py; tests/integration/test_spawned_trials.py::test_a_limit_times_the_trial_never_the_workers_start."
     }
   ],
   "plan_changes": [
@@ -1121,36 +1134,51 @@
         {
           "milestone": "M4",
           "item": "lifecycle.experiments: ExperimentSpec, TrialSpec, the five derived identities, TrialOutcome, TrialRecord, LedgerCount, ExperimentRecord",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M4",
           "item": "RunnerRegistry and SequentialExecutor; inputs held to the specification; resume; nondeterminism refused; the lockbox read once",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M4",
           "item": "The 48-trial experiment with failures and insolvency counted; the reference experiment's identities pinned across interpreters",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M4",
           "item": "SpawnExecutor: a fresh interpreter per trial, the network refused before the researcher's code, records in submission order; spawned equals sequential record for record",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M4",
           "item": "One registry: RunnerRegistry in alphalab.common, taken by the ledger's executors and the cluster's cycle (D-54-11, TD-21)",
-          "status": "Local validation passed"
+          "status": "Pushed"
         },
         {
           "milestone": "M4",
           "item": "ClusterExecutor: trials as registered tasks on a cloud_research cluster, distributed's job lifecycle and a cluster_scheduler policy -- one executor path (GAP-31); cluster equals sequential record for record",
-          "status": "Local validation passed"
+          "status": "Pushed"
         },
         {
           "milestone": "M4",
           "item": "The consumers: research_assistant.candidate_space feeds an experiment's trials; the tracker linked by experiment_id in its tags (D-54-3, TD-22)",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M4",
+          "item": "rerun_trial: a record of every outcome reproduced in a fresh process (GAP-01's acceptance, WS-05 item 14)",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M4",
+          "item": "An experiment draws no identifier from the scope around it, under every executor (ADR-0029 D6); a candidate not of the configuration type refused (R54-3)",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M4",
+          "item": "A time limit times the trial from the worker's load, never its start (TD-24, found by M4's first mutation run)",
           "status": "Local validation passed"
         }
       ],
@@ -1369,12 +1397,12 @@
         {
           "milestone": "M4",
           "item": "lifecycle.experiments documented as a public module (R54-6): exported from alphalab.lifecycle and described in docs/COMPOSING_STRATEGIES.md",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M4",
           "item": "D-54-R3 decided (TD-23): alphalab.lab, a third composition top, at M13",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": []
@@ -1452,12 +1480,12 @@
         {
           "milestone": "M4",
           "item": "The spy-on-import refusal (N18), and BDY-029 stated in SECURITY.md and held by a test",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M4",
           "item": "cloud_research's cycle looks a task up in the registry: an unregistered name, a dotted path to a real task included, fails before anything is imported (GAP-05, D-54-6); resolve_task superseded until 5.0",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": [
@@ -1864,8 +1892,8 @@
       "id": "GAP-27",
       "problem": "No hypothesis record",
       "severity": "L/P1",
-      "status": "Open",
-      "status_note": "Delivered locally at M4 (ADR-0072, R54-9): ExperimentSpec.hypothesis is stated and its digest enters experiment_id; closes when hosted CI passes it.",
+      "status": "Closed",
+      "status_note": "Closed at M4 (WS-05, ADR-0072, R54-9): ExperimentSpec.hypothesis is stated, and its SHA-256 enters experiment_id, so an experiment's hypothesis is part of its identity (test_the_experiment_id_moves_with_every_part_of_the_specification). Passed on hosted CI, all six cells, on 08e2264.",
       "workstreams": [
         "WS-05"
       ],
@@ -2370,7 +2398,7 @@
   },
   "state": {
     "updated": "2026-11-15",
-    "remote_head": "20ef953ff43ff60b25a32441fb311945986b5041",
+    "remote_head": "98174f1",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2636,10 +2664,28 @@
         "workflow": "CodeQL",
         "run": 43698744299,
         "result": "success"
+      },
+      {
+        "sha": "08e2264",
+        "workflow": "Continuous Integration",
+        "run": 43698744236,
+        "result": "success: all six quality-gate cells; the reference experiment's pinned identities held on Linux and macOS under CPython 3.12, 3.13 and 3.14"
+      },
+      {
+        "sha": "20ef953",
+        "workflow": "Continuous Integration",
+        "run": 43699261058,
+        "result": "success: all six quality-gate cells, the spawned trials and the spy-on-import refusal included"
+      },
+      {
+        "sha": "20ef953",
+        "workflow": "CodeQL",
+        "run": 43699261013,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "Push the consumers; read 08e2264's, 20ef953's and the consumers' hosted CI at the next boundary; then M4's mutation series and its close (GAP-01, GAP-05, GAP-27 and GAP-31 on hosted CI).",
+    "next": "Gate and push TD-24; WS-05's executor-overhead acceptance (at most 5 percent of the summed trial time) measured and met; the example 'a ledgered sweep' and an experiments guide; then M4's mutation series on the final tree, and its close.",
     "open_questions": []
   },
   "log": [
@@ -2814,6 +2860,14 @@
     {
       "date": "2026-11-15",
       "entry": "M4's consumers implemented and validated locally: one registry in alphalab.common, cloud_research's cycle running a task by name with a pluggable assignment policy (GAP-05), ClusterExecutor as the one executor path over distributed, cluster_scheduler and cloud_research (GAP-31), research_assistant.candidate_space and the tracker's experiment tag (D-54-3). D-54-R3 decided under delegation (TD-23): alphalab.lab at M13."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "The trial ledger (08e2264) and SpawnExecutor (20ef953) passed hosted CI on all six cells, the ledger's pinned identities holding on Linux and macOS; GAP-27 closed. The consumers (98174f1) passed the full gate (13,339 tests, the installed distributions with 2,900 public names) and were pushed."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "M4's first mutation run (EX01 to EX29) is not evidence: every catch it reported was the time-limit tests failing under the harness's load, whatever the mutation. Diagnosed with data -- 0 of 9 normal trials recorded under load, a worker's start alone outrunning the two-second limit -- and fixed at the root: the worker times its trial from the moment it has loaded the experiment (TD-24). Reading WS-05 and GAP-01 against M4 also added rerun_trial and an experiment that draws no identifier. The series is re-run on the final tree."
     }
   ]
 }

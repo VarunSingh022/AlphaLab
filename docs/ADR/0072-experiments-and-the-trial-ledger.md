@@ -186,9 +186,10 @@ Nothing is removed before 5.0.
 
 # Settled at implementation (2026-11-15)
 
-Building M4 settled eleven points, each held by a test
+Building M4 settled thirteen points, each held by a test
 (`tests/integration/test_trial_ledger.py`, `tests/integration/test_spawned_trials.py`,
 `tests/integration/test_cluster_executor.py`, `tests/integration/test_ledger_consumers.py`,
+`tests/integration/test_ledger_reproduces.py`,
 `tests/unit/cloud_research/test_registered_tasks.py`,
 `tests/regression/test_one_executor_path.py`).
 
@@ -211,8 +212,18 @@ Building M4 settled eleven points, each held by a test
    * A capture refused at insolvency, or a series ended there, is `INSOLVENT`.
 4. **The ledger sets what the experiment fixes.** It gives each run the trial's
    seed and the experiment's retention, whatever the runner built.
-5. **`TrialLimits` holds a time limit only.** A trial never touches the network
-   (section 6), so there is nothing to choose.
+5. **`TrialLimits` holds a time limit only, and it times the trial.** A trial
+   never touches the network (section 6), so there is nothing to choose. The
+   limit is timed by the worker, from the moment it has loaded the experiment.
+   * **Why the worker.** An interpreter's start and its imports are never the
+     trial's. M4's first mutation run found the parent's timer counting them:
+     under its four parallel suites, a worker's start alone outran a
+     two-second limit, and every trial of the time-limit tests was
+     interrupted, whatever the mutation.
+   * **How it stops.** A trial still running at the limit ends its process
+     (`_trial_worker.TIMED_OUT`), and is interrupted.
+   * **The backstop.** The parent stops a worker that has not reported within
+     the limit and a fixed start allowance, as dead.
 6. **The statistics over the ledger are M5's.** The plan's milestone table
    places the ledger's DSR, SPA and PBO at M5 (WS-06, WS-24). M4's
    `ExperimentRecord` holds the counts and the completed trials' `matrix_id`,
@@ -284,6 +295,22 @@ Building M4 settled eleven points, each held by a test
       the researcher's. `experiment_tags` cites the experiment and
       `tracked_runs` reads the citation back. Like every tag, it enters the
       tracker run's `run_id`.
+12. **A record is reproduced by running its trial again** (GAP-01's acceptance).
+    `rerun_trial` runs one recorded trial through the executor it is given and
+    holds what it left to the record, as a `TrialRerun`. Through a
+    `SpawnExecutor` that happens in a fresh interpreter. It files nothing: a
+    rerun is a check, and the ledger would refuse a second record anyway. The
+    record's `record_id` covers the run's identities, the series' and the
+    outcome, so a match is the trial reproduced; an interrupted rerun says so.
+13. **An experiment draws no identifier from the scope around it** (ADR-0029
+    D6, ADR-0054's review). The ledger's own steps draw none, and the two
+    things that did are now kept apart:
+    * **The researcher's runner.** It mints from a stream seeded by its trial
+      (the trial's formula, in a phase no trial has), so a runner mints the
+      same identifiers in any process and in any order.
+    * **A cluster's events.** They are stamped from a stream of their own. A
+      scope is entered around each of the cluster's calls, never across a
+      yield.
 
 # Departures from the plan's text, and why
 
@@ -293,6 +320,19 @@ Building M4 settled eleven points, each held by a test
 - **Adaptive search, CPCV and deep learning in a trial come later in the
   programme** (D-54-5 as the plan revised it): CPCV at M5, Bayesian search at
   M7, a deep-learning trial at M12.
+- **`distributed` and `cluster_scheduler` are folded in by binding, not
+  deprecated.** WS-05's scope reads "folding `distributed` and
+  `cluster_scheduler` (deprecation notes)". The cluster executor runs on them:
+  `distributed`'s job lifecycle and `cluster_scheduler`'s policies are the one
+  path's scheduling layer, not a duplicate of the executor (point 10).
+  Deprecating packages the executor imports would contradict the fold, and
+  nothing in them is superseded. Whether either is ever removed is a 5.0
+  decision of its own.
+- **M4's 48 trials are one full-sample fold.** WS-05's end-to-end workflow is
+  S-01's experiment core, 16 candidates in 3 folds. Folds are validation
+  designs, which are M5's (WS-24). So M4's exit gate counts 48 candidates,
+  their failures and insolvencies included, in one full-sample fold. M5 adds
+  the folds.
 
 # Compatibility
 

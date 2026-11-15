@@ -12,6 +12,7 @@ researcher's. These tests hold it to ADR-0072 section 6:
 * a runner that reaches for the network while it runs is refused, and fails;
 * a trial past its time limit, and a worker that dies, are interrupted: they
   record nothing, and a resume runs them;
+* a limit times the trial, never the worker's start;
 * a worker that loads another experiment is refused.
 """
 
@@ -39,9 +40,11 @@ def _ledger() -> TrialLedger:
 
 
 def test_a_spawned_experiment_is_the_sequential_one_record_for_record() -> None:
+    """Eight workers, as the plan's executor-equality test has it (WS-05 item 13)."""
+
     spec, sequential = run()
     ledger = _ledger()
-    spawned = run_experiment(spec, REGISTRY, "reference", ledger, SpawnExecutor(WHERE, workers=4))
+    spawned = run_experiment(spec, REGISTRY, "reference", ledger, SpawnExecutor(WHERE, workers=8))
 
     assert spawned == sequential
     assert spawned.experiment_record_id == sequential.experiment_record_id
@@ -101,6 +104,27 @@ def test_a_trial_past_its_limit_is_interrupted_and_a_resume_runs_it() -> None:
     assert finished.counts.recorded == len(spec.trials())
     whole = run_experiment(spec, REGISTRY, "reference", _ledger(), SequentialExecutor())
     assert finished == whole
+
+
+def test_a_limit_times_the_trial_never_the_workers_start() -> None:
+    """A definition whose import outlasts the limit: every trial still completes.
+
+    The limit is timed from the moment the worker has loaded the experiment, so
+    an interpreter's start and its imports -- which a busy host slows -- are
+    never counted against a trial (ADR-0072, settled at implementation 5).
+    """
+
+    spec = SLOW_DEFINITION.spec
+    record = run_experiment(
+        spec,
+        REGISTRY,
+        "reference",
+        _ledger(),
+        SpawnExecutor("tests.integration.slow_import_definition:DEFINITION", workers=4),
+    )
+
+    assert record.counts.recorded == len(spec.trials())
+    assert record == run_experiment(spec, REGISTRY, "reference", _ledger(), SequentialExecutor())
 
 
 def test_a_worker_that_dies_records_nothing_for_its_trial() -> None:

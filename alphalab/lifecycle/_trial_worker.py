@@ -12,7 +12,10 @@ standard input and, in this order:
 2. imports the experiment's definition from where the executor was told, in
    code, it lives, and holds it to the experiment the parent submitted;
 3. runs the one trial the request names, by its identity, through the runner
-   the request names, looked up in the definition's registry;
+   the request names, looked up in the definition's registry -- under the
+   experiment's time limit, timed from here, so that the interpreter's start and
+   its imports are never the trial's: a trial still running at the limit ends
+   the process, with status :data:`TIMED_OUT`, and is interrupted;
 4. writes what the trial left, as one JSON line, to the standard output it was
    given. Anything the trial prints goes to the standard error.
 
@@ -25,11 +28,16 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import sys
+import threading
 from typing import Any, TextIO
 
 #: The audit events a trial may not raise: the network, by any route Python takes.
 NETWORK_EVENTS = ("socket.", "http.client.connect", "urllib.Request", "ssl.")
+
+#: The status a worker ends with when its trial outran the experiment's time limit.
+TIMED_OUT = 124
 
 
 def refuse_the_network(event: str, args: tuple[Any, ...]) -> None:
@@ -73,8 +81,22 @@ def serve(request: dict[str, Any], output: TextIO) -> None:
     except Exception as error:
         output.write(json.dumps({"failed": f"{type(error).__name__}: {error}"}) + "\n")
         return
+    watchdog = _watch(spec.limits.seconds)
     ran = run_trial(spec, runner, trial)
+    if watchdog is not None:
+        watchdog.cancel()
     output.write(json.dumps(_ran_to_payload(ran), allow_nan=False) + "\n")
+
+
+def _watch(seconds: float | None) -> threading.Timer | None:
+    """End the process if the trial is still running ``seconds`` from now."""
+
+    if seconds is None:
+        return None
+    watchdog = threading.Timer(seconds, os._exit, args=(TIMED_OUT,))
+    watchdog.daemon = True
+    watchdog.start()
+    return watchdog
 
 
 def main() -> int:

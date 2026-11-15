@@ -481,6 +481,20 @@ entry below says otherwise.
     `tracked_runs` link a tracker run to its experiment by `experiment_id` in
     its tags, under `EXPERIMENT_TAG`, until a typed field replaces the tag at
     5.0 (`tests/integration/test_ledger_consumers.py`).
+  * **A record reproduced** [GAP-01]. `rerun_trial` runs one recorded trial
+    again through the executor it is given -- with a `SpawnExecutor`, in a
+    fresh interpreter -- and reports, as a `TrialRerun`, whether it left the
+    record the ledger holds. It files nothing.
+  * **No identifier drawn** [ADR-0029 D6]. An experiment draws nothing from the
+    identifier stream around it, under every executor. A runner mints from a
+    stream its trial seeds, so it mints the same identifiers in any process,
+    and a cluster's events are stamped from a stream of their own
+    (`tests/integration/test_ledger_reproduces.py`).
+  * **A time limit times the trial.** The spawned worker times its trial from
+    the moment it has loaded the experiment, and stops itself at the limit. An
+    interpreter's start and its imports are not counted. M4's first mutation
+    run found the parent's timer counting them: on a busy host a worker's start
+    alone outran a two-second limit.
 
 ## Changed
 

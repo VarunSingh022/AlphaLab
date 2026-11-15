@@ -82,6 +82,7 @@ from alphalab.cloud_research.cluster import (
     submit_research_job,
 )
 from alphalab.common.exceptions import AlphaLabError
+from alphalab.common.ids import id_scope
 from alphalab.common.registry import RunnerRegistry
 from alphalab.distributed.job import JobType
 from alphalab.experiment_tracking.tracker import ExperimentRun, ExperimentTracker
@@ -129,11 +130,13 @@ __all__ = [
     "TrialLimits",
     "TrialOutcome",
     "TrialRecord",
+    "TrialRerun",
     "TrialSpec",
     "canonical_experiment_key",
     "dataset_identity",
     "experiment_tags",
     "read_lockbox",
+    "rerun_trial",
     "run_experiment",
     "run_trial",
     "tracked_runs",
@@ -152,6 +155,10 @@ EXPERIMENT_RECORD_SCHEME: Final = "alphalab.experiment_record.v1"
 
 #: The phase of a trial in a search over the whole sample.
 SEARCH: Final = "search"
+
+#: What a trial's runner draws identifiers under: the trial's own formula, in a
+#: phase no trial has, so its stream is the trial's and not its run's.
+_RUNNER_PHASE: Final = "runner"
 
 _HEX = frozenset("0123456789abcdef")
 
@@ -266,8 +273,11 @@ class TrialLimits:
     """What a trial may use. A trial never touches the network.
 
     Attributes:
-        seconds: The wall-clock time a trial may take in a spawned worker, or
-            ``None``. Past it the worker is stopped and the trial interrupted.
+        seconds: The wall-clock time a trial may run in a spawned worker, or
+            ``None``: timed from the moment the worker has loaded the
+            experiment, so an interpreter's start and its imports, which a busy
+            host slows, are never the trial's. Past it the worker stops itself
+            and the trial is interrupted.
     """
 
     seconds: float | None
@@ -733,8 +743,10 @@ def _trial_left(
 def run_trial(spec: ExperimentSpec, runner: Runner, trial: TrialSpec) -> _Ran:
     """Run ``trial`` of ``spec`` through ``runner``, and return what it left.
 
-    A ``KeyboardInterrupt`` or ``SystemExit`` propagates: an interruption
-    leaves nothing.
+    The trial draws no identifier from the scope it is run in: the runner mints
+    from a stream seeded by the trial, and the run from the trial's seed. A
+    ``KeyboardInterrupt`` or ``SystemExit`` propagates: an interruption leaves
+    nothing.
     """
 
     def record(
@@ -756,7 +768,12 @@ def run_trial(spec: ExperimentSpec, runner: Runner, trial: TrialSpec) -> _Ran:
         )
 
     try:
-        inputs = runner(trial)
+        # The runner is the researcher's code, and may mint identifiers. It mints
+        # them from the trial's own stream, never the scope around the
+        # experiment, so a trial draws nothing from its caller (ADR-0029 D6) and
+        # mints the same identifiers in any process; the run mints from its seed.
+        with id_scope(_seed(trial.trial_seed, trial.fold, _RUNNER_PHASE, trial.label)):
+            inputs = runner(trial)
     except AlphaLabError as error:
         return record(TrialOutcome.REFUSED, _diagnosis(error))
     except Exception as error:
@@ -920,6 +937,12 @@ def _ran_from_payload(payload: Mapping[str, Any]) -> _Ran:
 #: The module a spawned trial runs as: AlphaLab's own, whatever the trial is.
 _WORKER: Final = "alphalab.lifecycle._trial_worker"
 
+#: How long a worker of a time-limited trial may take to start and load the
+#: experiment before the trial's own time begins. The worker enforces the
+#: trial's limit itself; past the limit and this allowance its parent stops a
+#: worker that never reported, as dead.
+_START_ALLOWANCE: Final = 600.0
+
 
 def _require_definition(definition: object, owner: str) -> str:
     module, colon, attribute = (
@@ -961,8 +984,11 @@ def _spawn(
         stderr=subprocess.PIPE,
         text=True,
     )
+    seconds = spec.limits.seconds
     try:
-        out, _ = process.communicate(request, timeout=spec.limits.seconds)
+        out, _ = process.communicate(
+            request, timeout=None if seconds is None else seconds + _START_ALLOWANCE
+        )
     except subprocess.TimeoutExpired:
         process.kill()
         process.communicate()
@@ -1133,23 +1159,29 @@ class ClusterExecutor:
         tasks = RunnerRegistry().register(_CLUSTER_TASK, run)
         state = self.cluster
         pending: list[str] = []
-        for trial in trials:
-            state, job_id = submit_research_job(
-                state,
-                JobType.BACKTEST,
-                _CLUSTER_TASK,
-                {"trial_id": trial.trial_id},
-                0,
-                float(self.timestamp),
-            )
-            pending.append(job_id)
+        # The cluster's events are its own bookkeeping, and stamped from a stream
+        # of their own: an experiment draws no identifier from the scope around it,
+        # whichever executor runs it (ADR-0029 D6). A scope is entered around each
+        # call, never across a yield, which hands control back to the ledger.
+        with id_scope(None):
+            for trial in trials:
+                state, job_id = submit_research_job(
+                    state,
+                    JobType.BACKTEST,
+                    _CLUSTER_TASK,
+                    {"trial_id": trial.trial_id},
+                    0,
+                    float(self.timestamp),
+                )
+                pending.append(job_id)
         capacity = sum(worker.capacity for worker in state.distributed.workers.values())
         with ThreadPoolExecutor(max_workers=capacity) as pool:
             while pending:
                 waiting = len(pending)
-                state = run_cluster_cycle(
-                    state, pool, float(self.timestamp), registry=tasks, assign=self.assign
-                )
+                with id_scope(None):
+                    state = run_cluster_cycle(
+                        state, pool, float(self.timestamp), registry=tasks, assign=self.assign
+                    )
                 if raised:
                     raise raised[0]
                 done = state.distributed
@@ -1406,6 +1438,63 @@ def read_lockbox(
         LockboxRead(spec.experiment_id, lockbox_id, trial.trial_id, lockbox.reread)
     )
     return ran
+
+
+# --- a record reproduced ------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class TrialRerun:
+    """A recorded trial run again, and whether it left the record the ledger holds.
+
+    Attributes:
+        trial_id: The trial.
+        held: The ``record_id`` of the record the ledger holds.
+        rerun: The ``record_id`` of the record the rerun left, or ``None`` when
+            the rerun was interrupted and left none.
+    """
+
+    trial_id: str
+    held: str
+    rerun: str | None
+
+    @property
+    def reproduced(self) -> bool:
+        """Whether the rerun left the held record, every identity it covers included."""
+
+        return self.rerun == self.held
+
+
+def rerun_trial(
+    spec: ExperimentSpec,
+    registry: RunnerRegistry,
+    runner: str,
+    ledger: TrialLedger,
+    trial_id: str,
+    executor: TrialExecutor,
+) -> TrialRerun:
+    """Run one recorded trial again through ``executor``, and hold it to its record.
+
+    A rerun files nothing: it checks a record. Through a :class:`SpawnExecutor`
+    it runs in a fresh interpreter, away from the process that made the record.
+    The record's ``record_id`` covers the run's ``result_id``, ``trace_id`` and
+    ``provenance_id``, the series' identity and the outcome, and not the
+    diagnostics. So a record is reproduced when the trial runs to the same
+    result, captured alike, whatever an interpreter's error wording.
+
+    Raises:
+        ExperimentError: If ``trial_id`` is not one of ``spec``'s trials, or the
+            ledger holds no record of it.
+    """
+
+    trial = next((each for each in spec.trials() if each.trial_id == trial_id), None)
+    if trial is None:
+        raise ExperimentError(f"{trial_id} is not a trial of experiment {spec.name}.")
+    held = ledger.find(trial_id)
+    if held is None:
+        raise ExperimentError(f"The ledger holds no record of trial {trial_id} to rerun.")
+    left = list(executor.execute(spec, registry, runner, [trial]))
+    return TrialRerun(trial_id, held.record_id, left[0].record.record_id if left else None)
 
 
 # --- the tracker link (D-54-3) -----------------------------------------------------------

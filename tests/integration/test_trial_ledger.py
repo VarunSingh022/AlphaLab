@@ -245,6 +245,34 @@ def test_a_record_holds_digests_and_the_series_never_the_result(
     assert refused is not None and "dataset" in refused.diagnostics
 
 
+def test_a_capture_refused_at_insolvency_is_insolvent_and_keeps_no_series() -> None:
+    """Under ``Insolvency.REFUSE`` the capture raises at the wipe-out (ADR-0072, settled 3).
+
+    The trial is ``INSOLVENT``, as a series truncated there is, but it ran to no
+    end: it has no series and no result, and enters no matrix.
+    """
+
+    spec = _spec(
+        space=ParameterSpace.of([c for c in _candidates() if c["mode"] == "squeeze"]),
+        capture=CaptureSpec(
+            ReturnExtractor(EVERY_INSTANT, Costs.NET, CashFlows.INCLUDED, "USD", Insolvency.REFUSE),
+            trace=True,
+        ),
+    )
+    ledger = _ledger()
+    record = run_experiment(spec, REGISTRY, "bands", ledger, SequentialExecutor())
+
+    assert record.counts == LedgerCount(
+        completed=0, insolvent=2, strategy_failed=0, refused=0, failed=0
+    )
+    assert record.matrix_id is None
+    for trial in spec.trials():
+        held = ledger.find(trial.trial_id)
+        assert held is not None and held.outcome is TrialOutcome.INSOLVENT
+        assert held.series_id is None and held.result_id is None
+        assert held.diagnostics.startswith("InsolventCaptureError: ")
+
+
 def test_a_trial_draws_the_walk_forward_searchs_own_seed() -> None:
     spec = _spec()
     for trial in spec.trials()[:5]:

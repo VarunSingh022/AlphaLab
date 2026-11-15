@@ -850,11 +850,12 @@ all. (v3.10 removed `feed` and `live`; v3.11 `studio`, `workbench` and
 
 `portfolio_optimizer`, `reporting`, `feature_store`,
 `ml`, `deep_learning`, `reinforcement_learning`,
-`options`, `futures`, `crypto`, `macro`, `cloud_research`, `cluster_scheduler`,
-`distributed`, `research_assistant`, `brokers`,
+`options`, `futures`, `crypto`, `macro`, `cluster_scheduler`,
+`research_assistant`, `brokers`,
 `scheduler`, `scenario`. (`scenario`, added in v3.3, imports only `common` and
 was missing from this list until v3.10; `live` and `feed` were removed in v3.10,
-and `workbench`, `studio` and `enterprise` in v3.11 — ADR-0046.)
+and `workbench`, `studio` and `enterprise` in v3.11 — ADR-0046; `cloud_research`
+and `distributed` left it in v4.3, below.)
 
 Each is deterministic, individually tested and individually benchmarked. **A
 package with no in-repo consumer is a standalone engine by design, not an
@@ -865,6 +866,14 @@ orphan**, until a tested bridge joins it to the research path (ADR-0056) — pin
 risk model in `analytics` — because nothing on either path imports it: a
 construction answers what to own, and turning weights into orders stays the
 caller's decision. `test_v38_invariants.py` asserts its edge set.
+
+`cloud_research` and `distributed` left this list in v4.3. The trial ledger's
+`ClusterExecutor` runs an experiment's trials on a `cloud_research` cluster,
+whose cycle drives `distributed`'s job lifecycle, so `lifecycle` imports both
+(ADR-0072, GAP-31). `cluster_scheduler` and `research_assistant` stay on it, and
+join the ledger without an edge. A scheduler policy is what a cycle is given,
+and the assistant's candidates reach an experiment through
+`research.ParameterSpace`. `test_one_executor_path.py` measures those edges.
 
 `factor_library` left this list in v3.2 and `alt_data` in v3.7: `research`,
 which `lifecycle` imports, imports both. Each edge runs one way and each is
