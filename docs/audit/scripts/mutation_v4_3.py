@@ -77,6 +77,27 @@ first failure was the import-site scan flagging the mutation's own
 order whatever an executor yields. It was restated as a reversed yield, and the
 yield order is tested on the executor itself, with EX40 for the cluster. The
 test that caught each is recorded in the progress register, in M4's evidence.
+
+M5's series:
+
+* **VD** -- WS-24 and WS-06, ADR-0073: validation designs, their windows and
+  folds; CPCV's splits and paths; the ledger's selections and joins; the
+  assessment's family and the members it leaves out; selection-aware
+  evidence. The plan's four leaks are VD01 (the lockbox reused), VD02 (the
+  embargo off), VD03 and VD14 (the warm-up scored) and VD10 (a purge boundary
+  off by one).
+
+M5's run caught 35 of 36 on the tree as it stood. VD21 survived: under it, the
+cross-validation test's incomplete candidate scored a reduced mean below the
+selection's, so nothing it read changed. A candidate strongest on every fold it
+completed is now never selected, and VD21 and VD16 were run again: both
+caught. VD16 was caught through the pinned walk-forward identity: a fold
+selected a strategy failure tied with the squeeze candidate, first of equals.
+Its direct test was added beside it. When the stated ``N`` joined the
+assessment, VD27 was retargeted, and the assessment's mutations (VD25 to VD32)
+were run on the final tree: 8 of 8 caught. The other mutations
+target code unchanged since their run. The test that caught each is recorded
+in the progress register, in M5's evidence.
 """
 
 from __future__ import annotations
@@ -1288,6 +1309,286 @@ V43_M4: tuple[Any, ...] = (
     ),
 )
 
+_DESIGNS = "alphalab/lifecycle/designs.py"
+_CPCV = "alphalab/research/combinatorial_cv.py"
+_ASSESSMENT = "alphalab/lifecycle/assessment.py"
+_EVIDENCE = "alphalab/lifecycle/evidence.py"
+
+V43_M5: tuple[Any, ...] = (
+    # --- VD: validation over backtests, the ledger's statistics and selection-aware
+    # evidence (WS-24, WS-06, ADR-0073). VD01, VD02, VD03, VD10 and VD14 are the
+    # plan's four leaks: the lockbox reused, the embargo off, the warm-up scored
+    # (twice: a window's own and a trial's series) and a purge boundary off by one.
+    Mutation(
+        "VD01",
+        "the lockbox reused: a design splits the lockbox's instants into folds",
+        _DESIGNS,
+        "    return tuple(instants) if lockbox is None else tuple(t"
+        " for t in instants if t < lockbox.start)\n",
+        "    return tuple(instants)\n",
+    ),
+    Mutation(
+        "VD02",
+        "the embargo off: a design's purge policy embargoes nothing",
+        _DESIGNS,
+        "            label_ends_from_horizon(instants,"
+        " self.horizon), embargo_seconds=self.embargo_seconds\n",
+        "            label_ends_from_horizon(instants, self.horizon), embargo_seconds=0.0\n",
+    ),
+    Mutation(
+        "VD03",
+        "the warm-up scored: a window short of its warm-up scores what it warmed up on",
+        _DESIGNS,
+        "    scored = tuple(evaluate)[short:]\n",
+        "    scored = tuple(evaluate)\n",
+    ),
+    Mutation(
+        "VD04",
+        "a trial's warm-up starts an instant late",
+        _DESIGNS,
+        "    return TrialWindow(fit=tuple(fit), evaluate=scored,"
+        " start=instants[max(0, first - warm_up)])\n",
+        "    return TrialWindow(\n"
+        "        fit=tuple(fit), evaluate=scored, start=instants[max(0, first - warm_up + 1)]\n"
+        "    )\n",
+    ),
+    Mutation(
+        "VD05",
+        "a window left one instant to score is accepted",
+        _DESIGNS,
+        "    if len(scored) < 2:\n",
+        "    if len(scored) < 1:\n",
+    ),
+    Mutation(
+        "VD06",
+        "a refit on train and validation fits the selection on train alone",
+        _DESIGNS,
+        "        if design.refit is Refit.TRAIN\n",
+        "        if True\n",
+    ),
+    Mutation(
+        "VD07",
+        "a walk-forward fold selects on its test window",
+        _DESIGNS,
+        "            _window(held, fold.train, fold.validation,"
+        ' design.warm_up, f"Fold {fold.index}"),\n',
+        '            _window(held, fold.train, fold.test, design.warm_up, f"Fold {fold.index}"),\n',
+    ),
+    Mutation(
+        "VD08",
+        "a CPCV split's test groups are one trial",
+        _DESIGNS,
+        '                        f"{TEST}:{group}",\n',
+        "                        TEST,\n",
+    ),
+    Mutation(
+        "VD09",
+        "the warm-up leaves a walk-forward experiment's identity",
+        _DESIGNS,
+        '            "validation": design.validation,\n            "warm_up": design.warm_up,\n',
+        '            "validation": design.validation,\n            "warm_up": 0,\n',
+    ),
+    Mutation(
+        "VD10",
+        "a purge boundary off by one: a CPCV test group's span begins at its second instant",
+        _CPCV,
+        "            result = apply_purge_and_embargo(kept, _span(blocks[g]), policy)\n",
+        "            result = apply_purge_and_embargo(kept, _span(blocks[g][1:]), policy)\n",
+    ),
+    Mutation(
+        "VD11",
+        "a CPCV split trains on its own test groups",
+        _CPCV,
+        "        kept = tuple(stamp for g in range(groups) if g"
+        " not in chosen for stamp in blocks[g])\n",
+        "        kept = tuple(stamp for g in range(groups) for stamp in blocks[g])\n",
+    ),
+    Mutation(
+        "VD12",
+        "a CPCV path takes every group from the same split",
+        _CPCV,
+        "    paths = tuple(tuple(occurrences[g][p] for g in"
+        " range(groups)) for p in range(count))\n",
+        "    paths = tuple(tuple(occurrences[0][p] for g in"
+        " range(groups)) for p in range(count))\n",
+    ),
+    Mutation(
+        "VD13",
+        "CPCV's last group drops the remainder",
+        _CPCV,
+        "        instants[g * width : len(instants) if g == groups - 1 else (g + 1) * width]\n",
+        "        instants[g * width : (g + 1) * width]\n",
+    ),
+    Mutation(
+        "VD14",
+        "the warm-up scored: a trial's series keeps the periods of its warm-up",
+        _EXPERIMENTS,
+        "    first = max(bisect.bisect_left(capture.instants, window.evaluate[0]) - 1, 0)\n",
+        "    first = 0\n",
+    ),
+    Mutation(
+        "VD15",
+        "a trial runs past its window's end",
+        _EXPERIMENTS,
+        "    kept = tuple(record for record in dataset.records if"
+        " window.start <= record.timestamp <= end)\n",
+        "    kept = tuple(record for record in dataset.records"
+        " if window.start <= record.timestamp)\n",
+    ),
+    Mutation(
+        "VD16",
+        "a fold selects a candidate whose trial did not complete, but left a series",
+        _EXPERIMENTS,
+        "            if held is None or held.outcome is not TrialOutcome.COMPLETED:\n"
+        "                continue\n"
+        "            assert held.series_id is not None\n",
+        "            if held is None or held.series_id is None:\n"
+        "                continue\n"
+        "            assert held.series_id is not None\n",
+    ),
+    Mutation(
+        "VD17",
+        "a fold's tie goes to the last candidate",
+        _EXPERIMENTS,
+        "            if best is None or score > best[0]:\n",
+        "            if best is None or score >= best[0]:\n",
+    ),
+    Mutation(
+        "VD18",
+        "the mean selection's tie goes to the last candidate",
+        _EXPERIMENTS,
+        "        if best is None or mean > best[0]:\n",
+        "        if best is None or mean >= best[0]:\n",
+    ),
+    Mutation(
+        "VD19",
+        "series that do not tile the sample are joined over the gap",
+        _EXPERIMENTS,
+        "        if instants and held_instants[0] != instants[-1]:\n            return None\n",
+        "        if False:\n            return None\n",
+    ),
+    Mutation(
+        "VD20",
+        "the out-of-sample series joins the folds' test windows in reverse",
+        _EXPERIMENTS,
+        "    for report in reports:\n        held = ledger.find(report.trial_id)\n",
+        "    for report in reversed(reports):\n        held = ledger.find(report.trial_id)\n",
+    ),
+    Mutation(
+        "VD21",
+        "a candidate that did not complete in every fold is eligible",
+        _EXPERIMENTS,
+        "        if not held or any(each is None for each in held):\n",
+        "        if not held or all(each is None for each in held):\n",
+    ),
+    Mutation(
+        "VD22",
+        "a CPCV path joins its groups out of order",
+        _EXPERIMENTS,
+        "            for group, split in enumerate(path):\n",
+        "            for group, split in reversed(list(enumerate(path))):\n",
+    ),
+    Mutation(
+        "VD23",
+        "a full-sample record writes the selections it does not have",
+        _EXPERIMENTS,
+        "        if self.selections:\n",
+        "        if True:\n",
+    ),
+    Mutation(
+        "VD24",
+        "a spawned worker holds no test-window trial",
+        _EXPERIMENTS,
+        "    if not isinstance(spec.validation, WalkForward):\n        return trials\n",
+        "    if True:\n        return trials\n",
+    ),
+    Mutation(
+        "VD25",
+        "a member without a dispersion is given a Sharpe ratio",
+        _ASSESSMENT,
+        "    flat = {k for k, column in"
+        " enumerate(matrix.columns) if sample_variance(column) == 0.0}\n",
+        "    flat: set[int] = set()\n",
+    ),
+    Mutation(
+        "VD26",
+        "SPA tests a member whose relative performance is constant",
+        _ASSESSMENT,
+        "        if any(value != column[0] for value in column)\n",
+        "        if True\n",
+    ),
+    Mutation(
+        "VD27",
+        "the deflation's N is one short of the members with a Sharpe ratio",
+        _ASSESSMENT,
+        "    trials = len(sharpes) if effective is None else effective.count\n",
+        "    trials = len(sharpes) - 1 if effective is None else effective.count\n",
+    ),
+    Mutation(
+        "VD28",
+        "the assessment's identity leaves out the bootstrap's seed",
+        _ASSESSMENT,
+        '                "seed": self.reality_check.seed,\n',
+        "",
+    ),
+    Mutation(
+        "VD29",
+        "the benchmark is not subtracted from the family",
+        _ASSESSMENT,
+        "            tuple(value - base for value, base in zip(column, held, strict=True))\n",
+        "            tuple(value for value, base in zip(column, held, strict=True))\n",
+    ),
+    Mutation(
+        "VD30",
+        "a walk-forward family joins a candidate that failed in a fold",
+        _ASSESSMENT,
+        "        if any(each is None for each in fold_ids):\n            continue\n",
+        "        if False:\n            continue\n",
+    ),
+    Mutation(
+        "VD31",
+        "a CPCV family reads the first path, whichever is named",
+        _ASSESSMENT,
+        "                joined = _joined(ledger, [ids[path]], extractor)\n",
+        "                joined = _joined(ledger, [ids[0]], extractor)\n",
+    ),
+    Mutation(
+        "VD32",
+        "the assessment selects the last of equals",
+        _ASSESSMENT,
+        "    best = scores.index(max(scores))\n",
+        "    best = len(scores) - 1 - scores[::-1].index(max(scores))\n",
+    ),
+    Mutation(
+        "VD33",
+        "EXPERIMENT evidence without its family count passes a policy",
+        _EVIDENCE,
+        "    if evidence.method is ValidationMethod.EXPERIMENT:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "VD34",
+        "a fractional family count passes",
+        _EVIDENCE,
+        "        or count != int(count)\n",
+        "        or False\n",
+    ),
+    Mutation(
+        "VD35",
+        "the family count leaves out the trials that did not complete",
+        _EVIDENCE,
+        "        EXPERIMENT_FAMILY_METRIC: float(assessment.family),\n",
+        "        EXPERIMENT_FAMILY_METRIC: float(record.counts.completed),\n",
+    ),
+    Mutation(
+        "VD36",
+        "evidence is made from the assessment of another record",
+        _EVIDENCE,
+        "    if assessment.experiment_record_id != record.experiment_record_id:\n",
+        "    if False:\n",
+    ),
+)
+
 MUTATIONS: tuple[Any, ...] = (
     tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS)
     + V43_M0
@@ -1295,6 +1596,7 @@ MUTATIONS: tuple[Any, ...] = (
     + V43_M2
     + V43_M3
     + V43_M4
+    + V43_M5
 )
 
 

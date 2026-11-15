@@ -47,13 +47,19 @@ not a skipped check -- an absent number is not a passing one.
 Selection-aware evidence (v4.3)
 -------------------------------
 :attr:`ValidationMethod.EXPERIMENT` evidence carries statistics that do correct
-for the search -- PBO, the deflated Sharpe ratio, the Reality Check and SPA --
-and, always, the search's size: :data:`EXPERIMENT_FAMILY_METRIC`, every trial
-the experiment's ledger recorded, failures included. :func:`evaluate_policy`
-fails ``EXPERIMENT`` evidence that does not state that count as a whole number
-of trials, whatever the policy's thresholds: a selection that hides the search
-behind it is not evidence (ADR-0073 section 8). The member is appended, and
+for the search -- PBO, the Reality Check and SPA -- and, always, the search's
+size: :data:`EXPERIMENT_FAMILY_METRIC`, every trial the experiment's ledger
+recorded, failures included. :func:`evaluate_policy` fails ``EXPERIMENT``
+evidence that does not state that count as a whole number of trials, whatever
+the policy's thresholds: a selection that hides the search behind it is not
+evidence (ADR-0073 section 8). The member is appended, and
 ``evidence_id_for`` hashes ``method.name``, so no existing identity moved.
+
+An evidence identity covers its metrics, so they are class 1 or 2 (ADR-0058),
+as a backtest's are: its CAGR is a correctly rounded power. The deflated Sharpe
+ratio runs through the normal distribution's host-libm functions, class 3, so
+it is read from the assessment ``source_id`` names, beside the evidence, and is
+not among its metrics until it has a class-2 path (ledger FUT-051).
 """
 
 from __future__ import annotations
@@ -395,14 +401,16 @@ def evidence_from_experiment(
     * ``pbo``: the probability of backtest overfitting;
     * ``reality_check_p``: the Reality Check's p-value;
     * ``spa_p_lower``, ``spa_p_consistent``, ``spa_p_upper``: SPA's;
-    * ``sharpe``, ``deflated_sharpe`` and ``deflated_sharpe_trials``: the
-      selection's per-period Sharpe ratio, its deflated Sharpe ratio, and the
-      ``N`` it was deflated by.
+    * ``sharpe`` and ``deflated_sharpe_trials``: the selection's per-period
+      Sharpe ratio, and the ``N`` its deflation took.
 
-    A statistic the assessment could not compute -- SPA or the deflation, when
-    too few members have a dispersion -- is left out rather than recorded as a
-    number, as :func:`evidence_from_backtest` leaves one out: a threshold on it
-    fails for want of the metric. The dataset and the seed are derived from the
+    Every metric is class 1 or 2 (ADR-0058), so the evidence's identity is the
+    same on every host. The deflated Sharpe ratio itself is class 3, and is
+    read from the assessment (ledger FUT-051). A statistic the assessment could
+    not compute -- SPA or the deflation, when too few members have a dispersion
+    -- is left out rather than recorded as a number, as
+    :func:`evidence_from_backtest` leaves one out: a threshold on it fails for
+    want of the metric. The dataset and the seed are derived from the
     experiment: its dataset's ``dataset_id``, spelled as a backtest over it
     spells it, and its own seed. ``source_id`` is the assessment's identity,
     which covers every choice the statistics took.
@@ -434,7 +442,6 @@ def evidence_from_experiment(
     deflated = assessment.deflated
     if deflated is not None:
         metrics["experiment.sharpe"] = deflated.inference.sharpe
-        metrics["experiment.deflated_sharpe"] = deflated.deflated_sharpe
         metrics["experiment.deflated_sharpe_trials"] = float(deflated.independent_trials)
     return build_evidence(
         method=ValidationMethod.EXPERIMENT,

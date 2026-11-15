@@ -566,6 +566,9 @@ entry below says otherwise.
     Reality Check and Hansen's SPA against a declared benchmark. Every choice
     each statistic takes is required. The family count, every trial recorded,
     stands beside them.
+  * **A stated `N`.** `EffectiveTrials(count, reason)` gives the deflation a
+    smaller effective number of trials, recorded with its reason, as ADR-0073
+    section 7 allows.
   * **Members without a dispersion.** A member with no dispersion is left out
     of the deflation's trial Sharpe ratios and of `N`, and named (`flat`). A
     member whose performance relative to the benchmark is constant is left
@@ -581,12 +584,44 @@ entry below says otherwise.
   * **The evidence.** `evidence_from_experiment(spec, record, assessment,
     subject, produced_at)` records an assessed experiment. It always carries
     the family count, `EXPERIMENT_FAMILY_METRIC` (`"experiment.trials"`),
-    beside PBO, the Reality Check, SPA and the deflated Sharpe ratio.
+    beside PBO, the Reality Check, SPA, the selection's Sharpe ratio and the
+    `N` of its deflation. Each metric is the same on every host. The deflated
+    Sharpe ratio is host-libm arithmetic, so it is read from the assessment
+    (ledger FUT-051).
   * **The refusal.** `evaluate_policy` fails `EXPERIMENT` evidence that does
     not state that count as a whole number of trials, under every policy. A
     promotion on it is refused, so nothing is promoted on a selection that
     hides the search behind it
     (`tests/integration/test_selection_aware_promotion.py`).
+* **S-13: event-driven alternative data, validated over backtests** [plan
+  S-13, ADR-0073 section 10]. A strategy trades surprises, observations each
+  delivered when it was published. Its eight event-window variants are
+  validated walk-forward in a ledger, assessed with PBO, SPA and the deflated
+  Sharpe ratio, and promoted only on selection-aware evidence.
+  * **Every variant counted.** The ledger counts every variant in every fold.
+  * **The revision proof.** The experiment is run twice, a late vintage flipping
+    or confirming a surprise. Every decision, return and selection made before
+    the revision is published is the same in both
+    (`tests/integration/test_event_driven_alt_data.py`).
+* **M5's leak tests and mutation series** [plan WS-24, ADR-0073 section 9].
+  * **The tests.** They hold:
+    * a design's purge and embargo in every trial's fit window;
+    * a designed experiment's lockbox kept from every trial, and read once;
+    * a tie going to the first candidate, at every level;
+    * a trial that failed mid-window, or a candidate incomplete on a fold,
+      never selected;
+    * a CPCV family read on the path named.
+  * **The series.** `mutation_v4_3.py` gains the VD series, the four leaks
+    among it.
+* **WS-06's PBO budget** [plan WS-06 item 15].
+  `benchmarks/benchmark_selection_statistics.py` judges PBO with `S = 16` over
+  100 trials of 2,520 periods against 60 seconds.
+* **The validation and selection-bias guides** [plan WS-24, WS-06, RK-08].
+  `docs/EXPERIMENTS.md` gains sections 8 to 11: designs, windows, purge and
+  embargo, selection, the assessment, the evidence and alternative data.
+  `docs/SELECTION_BIAS.md` says what PBO, the deflated Sharpe ratio, the
+  Reality Check, SPA and MinTRL each measure, assume and do not say. None is a
+  probability of loss.
 
 ## Changed
 

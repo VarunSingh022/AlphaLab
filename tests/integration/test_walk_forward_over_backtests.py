@@ -18,8 +18,13 @@ test window. These tests hold:
 from __future__ import annotations
 
 import math
+from dataclasses import replace
+from decimal import Decimal
+from typing import Any
 
-from alphalab.lifecycle.designs import REPORT, SELECT
+import pytest
+
+from alphalab.lifecycle.designs import REPORT, SELECT, ExperimentError, Lockbox, WalkForward
 from alphalab.lifecycle.experiments import (
     ExperimentRecord,
     LedgerCount,
@@ -30,6 +35,8 @@ from alphalab.lifecycle.experiments import (
     TrialLedger,
     TrialOutcome,
     TrialSpec,
+    every_trial,
+    read_lockbox,
     report_trial,
     run_experiment,
     run_trial,
@@ -37,7 +44,16 @@ from alphalab.lifecycle.experiments import (
 from alphalab.model_registry.artifact_store import MemoryArtifactStore
 from alphalab.model_registry.evidence import EvidenceStore, MemoryEvidenceIndex
 from alphalab.research.walk_forward_optimization import Refit, _render
-from tests.integration.experiment_workload import REGISTRY, build, walk_forward_spec
+from alphalab.strategy.context import StrategyContext
+from alphalab.strategy.events import Intent
+from tests.integration.experiment_workload import (
+    ASSET_ID,
+    REGISTRY,
+    STRATEGY_ID,
+    build,
+    walk_forward_spec,
+)
+from tests.integration.harness import ScriptedStrategy, running_strategy_state
 
 WHERE = "tests.integration.experiment_workload:WALK_FORWARD_DEFINITION"
 
@@ -175,3 +191,74 @@ def test_a_spawned_walk_forward_experiment_is_the_sequential_one() -> None:
     )
 
     assert spawned == sequential
+
+
+def test_a_designed_experiments_lockbox_is_held_back_from_every_trial_and_read_once() -> None:
+    """One of M5's leak mutants: the lockbox reused, split into folds as any other data."""
+
+    base = walk_forward_spec()
+    design = base.validation
+    assert isinstance(design, WalkForward)
+    experiment = replace(base, validation=replace(design, lockbox=Lockbox(52.0, None)))
+    ledger = _ledger()
+    record = run_experiment(experiment, REGISTRY, "reference", ledger, SequentialExecutor())
+
+    # Instants 2 to 51 are split: two folds, the second's test window ending at 51.
+    assert [fold for fold, _ in record.selections] == [0, 1]
+    seen = [
+        ledger.series(held.series_id)[0][-1]
+        for trial in every_trial(experiment)
+        if (held := ledger.find(trial.trial_id)) is not None and held.series_id is not None
+    ]
+    assert len(seen) >= 7 * 2 + 2 and max(seen) == 51.0, "no trial saw the lockbox"
+    selected = record.selections[0][1]
+    candidate = next(c for c in experiment.space.candidates if _render(c) == selected)
+    trial = report_trial(experiment, 0, candidate)
+    ran = read_lockbox(experiment, REGISTRY, "reference", ledger, trial)
+    assert ran.capture is not None and ran.capture.instants[-1] == 61.0, "the whole dataset"
+    with pytest.raises(ExperimentError, match="has been read"):
+        read_lockbox(experiment, REGISTRY, "reference", ledger, trial)
+
+
+BEST = "mode='normal',size=2,window=2"
+
+
+class _FailsMidWindow(ScriptedStrategy):
+    """Buys big at the run's start, and raises its own defect at 28, inside fold 0's window."""
+
+    def on_quote(self, context: StrategyContext, event: Any) -> list[Intent]:
+        if event.quote.timestamp >= 28.0:
+            raise RuntimeError("the strategy's own defect, mid-window")
+        return list(super().on_quote(context, event))
+
+
+def _failing_mid_window(trial: TrialSpec) -> TrialInputs:
+    inputs = build(trial)
+    if trial.label != BEST or trial.phase != SELECT or trial.fold != 0:
+        return inputs
+    strategy = _FailsMidWindow(STRATEGY_ID, ASSET_ID, {17.0: Decimal(50)})
+    return replace(inputs, strategy_state=running_strategy_state(STRATEGY_ID, strategy))
+
+
+def test_a_trial_that_failed_mid_window_is_never_selected_on_its_partial_series() -> None:
+    spec = walk_forward_spec()
+    ledger = _ledger()
+    record = run_experiment(
+        spec,
+        RunnerRegistry().register("reference", _failing_mid_window),
+        "reference",
+        ledger,
+        SequentialExecutor(),
+    )
+
+    scores: dict[str, float] = {}
+    for trial in spec.trials():
+        held = ledger.find(trial.trial_id)
+        if trial.fold != 0 or held is None or held.series_id is None:
+            continue
+        if trial.label == BEST:
+            assert held.outcome is TrialOutcome.STRATEGY_FAILED
+        scores[trial.label] = math.fsum(ledger.series(held.series_id)[1])
+    best_completed = max(score for label, score in scores.items() if label != BEST)
+    assert scores[BEST] > best_completed, "its partial series outscores every completed one"
+    assert record.selections[0][1] != BEST

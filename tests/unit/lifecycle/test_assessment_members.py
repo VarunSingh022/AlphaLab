@@ -30,7 +30,7 @@ def _matrix(columns: dict[str, tuple[float, ...]]) -> TrialMatrix:
 def test_the_deflation_leaves_out_members_without_a_sharpe_ratio_and_counts_the_rest() -> None:
     matrix = _matrix({"idle": (0.0,) * PERIODS, "a": _wave(1.0, 0), "b": _wave(0.5, 3)})
 
-    deflated, flat = _deflated(matrix, 1)
+    deflated, flat = _deflated(matrix, 1, None)
 
     assert flat == ("idle",)
     assert deflated == deflated_sharpe_ratio(
@@ -43,13 +43,13 @@ def test_the_deflation_leaves_out_members_without_a_sharpe_ratio_and_counts_the_
 def test_a_selection_without_a_sharpe_ratio_has_no_deflated_sharpe_ratio() -> None:
     matrix = _matrix({"idle": (0.0,) * PERIODS, "a": _wave(1.0, 0), "b": _wave(0.5, 3)})
 
-    assert _deflated(matrix, 0) == (None, ("idle",))
+    assert _deflated(matrix, 0, None) == (None, ("idle",))
 
 
 def test_fewer_than_two_members_with_a_sharpe_ratio_deflate_nothing() -> None:
     matrix = _matrix({"idle": (0.0,) * PERIODS, "still": (0.0,) * PERIODS, "a": _wave(1.0, 0)})
 
-    assert _deflated(matrix, 2) == (None, ("idle", "still"))
+    assert _deflated(matrix, 2, None) == (None, ("idle", "still"))
 
 
 def test_spa_tests_the_varying_members_and_names_the_constant_ones() -> None:

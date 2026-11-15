@@ -107,6 +107,29 @@ def test_a_blocked_fold_with_nothing_before_it_takes_its_warm_up_from_itself() -
     assert second.evaluate == INSTANTS[20:40] and second.start == INSTANTS[16]
 
 
+def test_a_designs_purge_and_embargo_reach_every_trials_fit_window() -> None:
+    """A horizon purges what precedes a scored block; the embargo, what follows it (ADR-0073).
+
+    Two of M5's leak mutants: a purge boundary off by one, and the embargo off.
+    """
+
+    cv = CrossValidated(3, CVMethod.EMBARGOED, 1, SelectionMeasure.MEAN, PurgeSpec(1, 1.5), None)
+    middle = windows(cv, INSTANTS)[1][2]
+    assert middle is not None and middle.evaluate == INSTANTS[20:40]
+    assert middle.fit == INSTANTS[:19] + INSTANTS[41:], "21.0 purged, 42.0 embargoed"
+
+    cpcv = CombinatorialPurged(4, 2, 0, SelectionMeasure.MEAN, PurgeSpec(1, 1.5), None)
+    named = {(fold, phase): window for fold, phase, window in windows(cpcv, INSTANTS)}
+    first = named[0, f"{TEST}:0"]
+    assert first is not None
+    assert first.fit == INSTANTS[31:], "32.0 follows group 1 within the embargo"
+    inner = named[3, f"{TEST}:1"]
+    assert inner is not None
+    assert inner.fit == INSTANTS[:14] + INSTANTS[46:], (
+        "16.0's label ends at 17.0, group 1's first instant: purged; 47.0 follows group 2"
+    )
+
+
 def test_cpcv_names_every_group_of_every_split_as_a_trial_of_its_own() -> None:
     design = CombinatorialPurged(
         groups=4,

@@ -626,6 +626,19 @@
       "compatibility": "Additive. ValidationMethod.EXPERIMENT is appended, and evidence_id_for hashes method.name, so no evidence identity moved; the persisted name is pinned. The new check touches only EXPERIMENT evidence, which no earlier release could produce.",
       "record": "docs/ADR/0073-validation-over-backtests.md, settled 15.",
       "tests": "tests/integration/test_selection_aware_promotion.py (14). The walk-forward reference experiment's evidence carries the family count (33) and the exact statistics, and a promotion on it passes. The same policy's thresholds are met by hand-built EXPERIMENT evidence, and its promotion is refused: the count absent, zero, negative, fractional, NaN, infinite or a boolean. Every other policy refuses it too, while BACKTEST evidence needs no count. A statistic left out fails for want of the metric. The evidence identity's rendering is pinned, and the evidence survives a lifecycle snapshot."
+    },
+    {
+      "id": "TD-29",
+      "date": "2026-11-15",
+      "workstream": "WS-24",
+      "title": "EXPERIMENT evidence carries no class-3 value: the deflated Sharpe ratio is read from the assessment",
+      "problem": "TD-28 put the deflated Sharpe ratio among EXPERIMENT evidence's metrics. An evidence identity covers its metrics. The ratio runs through the normal CDF and quantile, which are host-libm arithmetic (class 3, ADR-0058), so one assessment could give two hosts two evidence identities. A backtest's evidence is kept host-independent: its CAGR is a correctly rounded Decimal power.",
+      "alternatives": "(a) Keep the ratio, and document a host-dependent evidence identity. (b) Compute the normal CDF and quantile on a class-2 path now. (c) Leave the ratio out of the metrics, read it from the assessment the evidence names, and track (b) as future work.",
+      "decision": "(c). EXPERIMENT evidence carries the family count, PBO, the Reality Check's and SPA's p-values (exact), the selection's Sharpe ratio (class 2) and the N of its deflation. The deflated Sharpe ratio is reported in the assessment. A class-2 normal CDF and quantile are ledger FUT-051 (v4.4).",
+      "rationale": "ADR-0058's rule: a value that enters an identity is computed on class 1 or 2 paths only, and a class-3 value is recorded beside an identity, never in it. (b) is numerical-foundation work, with its own error analysis and pins; it is not M5's.",
+      "compatibility": "EXPERIMENT evidence was added on this branch (a2903ae) and never released, so nothing stored moves.",
+      "record": "docs/ADR/0073-validation-over-backtests.md, settled 15 and its known limitation; ledger FUT-051.",
+      "tests": "tests/integration/test_selection_aware_promotion.py: the evidence carries no deflated Sharpe ratio. S-13 reads the ratio from the assessment, and gates the promotion on the exact statistics. test_every_adr_deferral_is_classified holds ADR-0073's limitation to FUT-051."
     }
   ],
   "plan_changes": [
@@ -823,8 +836,19 @@
       "deliverables": "WF, CV and CPCV over backtests; promotion `ValidationMethod`; ledger DSR, SPA, PBO",
       "exit_gate": "S-13; leak mutants caught; promotion refusal",
       "size": "L",
-      "status": "In progress",
-      "evidence": []
+      "status": "Local validation passed",
+      "evidence": [
+        "Exit gate, S-13: tests/integration/test_event_driven_alt_data.py over tests/integration/event_workload.py. An event-driven strategy trades surprises delivered at the instant each was published. Its eight event-window variants run walk-forward over backtests in a ledger, three folds, 27 trials counted: every variant in every fold, and each fold's selection on its test window. Each vintage reached the strategy when published and never before, and what was published before a run began was never traded. The search is assessed with PBO (1/10), SPA (p_consistent 0) and the deflated Sharpe ratio (N = 6, the two window-1 variants flat and named). It is promoted on EXPERIMENT evidence, and the same statistics without the family count are refused.",
+        "Exit gate, a late revision changes no earlier decision: the experiment run twice, the surprise at 24's second vintage (published at 47.5) flipping its sign or confirming it. The information set enters the experiment's identity, so the runs are two experiments, matched by candidate, fold and phase. Every decision, every period's return and every selection made before 47.5 is equal in both. Only the selection of fold 2, whose window holds 47.5, differs, with its test-window trial (ADR-0073 settled 17).",
+        "Exit gate, the leak mutants caught: the plan's four are VD01 (the lockbox reused), VD02 (the embargo off), VD03 and VD14 (the warm-up scored) and VD10 (a purge boundary off by one), each caught (below). Research's own purge boundary, label_end >= start, has been a mutation since v3.12, so M5's is the boundary CPCV's own code draws (ADR-0073 settled 16).",
+        "Exit gate, the promotion refusal: every policy refuses EXPERIMENT evidence whose family count is absent, zero, negative, fractional, NaN, infinite or a boolean, its thresholds met or not (tests/integration/test_selection_aware_promotion.py; S-13 again, end to end).",
+        "WS-24's designs: walk-forward, purged and embargoed cross-validation and CPCV over backtests, research's splitters unchanged and a new combinatorial_purged_splits beside them. Trials run over their warm-up and window only, the warm-up never scored, and the lockbox is held back before any fold. Selections are recorded, CPCV paths kept per candidate, and a spawned run equals the sequential one (tests/unit/lifecycle/test_validation_designs.py, tests/unit/research/test_combinatorial_cv.py, tests/integration/test_walk_forward_over_backtests.py, tests/integration/test_cv_and_cpcv_over_backtests.py). Passed on hosted CI on d2e4359, f55e4a5 and cc52b7c.",
+        "WS-06's ledger statistics: trial_matrix_of and assess_experiment over each design's family, each statistic equal to research's own called by hand. Members without a dispersion are left out and named (TD-27). A smaller N is stated with its reason (EffectiveTrials, ADR-0073 section 7), refused above the members with a Sharpe ratio. Identities are pinned for three designs and identical under CPython 3.12.4, 3.13.18 and 3.14.10. 46c947c's pins held on Linux and macOS on hosted CI; they were re-made once, before any release, when the stated N joined the identity.",
+        "WS-06 item 15, PBO with S = 16 over 100 trials of 2,520 periods at most 60 s: benchmarks/benchmark_selection_statistics.py, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio (fastest of three, collector paused). The Reality Check and SPA at B = 500 take 6.8 s each, printed, not judged.",
+        "Guides: docs/EXPERIMENTS.md sections 8 to 11 (WS-24's validation guide), and docs/SELECTION_BIAS.md (WS-06's selection-bias guide), which reads each statistic without a probability of loss (RK-08).",
+        "Mutation series VD (WS-24, WS-06), 36 mutations, each caught -- the history below says on which tree -- by: VD01 (the lockbox reused: a design splits the lockbox's instants into folds): test_walk_forward_over_backtests::test_a_designed_experiments_lockbox_is_held_back_from_every_trial_and_read_once (added for it); VD02 (the embargo off: a design's purge policy embargoes nothing): test_validation_designs::test_a_designs_purge_and_embargo_reach_every_trials_fit_window (added for it); VD03 (the warm-up scored: a window short of its warm-up scores what it warmed up on): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean; VD04 (a trial's warm-up starts an instant late): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean; VD05 (a window left one instant to score is accepted): test_validation_designs::test_a_design_that_cannot_split_the_sample_says_why; VD06 (a refit on train and validation fits the selection on train alone): test_walk_forward_over_backtests::test_refitting_on_train_and_validation_fits_the_selection_on_both; VD07 (a walk-forward fold selects on its test window): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean (the window line is shared by walk-forward and cross-validated designs); VD08 (a CPCV split's test groups are one trial): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample; VD09 (the warm-up leaves a walk-forward experiment's identity): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice (the walk-forward experiment's identity no longer moves with its warm-up, so its pin moves); VD10 (a purge boundary off by one: a CPCV test group's span begins at its second instant): test_experiment_assessment::test_a_cpcv_family_reads_the_named_path_when_paths_differ (a fitting runner's paths move with the purged fit windows); test_validation_designs' purge test, added for it, holds the boundary directly; VD11 (a CPCV split trains on its own test groups): test_experiment_assessment::test_a_cpcv_family_reads_the_named_path_when_paths_differ; VD12 (a CPCV path takes every group from the same split): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample; VD13 (CPCV's last group drops the remainder): test_combinatorial_cv::test_every_group_is_tested_c_n_minus_1_k_minus_1_times_and_every_path_covers_all[6-2]; VD14 (the warm-up scored: a trial's series keeps the periods of its warm-up): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample (the groups' series overlap, so no path joins); VD15 (a trial runs past its window's end): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean; VD16 (a fold selects a candidate whose trial did not complete, but left a series): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice (a fold selected a strategy failure scoring as the squeeze candidate, first of equals); test_walk_forward_over_backtests::test_a_trial_that_failed_mid_window_is_never_selected_on_its_partial_series was added for it; VD17 (a fold's tie goes to the last candidate): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (added for it); VD18 (the mean selection's tie goes to the last candidate): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (added for it); VD19 (series that do not tile the sample are joined over the gap): test_experiment_assessment::test_windows_that_do_not_tile_the_sample_have_no_family[gaps]; VD20 (the out-of-sample series joins the folds' test windows in reverse): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice (no out-of-sample series joins, so the record's identity moves); VD21 (a candidate that did not complete in every fold is eligible): test_cv_and_cpcv_over_backtests::test_a_candidate_best_on_every_fold_it_completed_is_still_never_selected (added for it: the first run's test could not see it, the incomplete candidate's reduced mean falling below the selection's); VD22 (a CPCV path joins its groups out of order): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample; VD23 (a full-sample record writes the selections it does not have): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice; VD24 (a spawned worker holds no test-window trial): test_walk_forward_over_backtests::test_a_spawned_walk_forward_experiment_is_the_sequential_one; VD25 (a member without a dispersion is given a Sharpe ratio): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (research refuses the flat member's Sharpe ratio); VD26 (SPA tests a member whose relative performance is constant): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (research refuses the constant member); VD27 (the deflation's N is one short of the members with a Sharpe ratio): test_event_driven_alt_data::test_the_search_is_assessed_and_promoted_only_on_selection_aware_evidence on the final tree (its N of 6), test_experiment_assessment::test_the_statistics_are_researchs_own_over_the_family on the first; VD28 (the assessment's identity leaves out the bootstrap's seed): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice; VD29 (the benchmark is not subtracted from the family): test_experiment_assessment::test_a_benchmark_that_is_a_candidates_own_leaves_that_candidate_out_of_spa; VD30 (a walk-forward family joins a candidate that failed in a fold): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (the joined history of a failed fold is refused); VD31 (a CPCV family reads the first path, whichever is named): test_experiment_assessment::test_a_cpcv_family_reads_the_named_path_when_paths_differ (added for it); VD32 (the assessment selects the last of equals): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (added for it); VD33 (EXPERIMENT evidence without its family count passes a policy): test_selection_aware_promotion::test_experiment_evidence_without_its_family_count_is_never_promoted[absent]; VD34 (a fractional family count passes): test_selection_aware_promotion::test_experiment_evidence_without_its_family_count_is_never_promoted[fraction]; VD35 (the family count leaves out the trials that did not complete): test_selection_aware_promotion::test_experiment_evidence_states_the_search_beside_its_statistics; VD36 (evidence is made from the assessment of another record): test_selection_aware_promotion::test_evidence_is_of_its_own_experiment_and_record.",
+        "Mutation history: the first run caught 35 of 36 on the tree as it stood. VD21 survived: under it, the cross-validation test's incomplete candidate scored a reduced mean below the selection's, so the selection did not change. A candidate strongest on every fold it completed is now never selected, and VD21 and VD16 were run again: both caught. VD16 had been caught through the pinned walk-forward identity -- a fold selected a strategy failure tied with the squeeze candidate, first of equals -- and its direct test, a trial failing mid-window with the best partial series, was added beside it. The stated N then changed the assessment, so VD27 was retargeted and VD25 to VD32 were run on the final tree (8 of 8 caught, by the same tests as on the first run, except VD27's, now S-13's own). The other mutations target code unchanged since their run. Baselines: 13,360 and 13,367 passed, 90 deselected (the tests that read a clock, and the certificate's source digest)."
+      ]
     },
     {
       "id": "M6",
@@ -1307,6 +1331,16 @@
           "milestone": "M5",
           "item": "The statistics over a ledgered experiment: trial_matrix_of and assess_experiment -- PBO, the deflated Sharpe ratio, the Reality Check and SPA over each design's family, members without a dispersion left out and named (TD-27, ADR-0073 settled 11-14)",
           "status": "Pushed"
+        },
+        {
+          "milestone": "M5",
+          "item": "PBO's budget: benchmarks/benchmark_selection_statistics.py, S = 16 over 100 trials x 2,520 periods, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio against 60 s (ADR-0073 settled 18)",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M5",
+          "item": "The selection-bias guide: docs/SELECTION_BIAS.md -- what PBO, the deflated Sharpe ratio, the Reality Check, SPA and MinTRL each measure, assume and do not say; none is a probability of loss (RK-08)",
+          "status": "Local validation passed"
         }
       ],
       "evidence": [
@@ -1609,6 +1643,21 @@
         {
           "milestone": "M5",
           "item": "Promotion's selection-aware evidence: ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, every policy refusing EXPERIMENT evidence without it (TD-28, ADR-0073 settled 15)",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M5",
+          "item": "The leak tests: a design's purge and embargo in every trial's fit window, a designed experiment's lockbox kept from every trial and read once, ties to the first candidate at every level, a trial that failed mid-window never selected, a candidate incomplete on a fold never selected, a CPCV family read on the path named",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M5",
+          "item": "S-13: an event-driven alternative-data strategy validated walk-forward over backtests in a ledger, assessed with PBO, SPA and the deflated Sharpe ratio, promoted only on selection-aware evidence; a late revision changes no earlier decision; every event-window variant counted (ADR-0073 settled 17)",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M5",
+          "item": "The validation guide: docs/EXPERIMENTS.md sections 8 to 11 (designs, windows, purge and embargo, selection, the leaks ruled out, the assessment, the evidence, alternative data)",
           "status": "Local validation passed"
         }
       ],
@@ -2517,7 +2566,7 @@
   },
   "state": {
     "updated": "2026-11-15",
-    "remote_head": "46c947c",
+    "remote_head": "a2903ae",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2897,10 +2946,34 @@
         "workflow": "CodeQL",
         "run": 43715428550,
         "result": "success"
+      },
+      {
+        "sha": "46c947c",
+        "workflow": "Continuous Integration",
+        "run": 43730021888,
+        "result": "success: all six quality-gate cells, carrying the experiment assessment; its pinned identities held on Linux and macOS, CPython 3.12 to 3.14"
+      },
+      {
+        "sha": "46c947c",
+        "workflow": "CodeQL",
+        "run": 43730021887,
+        "result": "success"
+      },
+      {
+        "sha": "a2903ae",
+        "workflow": "CodeQL",
+        "run": 43730879436,
+        "result": "success"
+      },
+      {
+        "sha": "a2903ae",
+        "workflow": "Continuous Integration",
+        "run": 43730879454,
+        "result": "in progress when read at this boundary: not yet a pass"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M5: the leak mutants (purge boundary, embargo off, warm-up scored, lockbox reused) with the tests that catch them; S-13; WS-06's PBO benchmark; the validation and selection-bias guides; M5's mutation series and its close on hosted CI.",
+    "next": "M5's close: the VD series' final results recorded, the catchers checked, then M5's hosted CI read; then M6 (WS-07, WS-08).",
     "open_questions": []
   },
   "log": [
@@ -3115,6 +3188,10 @@
     {
       "date": "2026-11-15",
       "entry": "M5d (46c947c) passed the full gate (13,432 tests) and was pushed. M5e, selection-aware promotion evidence (TD-28), validated locally. A promotion on EXPERIMENT evidence passes a policy over its statistics. Hand-built EXPERIMENT evidence without a whole-number family count is refused under every policy, its thresholds met or not: M5's exit-gate refusal."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "M5e (a2903ae) passed the full gate (13,446 tests) and was pushed; M5d (46c947c) passed hosted CI on all six cells and CodeQL. M5's close: S-13, the leak tests, the VD mutation series, the stated N (ADR-0073 section 7), PBO's budget and the validation and selection-bias guides. The VD series caught 35 of 36 on the tree as it stood. VD21 needed a test, now added, and was caught when run again (test_cv_and_cpcv_over_backtests::test_a_candidate_best_on_every_fold_it_completed_is_still_never_selected). The assessment's mutations were re-run on the final tree: 8 of 8. The assessment's pins were re-made once, before any release, when the stated N joined its identity."
     }
   ]
 }

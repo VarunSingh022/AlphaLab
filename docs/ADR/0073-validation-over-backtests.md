@@ -164,7 +164,8 @@ Building M5 settled these points, each held by a test
 `tests/integration/test_cv_and_cpcv_over_backtests.py`,
 `tests/integration/test_experiment_assessment.py`,
 `tests/unit/lifecycle/test_assessment_members.py`,
-`tests/integration/test_selection_aware_promotion.py`).
+`tests/integration/test_selection_aware_promotion.py`,
+`tests/integration/test_event_driven_alt_data.py`).
 
 1. **A dataset's identity carries its instants.** `DatasetIdentity` gains
    `instants`, its records' distinct timestamps in order: what a design splits.
@@ -236,7 +237,10 @@ Building M5 settled these points, each held by a test
     member whose returns have no dispersion has no Sharpe ratio: research's
     `per_period_sharpe` refuses it. It is left out of the trial Sharpe ratios
     and of `N` (`flat`). The family count, every trial the ledger recorded,
-    stands beside it (`family`) for section 8.
+    stands beside it (`family`) for section 8. A researcher who has measured
+    the search's effective size states a smaller `N` with its reason,
+    `EffectiveTrials(count, reason)`. It is at most the members with a Sharpe
+    ratio, and the assessment records both.
 13. **A statistic never invents a member's dispersion.** Two statistics
     divide by a member's dispersion, and a member can lack one: a candidate
     that never trades has none, and a benchmark that is a candidate's own
@@ -255,20 +259,25 @@ Building M5 settled these points, each held by a test
 14. **The assessment's identity.** It is digested under
     `alphalab.experiment_assessment.v1`, over:
     * the record, the path, the family matrix and the benchmark;
-    * every choice: the blocks, measure, trim, replications, block length and
-      seed;
+    * every choice: the blocks, measure, trim, replications, block length,
+      seed, and a stated `N` with its reason;
     * the selection, the exact results (PBO's fraction and the Reality Check's
       and SPA's p-values) and the members each statistic left out.
     The deflated Sharpe ratio is libm-bound and enters no identity (ADR-0058).
     The reference assessments' identities are pinned, and CPython 3.12, 3.13
-    and 3.14 agree on them.
+    and 3.14 agree on them. The pins were re-made once, before any release,
+    when the stated `N` joined the identity at M5's close. Scheme v1 is the one
+    v4.3.0 releases.
 15. **Every policy refuses `EXPERIMENT` evidence without its family count.**
     * **The evidence.** `evidence_from_experiment(spec, record, assessment,
       subject, produced_at)` checks that the record is the experiment's and the
       assessment the record's. Its metrics, under the `experiment.` prefix, are:
       `trials` (the family count, `EXPERIMENT_FAMILY_METRIC`), `pbo`,
-      `reality_check_p`, SPA's three p-values, and the selection's Sharpe and
-      deflated Sharpe ratios with their `N`.
+      `reality_check_p`, SPA's three p-values, the selection's Sharpe ratio,
+      and the `N` its deflation took. Each is class 1 or 2 (ADR-0058), as a
+      backtest's metrics are, so an evidence identity is the same on every
+      host. The deflated Sharpe ratio is class 3, and is read from the
+      assessment (below, Known limitations).
     * **What is derived.** The dataset is the experiment's `dataset_id`,
       spelled as a backtest over it spells it, and the seed is the
       experiment's. `source_id` is the assessment's identity.
@@ -283,6 +292,30 @@ Building M5 settled these points, each held by a test
     * **Why there, and not at construction.** Evidence is a record of what was
       measured, and a hand-built one is representable. A policy that names no
       family count still cannot pass it.
+16. **The leaks are mutants of M5's series.** VD01 is the lockbox reused,
+    split into folds. VD02 is the embargo off. VD03 and VD14 are the warm-up
+    scored: a window's own warm-up, and a trial's series. VD10 is a purge
+    boundary off by one: a CPCV test group's span taken from its second
+    instant. Research's own boundary, `label_end >= start`, is v3.12's mutation
+    already, so M5's is the boundary its own code draws. Each is caught by the
+    test the progress register names, in M5's evidence.
+17. **S-13 shows that a late revision changes no earlier decision, by running
+    the experiment twice.** The two runs differ only in the late vintage: one
+    flips the surprise's sign, one confirms it.
+    * **Two experiments.** The information set enters the experiment's
+      identity through its schedule, so the runs are different experiments.
+      Their trials are matched by candidate, fold and phase.
+    * **What must be equal.** Every decision, every period's return and every
+      selection made before the revision's publication.
+    * **What differs.** Only the selection of the fold whose window holds the
+      revision.
+    * **History.** A trial's run delivers what was published before it at its
+      start. Whether that history is traded is the strategy's own rule, and
+      S-13's strategy never trades it.
+18. **WS-06's budget is a benchmark.** `benchmarks/benchmark_selection_statistics.py`
+    runs PBO with `S = 16` over 100 trials of 2,520 periods, the oldest eight
+    trimmed, against the plan's 60 seconds. It is judged by the stabilized
+    method (TST-011), and the figures are recorded in the progress register.
 
 # Compatibility
 
@@ -299,6 +332,17 @@ Building M5 settled these points, each held by a test
 
 None is accepted at drafting. What implementation settles, or defers, is
 recorded below it, as ADR-0072's were.
+
+**Known limitations**
+
+- **A policy cannot threshold the deflated Sharpe ratio.** (Ledger FUT-051.)
+  The ratio runs through the normal distribution's CDF and quantile, which are
+  host-libm arithmetic (class 3). `EXPERIMENT` evidence's identity covers its
+  metrics, which ADR-0058 keeps class 1 or 2. So the ratio is reported in the
+  assessment, beside the evidence that names it as `source_id`, and a gate on
+  it is the researcher's to apply. The evidence carries every exact statistic,
+  the selection's Sharpe ratio and its `N`. A class-2 normal CDF and quantile
+  would bring the ratio into the evidence.
 
 # Consequences
 

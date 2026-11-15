@@ -202,6 +202,7 @@ structural protocols and imports neither package (ADR-0043).
 
 from alphalab.lifecycle.assessment import (
     ASSESSMENT_SCHEME,
+    EffectiveTrials,
     ExperimentAssessment,
     assess_experiment,
     trial_matrix_of,
@@ -617,6 +618,7 @@ __all__ = [
     "DependencyPin",
     "DeploymentRef",
     "DeploymentSpecification",
+    "EffectiveTrials",
     "EngineBuild",
     "EngineIdentity",
     "EnvironmentPortability",

@@ -22,7 +22,12 @@ from dataclasses import replace
 
 import pytest
 
-from alphalab.lifecycle.assessment import ExperimentAssessment, assess_experiment, trial_matrix_of
+from alphalab.lifecycle.assessment import (
+    EffectiveTrials,
+    ExperimentAssessment,
+    assess_experiment,
+    trial_matrix_of,
+)
 from alphalab.lifecycle.designs import (
     SELECT,
     VALIDATE,
@@ -74,9 +79,9 @@ FIRST = "mode='normal',size=1,window=2"
 
 #: The assessments' identities, pinned. ``alphalab.experiment_assessment.v1``
 #: over exact quantities only, so CPython 3.12, 3.13 and 3.14 agree on them.
-FULL_SAMPLE_ID = "99b4711b7b87a12764fa3931ac89d2660b15ce7e27b051fecae7434f87633952"
-WALK_FORWARD_ID = "741d2f8e2eaeb29220092e610b80f4a819d8ba8386dd7e0017bbb24c82aff312"
-CPCV_PATH_ONE_ID = "d61665ae6a6f18ddd4d2583e9f2e68bb8a0c3497fd6a1c7b3a85b998d6035c14"
+FULL_SAMPLE_ID = "e5fb89d24a42e536f2651cfdce50ca0b26fc80db062253446833157841ebfa88"
+WALK_FORWARD_ID = "0dfb29311b3cf948e1b3bc120eab70be955b8ffaa58d5f1750925ca3132cfbde"
+CPCV_PATH_ONE_ID = "b0001996b91411c7c11756e27563de4191f8c715328c75619842adc3161eb27e"
 
 
 def _ledger() -> TrialLedger:
@@ -114,6 +119,7 @@ def _assess(
     trim: Trim = Trim.NONE,
     replications: int = 200,
     seed: int = 7,
+    effective: EffectiveTrials | None = None,
 ) -> ExperimentAssessment:
     experiment, ledger, record = _ran(design)
     matrix = trial_matrix_of(experiment, ledger, record, path=path)
@@ -130,6 +136,7 @@ def _assess(
         replications=replications,
         mean_block_length=5.0,
         seed=seed,
+        effective_trials=effective,
     )
 
 
@@ -358,7 +365,45 @@ def test_the_benchmark_is_one_finite_return_a_period(benchmark: list[float]) -> 
             replications=200,
             mean_block_length=5.0,
             seed=7,
+            effective_trials=None,
         )
+
+
+def test_a_smaller_n_is_taken_with_its_reason_and_enters_the_identity() -> None:
+    """ADR-0073 section 7: an explicit smaller ``N``, recorded with its reason."""
+
+    experiment, ledger, record = _ran("full")
+    matrix = trial_matrix_of(experiment, ledger, record, path=None)
+    stated = EffectiveTrials(3, "the six trials' returns cluster into three by correlation")
+    assessment = _assess("full", effective=stated)
+
+    assert assessment.effective_trials == stated
+    assert assessment.deflated == deflated_sharpe_ratio(
+        matrix.column(BEST),
+        [per_period_sharpe(column) for column in matrix.columns],
+        independent_trials=3,
+    )
+    assert assessment.assessment_id != FULL_SAMPLE_ID
+    reasoned = _assess("full", effective=EffectiveTrials(3, "another reason")).assessment_id
+    assert reasoned != assessment.assessment_id, "the reason is part of what was stated"
+    with pytest.raises(ExperimentError, match="exceeds the 6 members with a Sharpe ratio"):
+        _assess("full", effective=EffectiveTrials(7, "more than were run"))
+
+
+@pytest.mark.parametrize(
+    ("count", "reason", "match"),
+    [
+        (1, "one trial", "at least 2"),
+        (True, "a boolean", "at least 2"),
+        (2.0, "a float", "at least 2"),
+        (3, "  ", "must be stated"),
+    ],
+)
+def test_a_stated_n_is_a_count_of_at_least_two_with_a_reason(
+    count: object, reason: str, match: str
+) -> None:
+    with pytest.raises(ExperimentError, match=match):
+        EffectiveTrials(count, reason)  # type: ignore[arg-type]
 
 
 def test_the_assessments_identity_is_pinned_and_states_every_choice() -> None:
@@ -388,3 +433,33 @@ def test_the_assessments_identity_is_pinned_and_states_every_choice() -> None:
         _assess("full", benchmark=FIRST).assessment_id,
     }
     assert FULL_SAMPLE_ID not in changed and len(changed) == 4
+
+
+def _fitting(trial: TrialSpec) -> TrialInputs:
+    """A runner whose position depends on what it was fitted on: CPCV's splits then differ."""
+
+    held = trial.window
+    plan = trial.configuration
+    size = plan.size + (0 if held is None else len(held.fit) % 3)
+    return build(replace(trial, configuration=replace(plan, size=size)))
+
+
+def test_a_cpcv_family_reads_the_named_path_when_paths_differ() -> None:
+    experiment = CPCV_DEFINITION.spec
+    ledger = _ledger()
+    record = run_experiment(
+        experiment,
+        RunnerRegistry().register("reference", _fitting),
+        "reference",
+        ledger,
+        SequentialExecutor(),
+    )
+    paths = dict(record.paths)
+    assert len(set(paths[BEST])) == 3, "each path is another history"
+
+    for path in range(3):
+        matrix = trial_matrix_of(experiment, ledger, record, path=path)
+        for label, column in zip(matrix.labels, matrix.columns, strict=True):
+            series_id = paths[label][path]
+            assert series_id is not None
+            assert list(column) == list(ledger.series(series_id)[1])

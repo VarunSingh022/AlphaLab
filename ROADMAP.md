@@ -850,6 +850,7 @@ Every horizon is a proposal for the maintainer to confirm.
 | FUT-048 | **Equal TWAP slices tying exactly** (an identity change) | the 34-digit allocation, the same for every caller | v5.0 | EXE-015 |
 | FUT-049 | **Capturing a paused replay** | capture the run end to end; a paused replay is digested | v4.4 | streaming capture (ADR-0055, delivered in v4.3) |
 | FUT-050 | **A delisting settling the positions held through it** | membership ends at the delisting; the caller schedules the settlement | v4.4 | dated membership (ADR-0059, delivered in v4.3); scheduled settlements |
+| FUT-051 | **The deflated Sharpe ratio in promotion evidence** | the assessment reports it; a policy thresholds the exact statistics | v4.4 | a class-2 normal CDF and quantile (ADR-0058); selection-aware evidence (ADR-0073, delivered in v4.3) |
 
 ---
 

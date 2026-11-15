@@ -90,6 +90,7 @@ def _assessed() -> tuple[ExperimentSpec, ExperimentRecord, ExperimentAssessment]
         replications=200,
         mean_block_length=5.0,
         seed=7,
+        effective_trials=None,
     )
     return experiment, record, assessment
 
@@ -127,7 +128,9 @@ def test_experiment_evidence_states_the_search_beside_its_statistics() -> None:
         evidence.metrics["experiment.spa_p_upper"],
     ) == (23 / 100, 59 / 200, 21 / 50)
     assert assessment.deflated is not None
-    assert evidence.metrics["experiment.deflated_sharpe"] == assessment.deflated.deflated_sharpe
+    assert "experiment.deflated_sharpe" not in evidence.metrics, (
+        "class 3 (ADR-0058): read from the assessment, beside the evidence's identity"
+    )
     assert evidence.metrics["experiment.sharpe"] == assessment.deflated.inference.sharpe
     assert evidence.metrics["experiment.deflated_sharpe_trials"] == 6.0
     assert evidence.dataset_id == experiment.dataset.dataset_id == "REFERENCE"

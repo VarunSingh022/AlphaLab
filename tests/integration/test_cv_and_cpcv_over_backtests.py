@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+from alphalab.lifecycle.assessment import assess_experiment, trial_matrix_of
 from alphalab.lifecycle.designs import (
     VALIDATE,
     CombinatorialPurged,
@@ -41,9 +42,15 @@ from alphalab.lifecycle.experiments import (
 )
 from alphalab.model_registry.artifact_store import MemoryArtifactStore
 from alphalab.model_registry.evidence import EvidenceStore, MemoryEvidenceIndex
-from alphalab.research.selection import SelectionMeasure
+from alphalab.research.selection import SelectionMeasure, Trim
 from alphalab.research.time_series_cv import CVMethod
-from tests.integration.experiment_workload import CPCV_DEFINITION, REGISTRY, build, spec
+from tests.integration.experiment_workload import (
+    CPCV_DEFINITION,
+    REGISTRY,
+    build,
+    spec,
+    walk_forward_spec,
+)
 
 BEST = "mode='normal',size=2,window=2"
 
@@ -167,3 +174,79 @@ def test_a_spawned_cpcv_experiment_is_the_sequential_one() -> None:
     )
 
     assert spawned == sequential
+
+
+def _sizeless(trial: TrialSpec) -> TrialInputs:
+    """Every size runs as one: candidates that differ only in size tie exactly."""
+
+    return build(replace(trial, configuration=replace(trial.configuration, size=1)))
+
+
+def test_a_tie_goes_to_the_first_candidate_in_the_spaces_order() -> None:
+    """As ``walk_forward_optimize`` breaks a tie: each fold's selection, the mean's, and the
+    assessment's."""
+
+    registry = RunnerRegistry().register("reference", _sizeless)
+    for experiment in (walk_forward_spec(), _cv()):
+        ledger = _ledger()
+        record = run_experiment(experiment, registry, "reference", ledger, SequentialExecutor())
+        periods = trial_matrix_of(experiment, ledger, record, path=None).periods
+        assessed = assess_experiment(
+            experiment,
+            ledger,
+            record,
+            path=None,
+            blocks=2,
+            measure=SelectionMeasure.MEAN,
+            trim=Trim.OLDEST,
+            benchmark=[0.0] * periods,
+            replications=20,
+            mean_block_length=3.0,
+            seed=1,
+            effective_trials=None,
+        )
+        chosen = [label for _, label in record.selections] + [record.selected, assessed.selected]
+        assert all(label is None or "size=1," in label for label in chosen), chosen
+        assert sum(label is not None for label in chosen) >= 2
+
+
+def _strong_but_incomplete(trial: TrialSpec) -> TrialInputs:
+    """BEST at ten times its size, so it outscores every candidate -- and fails on fold 1."""
+
+    if trial.label == BEST and trial.fold == 1:
+        raise ValueError("this candidate fails on the second fold")
+    if trial.label == BEST:
+        return build(replace(trial, configuration=replace(trial.configuration, size=20)))
+    return build(trial)
+
+
+def test_a_candidate_best_on_every_fold_it_completed_is_still_never_selected() -> None:
+    experiment = _cv()
+    ledger = _ledger()
+    record = run_experiment(
+        experiment,
+        RunnerRegistry().register("reference", _strong_but_incomplete),
+        "reference",
+        ledger,
+        SequentialExecutor(),
+    )
+
+    def scores(label: str) -> list[float]:
+        found = []
+        for trial in experiment.trials():
+            held = ledger.find(trial.trial_id)
+            if (
+                trial.label == label
+                and held is not None
+                and held.series_id is not None
+                and held.outcome is TrialOutcome.COMPLETED
+            ):
+                found.append(math.fsum(ledger.series(held.series_id)[1]))
+        return found
+
+    others = [
+        max(scores(label), default=-math.inf)
+        for label in {t.label for t in experiment.trials()} - {BEST}
+    ]
+    assert len(scores(BEST)) == 2 and min(scores(BEST)) > max(others)
+    assert record.selected is not None and record.selected != BEST

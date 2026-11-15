@@ -13,7 +13,8 @@ ledger records the population (ADR-0072). This module reads one from the other.
 * :func:`assess_experiment` states every choice each statistic takes:
   - PBO by CSCV over the family;
   - the deflated Sharpe ratio of the family's best, ``N`` the members with a
-    Sharpe ratio;
+    Sharpe ratio, or a smaller ``N`` the caller states with its reason
+    (:class:`EffectiveTrials`);
   - White's Reality Check and Hansen's SPA of the family against a declared
     benchmark.
 
@@ -34,10 +35,10 @@ does not invent a value for either:
   Check, which divides by nothing, takes the whole family.
 
 No threshold decides anything (ADR-0054). An :class:`ExperimentAssessment`
-has an identity over its experiment's record, every choice made and the exact
-results -- PBO's fraction, the p-values, and the members each statistic left
-out. The deflated Sharpe ratio is correctly rounded at best, so it enters no
-identity (ADR-0058).
+has an identity over its experiment's record, every choice made -- a stated
+``N`` and its reason among them -- and the exact results: PBO's fraction, the
+p-values, and the members each statistic left out. The deflated Sharpe ratio
+is correctly rounded at best, so it enters no identity (ADR-0058).
 """
 
 from __future__ import annotations
@@ -90,6 +91,7 @@ from alphalab.research.sharpe_inference import (
 
 __all__ = [
     "ASSESSMENT_SCHEME",
+    "EffectiveTrials",
     "ExperimentAssessment",
     "assess_experiment",
     "trial_matrix_of",
@@ -97,6 +99,40 @@ __all__ = [
 
 #: The scheme an assessment's identity is written under.
 ASSESSMENT_SCHEME: Final = "alphalab.experiment_assessment.v1"
+
+
+@dataclass(frozen=True, slots=True)
+class EffectiveTrials:
+    """A smaller ``N`` for the deflation, and why (ADR-0073 section 7).
+
+    The deflation's ``N`` is the effective number of *independent* trials. By
+    default it is the family's members with a Sharpe ratio, which bounds it
+    from above when the trials are correlated. A researcher who has measured
+    the search's effective size -- by clustering the trials' returns, say --
+    states it here with the reason, and the assessment records both.
+
+    Attributes:
+        count: ``N``: at least 2, and at most the members with a Sharpe ratio.
+        reason: Why the search is that size: the method, and what it found.
+
+    Raises:
+        ExperimentError: If ``count`` is not an integer of at least 2, or the
+            reason is not stated.
+    """
+
+    count: int
+    reason: str
+
+    def __post_init__(self) -> None:
+        if isinstance(self.count, bool) or not isinstance(self.count, int) or self.count < 2:
+            raise ExperimentError(
+                f"EffectiveTrials.count must be an integer of at least 2, got {self.count!r}: "
+                "a deflation compares the selection with the best of N trials."
+            )
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise ExperimentError(
+                "EffectiveTrials.reason must be stated: a smaller N is recorded with why."
+            )
 
 
 def _family(
@@ -204,8 +240,11 @@ class ExperimentAssessment:
         selected: The family's best candidate by the measure, the first of equals.
         overfitting: PBO by CSCV.
         deflated: The selected candidate's deflated Sharpe ratio, ``N`` the
-            members with a Sharpe ratio; ``None`` if the selected candidate has
-            none, or fewer than two members have one.
+            members with a Sharpe ratio or the stated ``effective_trials``;
+            ``None`` if the selected candidate has none, or fewer than two
+            members have one.
+        effective_trials: The smaller ``N`` the caller stated, with its reason,
+            or ``None``.
         flat: The members whose returns have no dispersion, so no Sharpe ratio:
             the deflation leaves them out.
         reality_check: White's Reality Check against the benchmark, over the
@@ -224,6 +263,7 @@ class ExperimentAssessment:
     selected: str
     overfitting: PBOResult
     deflated: DeflatedSharpe | None
+    effective_trials: EffectiveTrials | None
     flat: tuple[str, ...]
     reality_check: RealityCheckResult
     superior: SPAResult | None
@@ -235,11 +275,15 @@ class ExperimentAssessment:
         """SHA-256 of the record, every choice and the exact results (:data:`ASSESSMENT_SCHEME`)."""
 
         superior = self.superior
+        effective = self.effective_trials
         return _digest_text(
             {
                 "benchmark_id": self.benchmark_id,
                 "blocks": self.overfitting.blocks,
                 "constant": list(self.constant),
+                "effective_trials": None
+                if effective is None
+                else {"count": effective.count, "reason": effective.reason},
                 "experiment_record_id": self.experiment_record_id,
                 "family": self.family,
                 "flat": list(self.flat),
@@ -265,12 +309,15 @@ class ExperimentAssessment:
         )
 
 
-def _deflated(matrix: TrialMatrix, best: int) -> tuple[DeflatedSharpe | None, tuple[str, ...]]:
+def _deflated(
+    matrix: TrialMatrix, best: int, effective: EffectiveTrials | None
+) -> tuple[DeflatedSharpe | None, tuple[str, ...]]:
     """The best column's deflated Sharpe ratio over the members that have a Sharpe ratio.
 
     A member whose returns have no dispersion -- research's sample variance of
     them is zero -- has none (``per_period_sharpe``), so it is left out of the
-    trial Sharpe ratios and of ``N``, and named.
+    trial Sharpe ratios and of ``N``, and named. ``N`` is the members with a
+    Sharpe ratio, or the smaller one ``effective`` states.
     """
 
     flat = {k for k, column in enumerate(matrix.columns) if sample_variance(column) == 0.0}
@@ -280,8 +327,14 @@ def _deflated(matrix: TrialMatrix, best: int) -> tuple[DeflatedSharpe | None, tu
     names = tuple(matrix.labels[k] for k in sorted(flat))
     if best in flat or len(sharpes) < 2:
         return None, names
+    trials = len(sharpes) if effective is None else effective.count
+    if trials > len(sharpes):
+        raise ExperimentError(
+            f"An effective N of {trials} exceeds the {len(sharpes)} members with a Sharpe "
+            "ratio: the effective number of trials is at most the number run."
+        )
     return (
-        deflated_sharpe_ratio(matrix.columns[best], sharpes, independent_trials=len(sharpes)),
+        deflated_sharpe_ratio(matrix.columns[best], sharpes, independent_trials=trials),
         names,
     )
 
@@ -332,6 +385,7 @@ def assess_experiment(
     replications: int,
     mean_block_length: float,
     seed: int,
+    effective_trials: EffectiveTrials | None,
 ) -> ExperimentAssessment:
     """PBO, the deflated Sharpe ratio, the Reality Check and SPA over ``record``'s family.
 
@@ -344,10 +398,13 @@ def assess_experiment(
     Reality Check and SPA share the bootstrap's ``replications``,
     ``mean_block_length`` and ``seed``. ``trim`` is PBO's alone: CSCV's blocks
     divide the periods, and the other statistics take every period.
+    ``effective_trials`` states a smaller ``N`` for the deflation with its
+    reason; ``None`` takes the members with a Sharpe ratio.
 
     Raises:
-        ExperimentError: As :func:`trial_matrix_of` does, or if the benchmark
-            is not one finite return a period.
+        ExperimentError: As :func:`trial_matrix_of` does, if the benchmark is
+            not one finite return a period, or if ``effective_trials`` exceeds
+            the members with a Sharpe ratio.
         ResearchValidationError: If a statistic refuses its arguments.
     """
 
@@ -367,7 +424,7 @@ def assess_experiment(
     )
     scores = [_score(column, measure) for column in matrix.columns]
     best = scores.index(max(scores))
-    deflated, flat = _deflated(matrix, best)
+    deflated, flat = _deflated(matrix, best, effective_trials)
     relative = TrialMatrix(
         labels=matrix.labels,
         instants=matrix.instants,
@@ -388,6 +445,7 @@ def assess_experiment(
         selected=matrix.labels[best],
         overfitting=overfitting,
         deflated=deflated,
+        effective_trials=effective_trials,
         flat=flat,
         reality_check=reality_check(
             relative, replications=replications, mean_block_length=mean_block_length, seed=seed

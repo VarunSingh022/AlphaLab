@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `46c947c` |
+| Remote head | `a2903ae` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M5: the leak mutants (purge boundary, embargo off, warm-up scored, lockbox reused) with the tests that catch them; S-13; WS-06's PBO benchmark; the validation and selection-bias guides; M5's mutation series and its close on hosted CI. |
+| Next | M5's close: the VD series' final results recorded, the catchers checked, then M5's hosted CI read; then M6 (WS-07, WS-08). |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -115,6 +115,10 @@ Never:
 | `f55e4a5` | CodeQL | 43714601851 | success |
 | `cc52b7c` | Continuous Integration | 43715428639 | success: all six quality-gate cells, carrying cross-validation and CPCV over backtests |
 | `cc52b7c` | CodeQL | 43715428550 | success |
+| `46c947c` | Continuous Integration | 43730021888 | success: all six quality-gate cells, carrying the experiment assessment; its pinned identities held on Linux and macOS, CPython 3.12 to 3.14 |
+| `46c947c` | CodeQL | 43730021887 | success |
+| `a2903ae` | CodeQL | 43730879436 | success |
+| `a2903ae` | Continuous Integration | 43730879454 | in progress when read at this boundary: not yet a pass |
 
 ## Continuation log
 
@@ -171,6 +175,7 @@ Never:
 - **2026-11-15** M4 closed on hosted CI: its close (0d3c98c) passed all six cells and CodeQL, as did ADR-0073 (eef7556), M5's entry condition. M5's first part, the validation designs with research's CPCV splitter and a trial's window (d2e4359), passed the full gate (13,401 tests) and was pushed.
 - **2026-11-15** M5b, walk-forward over backtests (f55e4a5), passed the full gate (13,408 tests). M5b and M5c, cross-validation and CPCV over backtests (cc52b7c), passed all six hosted cells and CodeQL; Release Preflight skipped, as on every pull-request push. M5d, the statistics over a ledgered experiment (TD-27), validated locally. Its walk-forward probe found that SPA refuses a candidate that never trades, measured against cash. The assessment now leaves such a member out of each statistic that divides by its dispersion, and names it.
 - **2026-11-15** M5d (46c947c) passed the full gate (13,432 tests) and was pushed. M5e, selection-aware promotion evidence (TD-28), validated locally. A promotion on EXPERIMENT evidence passes a policy over its statistics. Hand-built EXPERIMENT evidence without a whole-number family count is refused under every policy, its thresholds met or not: M5's exit-gate refusal.
+- **2026-11-15** M5e (a2903ae) passed the full gate (13,446 tests) and was pushed; M5d (46c947c) passed hosted CI on all six cells and CodeQL. M5's close: S-13, the leak tests, the VD mutation series, the stated N (ADR-0073 section 7), PBO's budget and the validation and selection-bias guides. The VD series caught 35 of 36 on the tree as it stood. VD21 needed a test, now added, and was caught when run again (test_cv_and_cpcv_over_backtests::test_a_candidate_best_on_every_fold_it_completed_is_still_never_selected). The assessment's mutations were re-run on the final tree: 8 of 8. The assessment's pins were re-made once, before any release, when the stated N joined its identity.
 
 ## Milestones
 
@@ -182,7 +187,7 @@ Never:
 | M2 | Hosted CI passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Hosted CI passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Hosted CI passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
-| M5 | In progress | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
+| M5 | Local validation passed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Not started | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Not started | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Not started | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
@@ -517,6 +522,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0073-validation-over-backtests.md, settled 15.
 - **Tests:** tests/integration/test_selection_aware_promotion.py (14). The walk-forward reference experiment's evidence carries the family count (33) and the exact statistics, and a promotion on it passes. The same policy's thresholds are met by hand-built EXPERIMENT evidence, and its promotion is refused: the count absent, zero, negative, fractional, NaN, infinite or a boolean. Every other policy refuses it too, while BACKTEST evidence needs no count. A statistic left out fails for want of the metric. The evidence identity's rendering is pinned, and the evidence survives a lifecycle snapshot.
 
+### TD-29: EXPERIMENT evidence carries no class-3 value: the deflated Sharpe ratio is read from the assessment (WS-24, 2026-11-15)
+
+- **Problem:** TD-28 put the deflated Sharpe ratio among EXPERIMENT evidence's metrics. An evidence identity covers its metrics. The ratio runs through the normal CDF and quantile, which are host-libm arithmetic (class 3, ADR-0058), so one assessment could give two hosts two evidence identities. A backtest's evidence is kept host-independent: its CAGR is a correctly rounded Decimal power.
+- **Alternatives:** (a) Keep the ratio, and document a host-dependent evidence identity. (b) Compute the normal CDF and quantile on a class-2 path now. (c) Leave the ratio out of the metrics, read it from the assessment the evidence names, and track (b) as future work.
+- **Decision:** (c). EXPERIMENT evidence carries the family count, PBO, the Reality Check's and SPA's p-values (exact), the selection's Sharpe ratio (class 2) and the N of its deflation. The deflated Sharpe ratio is reported in the assessment. A class-2 normal CDF and quantile are ledger FUT-051 (v4.4).
+- **Rationale:** ADR-0058's rule: a value that enters an identity is computed on class 1 or 2 paths only, and a class-3 value is recorded beside an identity, never in it. (b) is numerical-foundation work, with its own error analysis and pins; it is not M5's.
+- **Compatibility:** EXPERIMENT evidence was added on this branch (a2903ae) and never released, so nothing stored moves.
+- **Recorded in:** docs/ADR/0073-validation-over-backtests.md, settled 15 and its known limitation; ledger FUT-051.
+- **Tests:** tests/integration/test_selection_aware_promotion.py: the evidence carries no deflated Sharpe ratio. S-13 reads the ratio from the assessment, and gates the promotion on the exact statistics. test_every_adr_deferral_is_classified holds ADR-0073's limitation to FUT-051.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -673,6 +688,8 @@ Evidence:
 - [Hosted CI passed] M2: MinTRL and the autocorrelation-adjusted PSR
 - [Hosted CI passed] M3: The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history
 - [Pushed] M5: The statistics over a ledgered experiment: trial_matrix_of and assess_experiment -- PBO, the deflated Sharpe ratio, the Reality Check and SPA over each design's family, members without a dispersion left out and named (TD-27, ADR-0073 settled 11-14)
+- [Local validation passed] M5: PBO's budget: benchmarks/benchmark_selection_statistics.py, S = 16 over 100 trials x 2,520 periods, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio against 60 s (ADR-0073 settled 18)
+- [Local validation passed] M5: The selection-bias guide: docs/SELECTION_BIAS.md -- what PBO, the deflated Sharpe ratio, the Reality Check, SPA and MinTRL each measure, assume and do not say; none is a probability of loss (RK-08)
 
 Evidence:
 
@@ -736,7 +753,10 @@ Evidence:
 - [Hosted CI passed] M5: Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)
 - [Hosted CI passed] M5: Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)
 - [Hosted CI passed] M5: CV and CPCV over backtests: every candidate on every fold or test group, CPCV's paths joined per candidate, the experiment's selection by the mean score over every fold or path (ADR-0073 settled 10)
-- [Local validation passed] M5: Promotion's selection-aware evidence: ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, every policy refusing EXPERIMENT evidence without it (TD-28, ADR-0073 settled 15)
+- [Pushed] M5: Promotion's selection-aware evidence: ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, every policy refusing EXPERIMENT evidence without it (TD-28, ADR-0073 settled 15)
+- [Local validation passed] M5: The leak tests: a design's purge and embargo in every trial's fit window, a designed experiment's lockbox kept from every trial and read once, ties to the first candidate at every level, a trial that failed mid-window never selected, a candidate incomplete on a fold never selected, a CPCV family read on the path named
+- [Local validation passed] M5: S-13: an event-driven alternative-data strategy validated walk-forward over backtests in a ledger, assessed with PBO, SPA and the deflated Sharpe ratio, promoted only on selection-aware evidence; a late revision changes no earlier decision; every event-window variant counted (ADR-0073 settled 17)
+- [Local validation passed] M5: The validation guide: docs/EXPERIMENTS.md sections 8 to 11 (designs, windows, purge and embargo, selection, the leaks ruled out, the assessment, the evidence, alternative data)
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
