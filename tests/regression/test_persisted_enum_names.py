@@ -98,7 +98,14 @@ NAMED: dict[str, tuple[str, ...]] = {
         "EXPIRED",
     ),
     "alphalab.experiment_tracking.tracker.RunStatus": ("RUNNING", "COMPLETED", "FAILED"),
-    "alphalab.lifecycle.evidence.ValidationMethod": ("BACKTEST", "RESEARCH", "EXTERNAL", "STUDY"),
+    # v4.3 (ADR-0073 section 8): EXPERIMENT appended; no earlier name moved.
+    "alphalab.lifecycle.evidence.ValidationMethod": (
+        "BACKTEST",
+        "RESEARCH",
+        "EXTERNAL",
+        "STUDY",
+        "EXPERIMENT",
+    ),
     "alphalab.market.source.OrderingGuarantee": ("CHRONOLOGICAL", "UNORDERED"),
     "alphalab.model_registry.registry.ModelStage": ("NONE", "STAGING", "PRODUCTION", "ARCHIVED"),
     "alphalab.portfolio.fx_feed.FxFeedOutcome": ("APPLIED", "DUPLICATE", "SUPERSEDED"),

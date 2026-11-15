@@ -163,7 +163,8 @@ Building M5 settled these points, each held by a test
 `tests/integration/test_walk_forward_over_backtests.py`,
 `tests/integration/test_cv_and_cpcv_over_backtests.py`,
 `tests/integration/test_experiment_assessment.py`,
-`tests/unit/lifecycle/test_assessment_members.py`).
+`tests/unit/lifecycle/test_assessment_members.py`,
+`tests/integration/test_selection_aware_promotion.py`).
 
 1. **A dataset's identity carries its instants.** `DatasetIdentity` gains
    `instants`, its records' distinct timestamps in order: what a design splits.
@@ -261,6 +262,27 @@ Building M5 settled these points, each held by a test
     The deflated Sharpe ratio is libm-bound and enters no identity (ADR-0058).
     The reference assessments' identities are pinned, and CPython 3.12, 3.13
     and 3.14 agree on them.
+15. **Every policy refuses `EXPERIMENT` evidence without its family count.**
+    * **The evidence.** `evidence_from_experiment(spec, record, assessment,
+      subject, produced_at)` checks that the record is the experiment's and the
+      assessment the record's. Its metrics, under the `experiment.` prefix, are:
+      `trials` (the family count, `EXPERIMENT_FAMILY_METRIC`), `pbo`,
+      `reality_check_p`, SPA's three p-values, and the selection's Sharpe and
+      deflated Sharpe ratios with their `N`.
+    * **What is derived.** The dataset is the experiment's `dataset_id`,
+      spelled as a backtest over it spells it, and the seed is the
+      experiment's. `source_id` is the assessment's identity.
+    * **A statistic not computed.** One the assessment could not compute is
+      left out, as an undefined backtest metric is: a threshold on it fails for
+      want of it.
+    * **The refusal.** `evaluate_policy` fails `EXPERIMENT` evidence that does
+      not state the count as a whole number of trials, at least one. It does
+      so under every policy, whatever its thresholds and its required method.
+      Promotion runs through `evaluate_policy`, so nothing is promoted on such
+      evidence.
+    * **Why there, and not at construction.** Evidence is a record of what was
+      measured, and a hand-built one is representable. A policy that names no
+      family count still cannot pass it.
 
 # Compatibility
 

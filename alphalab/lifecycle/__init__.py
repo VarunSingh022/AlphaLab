@@ -263,6 +263,7 @@ from alphalab.lifecycle.environment import (
     tz_database_version,
 )
 from alphalab.lifecycle.evidence import (
+    EXPERIMENT_FAMILY_METRIC,
     MetricThreshold,
     ValidationEvidence,
     ValidationMethod,
@@ -271,6 +272,7 @@ from alphalab.lifecycle.evidence import (
     build_evidence,
     evaluate_policy,
     evidence_from_backtest,
+    evidence_from_experiment,
     evidence_from_research,
     evidence_from_study,
     evidence_id_for,
@@ -551,6 +553,7 @@ __all__ = [
     "DEPLOYABLE_STAGES",
     "DEPLOYMENT_SPECIFICATION_SCHEME",
     "EXECUTION_SETTING_PREFIX",
+    "EXPERIMENT_FAMILY_METRIC",
     "EXPERIMENT_RECORD_SCHEME",
     "EXPERIMENT_SCHEME",
     "EXPERIMENT_TAG",
@@ -763,6 +766,7 @@ __all__ = [
     "every_trial",
     "evidence_for",
     "evidence_from_backtest",
+    "evidence_from_experiment",
     "evidence_from_research",
     "evidence_from_study",
     "evidence_id_for",

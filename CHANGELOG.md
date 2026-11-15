@@ -575,6 +575,18 @@ entry below says otherwise.
     exact results and the members left out, under
     `alphalab.experiment_assessment.v1`. It is pinned, and CPython 3.12, 3.13
     and 3.14 agree on it (`tests/integration/test_experiment_assessment.py`).
+* **Selection-aware promotion evidence** [plan WS-24, K.4, ADR-0073 section
+  8]. `ValidationMethod.EXPERIMENT` is appended: no member's name and no
+  evidence identity moves, and `test_persisted_enum_names.py` pins the name.
+  * **The evidence.** `evidence_from_experiment(spec, record, assessment,
+    subject, produced_at)` records an assessed experiment. It always carries
+    the family count, `EXPERIMENT_FAMILY_METRIC` (`"experiment.trials"`),
+    beside PBO, the Reality Check, SPA and the deflated Sharpe ratio.
+  * **The refusal.** `evaluate_policy` fails `EXPERIMENT` evidence that does
+    not state that count as a whole number of trials, under every policy. A
+    promotion on it is refused, so nothing is promoted on a selection that
+    hides the search behind it
+    (`tests/integration/test_selection_aware_promotion.py`).
 
 ## Changed
 

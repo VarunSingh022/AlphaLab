@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `cc52b7c` |
+| Remote head | `46c947c` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M5e: promotion's selection-aware evidence -- ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, evaluate_policy refusing EXPERIMENT evidence without it; then S-13, the leak mutants, WS-06's PBO benchmark and the guides, M5's mutation series and close. |
+| Next | M5: the leak mutants (purge boundary, embargo off, warm-up scored, lockbox reused) with the tests that catch them; S-13; WS-06's PBO benchmark; the validation and selection-bias guides; M5's mutation series and its close on hosted CI. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -170,6 +170,7 @@ Never:
 - **2026-11-15** ADR-0073 accepted (TD-26): validation over backtests -- designs in the specification, research's splitters (CPCV among them), a trial per candidate, fold and phase over a window the ledger restricts, a warm-up never scored, selections recorded, the ledger's statistics and selection-aware promotion evidence. M5's entry conditions are M2 and M4, M4's close on hosted CI.
 - **2026-11-15** M4 closed on hosted CI: its close (0d3c98c) passed all six cells and CodeQL, as did ADR-0073 (eef7556), M5's entry condition. M5's first part, the validation designs with research's CPCV splitter and a trial's window (d2e4359), passed the full gate (13,401 tests) and was pushed.
 - **2026-11-15** M5b, walk-forward over backtests (f55e4a5), passed the full gate (13,408 tests). M5b and M5c, cross-validation and CPCV over backtests (cc52b7c), passed all six hosted cells and CodeQL; Release Preflight skipped, as on every pull-request push. M5d, the statistics over a ledgered experiment (TD-27), validated locally. Its walk-forward probe found that SPA refuses a candidate that never trades, measured against cash. The assessment now leaves such a member out of each statistic that divides by its dispersion, and names it.
+- **2026-11-15** M5d (46c947c) passed the full gate (13,432 tests) and was pushed. M5e, selection-aware promotion evidence (TD-28), validated locally. A promotion on EXPERIMENT evidence passes a policy over its statistics. Hand-built EXPERIMENT evidence without a whole-number family count is refused under every policy, its thresholds met or not: M5's exit-gate refusal.
 
 ## Milestones
 
@@ -506,6 +507,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0073-validation-over-backtests.md, settled 11-14.
 - **Tests:** tests/integration/test_experiment_assessment.py (15): each design's family equals the ledger's series, joined. Every statistic equals research's own called by hand over the family, SPA's over the members left in. M3's bridge over the same trials, run again, gives the same PBO. Each refusal is held: another experiment's record, a path where none belongs or none named, a path out of range, windows that gap or overlap, fewer than two candidates, and a benchmark of the wrong length or not finite. The identity is pinned for three designs, and each choice moves it. tests/unit/lifecycle/test_assessment_members.py (5): the members left out, and the cases with no statistic.
 
+### TD-28: Selection-aware evidence: what EXPERIMENT evidence carries, and where the family-count refusal lives (WS-24, 2026-11-15)
+
+- **Problem:** ADR-0073 section 8 requires promotion to refuse EXPERIMENT evidence that does not state its family count. Four things were open: where the refusal lives, what the metrics are named, which fields are derived rather than supplied, and how a statistic the assessment could not compute is recorded.
+- **Alternatives:** The refusal: (a) at construction, in ValidationEvidence, which makes such evidence unrepresentable and a stored one fail to decode; (b) a policy option, so a policy that omits it lets a hidden search through; (c) in evaluate_policy, under every policy. The metrics: flat names under a prefix, since evidence metrics are a flat mapping of floats. An uncomputed statistic: a placeholder (0 or NaN), or left out.
+- **Decision:** (c): evaluate_policy fails EXPERIMENT evidence that does not state EXPERIMENT_FAMILY_METRIC (experiment.trials) as a whole number of trials, at least one, whatever the policy's thresholds and required method. evidence_from_experiment(spec, record, assessment, subject, produced_at) checks that the record is the experiment's and the assessment the record's. Its metrics are prefixed experiment.: trials, pbo, reality_check_p, SPA's three p-values, and the selection's sharpe, deflated_sharpe and deflated_sharpe_trials. The dataset is the experiment's dataset_id, the seed the experiment's, and source_id the assessment's identity. A statistic not computed is left out.
+- **Rationale:** Evidence records what was measured, and the gate is the policy. Putting the gate in every policy means no policy can forget it. A metric left out fails any threshold on it for want of the metric, as an undefined backtest metric has since v3.10, rather than passing on a placeholder.
+- **Compatibility:** Additive. ValidationMethod.EXPERIMENT is appended, and evidence_id_for hashes method.name, so no evidence identity moved; the persisted name is pinned. The new check touches only EXPERIMENT evidence, which no earlier release could produce.
+- **Recorded in:** docs/ADR/0073-validation-over-backtests.md, settled 15.
+- **Tests:** tests/integration/test_selection_aware_promotion.py (14). The walk-forward reference experiment's evidence carries the family count (33) and the exact statistics, and a promotion on it passes. The same policy's thresholds are met by hand-built EXPERIMENT evidence, and its promotion is refused: the count absent, zero, negative, fractional, NaN, infinite or a boolean. Every other policy refuses it too, while BACKTEST evidence needs no count. A statistic left out fails for want of the metric. The evidence identity's rendering is pinned, and the evidence survives a lifecycle snapshot.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -661,7 +672,7 @@ Evidence:
 - [Hosted CI passed] M2: PBO by CSCV, with an exact-enumeration oracle
 - [Hosted CI passed] M2: MinTRL and the autocorrelation-adjusted PSR
 - [Hosted CI passed] M3: The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history
-- [Local validation passed] M5: The statistics over a ledgered experiment: trial_matrix_of and assess_experiment -- PBO, the deflated Sharpe ratio, the Reality Check and SPA over each design's family, members without a dispersion left out and named (TD-27, ADR-0073 settled 11-14)
+- [Pushed] M5: The statistics over a ledgered experiment: trial_matrix_of and assess_experiment -- PBO, the deflated Sharpe ratio, the Reality Check and SPA over each design's family, members without a dispersion left out and named (TD-27, ADR-0073 settled 11-14)
 
 Evidence:
 
@@ -725,6 +736,7 @@ Evidence:
 - [Hosted CI passed] M5: Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)
 - [Hosted CI passed] M5: Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)
 - [Hosted CI passed] M5: CV and CPCV over backtests: every candidate on every fold or test group, CPCV's paths joined per candidate, the experiment's selection by the mean score over every fold or path (ADR-0073 settled 10)
+- [Local validation passed] M5: Promotion's selection-aware evidence: ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, every policy refusing EXPERIMENT evidence without it (TD-28, ADR-0073 settled 15)
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
