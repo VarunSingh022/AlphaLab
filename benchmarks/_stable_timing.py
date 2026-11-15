@@ -36,23 +36,35 @@ __all__ = ["SAMPLES", "fastest", "growth"]
 SAMPLES: Final = 3
 
 
-def fastest(workloads: Sequence[Callable[[], object]], samples: int = SAMPLES) -> list[float]:
+def fastest(
+    workloads: Sequence[Callable[[], object]],
+    samples: int = SAMPLES,
+    *,
+    clock: Callable[[], float] = time.process_time,
+    pause_collector: bool = True,
+) -> list[float]:
     """The fastest CPU time of each of ``workloads``, sampled interleaved.
 
     Returns one figure per workload, in the order given. The collector is
     paused for the whole measurement and restored afterwards, as it was.
+    ``clock`` is the process's CPU clock. A workload whose work runs in child
+    processes is judged on a clock that counts theirs too, and with the
+    collector running: a child's collector cannot be paused, so pausing only
+    this process's would favour the workload that runs here (v4.3,
+    ``benchmark_experiments``).
     """
 
     best = [math.inf] * len(workloads)
     was_enabled = gc.isenabled()
     gc.collect()
-    gc.disable()
+    if pause_collector:
+        gc.disable()
     try:
         for _ in range(samples):
             for index, workload in enumerate(workloads):
-                start = time.process_time()
+                start = clock()
                 workload()
-                best[index] = min(best[index], time.process_time() - start)
+                best[index] = min(best[index], clock() - start)
     finally:
         if was_enabled:
             gc.enable()

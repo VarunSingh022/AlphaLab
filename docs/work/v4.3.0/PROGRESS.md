@@ -464,7 +464,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Rationale:** A start paid once per worker is the cost the budget can bear; a researcher who wants every trial in a clean interpreter can still have it, at a start a trial. One worker measures the executor and nothing of the host. With W workers the cost is W starts and the exchanges, under 5 percent once each worker runs about ten seconds of trials; a trial of the plan's cost envelope (K.5) runs ten minutes.
 - **Compatibility:** SpawnExecutor gains a required field; it is unreleased. Records are unchanged under either lifetime, and spawned equals sequential record for record.
 - **Recorded in:** docs/ADR/0072-experiments-and-the-trial-ledger.md (settled at implementation, points 8 and 14); SECURITY.md (BDY-029).
-- **Tests:** tests/integration/test_spawned_trials.py (every behaviour under both lifetimes; the starts counted); benchmarks/benchmark_experiments.py: one worker reused +1.8 percent (ok), a fresh interpreter per trial +72.9, four workers +19.8, the no-executor control +10.1.
+- **Tests:** tests/integration/test_spawned_trials.py (every behaviour under both lifetimes; the starts counted); benchmarks/benchmark_experiments.py, judged by _stable_timing's method on a clock counting the workers' CPU, the collector running in both: one worker reused +2.1 percent (ok; 1.8 on single runs), a fresh interpreter per trial +73 to +80, four workers +20 to +28; the no-executor control +10.1.
 
 ## Plan changes
 
@@ -609,7 +609,7 @@ Evidence:
 - [Local validation passed] M4: rerun_trial: a record of every outcome reproduced in a fresh process (GAP-01's acceptance, WS-05 item 14)
 - [Local validation passed] M4: An experiment draws no identifier from the scope around it, under every executor (ADR-0029 D6); a candidate not of the configuration type refused (R54-3)
 - [Local validation passed] M4: A time limit times the trial from the worker's load, never its start (TD-24, found by M4's first mutation run)
-- [Local validation passed] M4: Spawned workers serve many trials (trials_per_worker); the executor's own cost 1.8 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)
+- [Local validation passed] M4: Spawned workers serve many trials (trials_per_worker); the executor's own cost 2.1 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)
 - [Local validation passed] M4: Example 80, a ledgered sweep (in the installed smoke test, the network refused), and docs/EXPERIMENTS.md, the experiments guide (WS-05 item 17)
 
 ### WS-06: Statistical research functions

@@ -162,9 +162,22 @@ def dies(trial: TrialSpec) -> TrialInputs:
     return build(trial)
 
 
+def chatty(trial: TrialSpec) -> TrialInputs:
+    """A runner that writes to the standard output, through Python and around it."""
+
+    import os
+    import sys
+
+    print(f"the trial {trial.label} speaks")
+    sys.stdout.flush()
+    os.write(1, b"and writes to its file descriptor directly\n")
+    return build(trial)
+
+
 REGISTRY = (
     RunnerRegistry()
     .register("reference", build)
+    .register("chatty", chatty)
     .register("phone", phone)
     .register("sleepy", sleepy)
     .register("stagger", stagger)

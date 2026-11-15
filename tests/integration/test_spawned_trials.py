@@ -13,6 +13,7 @@ researcher's. These tests hold it to ADR-0072 section 6:
 * a trial past its time limit, and a worker that dies, are interrupted: they
   record nothing, and a resume runs them;
 * a limit times the trial, never the worker's start;
+* what a trial writes, by Python or not, never reaches the worker's answers;
 * a worker loads the experiment once, and runs as many trials as it is given:
   one for a fresh interpreter per trial, or all of them;
 * a worker that loads another experiment is refused.
@@ -178,6 +179,22 @@ def test_a_limit_times_the_trial_never_the_workers_start(per_worker: int | None)
 
     assert record.counts.recorded == len(spec.trials())
     assert record == run_experiment(spec, REGISTRY, "reference", _ledger(), SequentialExecutor())
+
+
+@LIFETIMES
+def test_what_a_trial_writes_never_reaches_the_workers_answers(per_worker: int | None) -> None:
+    """A trial printing, and writing to file descriptor 1 itself, is still the reference trial."""
+
+    spec, sequential = run()
+    record = run_experiment(
+        spec,
+        REGISTRY,
+        "chatty",
+        _ledger(),
+        SpawnExecutor(WHERE, workers=4, trials_per_worker=per_worker),
+    )
+
+    assert record == sequential
 
 
 @LIFETIMES

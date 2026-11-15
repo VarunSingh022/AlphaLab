@@ -12,7 +12,8 @@ never counted.
   against ``MAX_EXECUTOR_OVERHEAD``: the executor's own cost, one worker's start
   -- an interpreter, AlphaLab's imports and the experiment, about half a second
   -- and each trial's request and answer, a few milliseconds. On the reference
-  machine (CPython 3.12, Apple arm64) it is 1.8 percent.
+  machine (CPython 3.12, Apple arm64) it is 2.1 percent, fastest of three (1.8
+  on single runs).
 * **Spawned, one fresh interpreter per trial** (``trials_per_worker=1``) pays
   a start every trial. It is printed, not judged: the most isolated executor,
   chosen for that.
@@ -25,8 +26,12 @@ never counted.
   with no executor, cost 10.1 percent more CPU than the sequential run on the
   reference machine, which has four performance and four efficiency cores.
 
-Every spawned experiment must equal the sequential one record for record, or
-the benchmark fails before it judges anything. Run from the repository root::
+The judged pair is timed by ``_stable_timing``'s method (ledger TST-011): CPU
+time, the two interleaved, the fastest of three -- on a clock that counts the
+workers' CPU too, and with the collector running, because a worker's cannot be
+paused, and pausing only the parent's would favour the sequential run. Every
+spawned experiment must equal the sequential one record for record, or the
+benchmark fails. Run from the repository root::
 
     python benchmarks/benchmark_experiments.py
 """
@@ -41,6 +46,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _experiment_workload import REGISTRY, SPEC
+from _stable_timing import SAMPLES, fastest
 
 from alphalab.lifecycle.experiments import (
     ExperimentRecord,
@@ -58,48 +64,71 @@ MAX_EXECUTOR_OVERHEAD = 0.05
 WHERE = "_experiment_workload:DEFINITION"
 
 
-def _children_cpu() -> float:
-    used = resource.getrusage(resource.RUSAGE_CHILDREN)
-    return used.ru_utime + used.ru_stime
+def _cpu() -> float:
+    """The CPU time of this process and of every child it has waited for."""
+
+    children = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return time.process_time() + children.ru_utime + children.ru_stime
 
 
-def _timed(executor: TrialExecutor) -> tuple[float, float, ExperimentRecord]:
-    """CPU seconds the experiment took under ``executor``, its workers' included, and its wall."""
-
+def _run(executor: TrialExecutor) -> ExperimentRecord:
     ledger = TrialLedger(EvidenceStore(MemoryArtifactStore(), MemoryEvidenceIndex()))
-    own, children, wall = time.process_time(), _children_cpu(), time.perf_counter()
-    record = run_experiment(SPEC, REGISTRY, "flip", ledger, executor)
-    cpu = (time.process_time() - own) + (_children_cpu() - children)
-    return cpu, time.perf_counter() - wall, record
+    return run_experiment(SPEC, REGISTRY, "flip", ledger, executor)
+
+
+def _once(executor: TrialExecutor) -> tuple[float, float, ExperimentRecord]:
+    """One run's CPU seconds, its workers' included, its seconds on the clock, and its record."""
+
+    cpu, wall = _cpu(), time.perf_counter()
+    record = _run(executor)
+    return _cpu() - cpu, time.perf_counter() - wall, record
 
 
 def run_benchmark() -> int:
     trials = len(SPEC.trials())
     print(f"Starting Experiment Executor Benchmark ({trials} trials)...")
-    sequential, wall, reference = _timed(SequentialExecutor())
-    print(f"  sequential: {sequential:.2f} CPU s for the trials ({wall:.1f} s on the clock)")
-    failures = 0
-    for name, executor, judged in (
-        ("spawned, one worker reused", SpawnExecutor(WHERE, 1, None), True),
-        ("spawned, one fresh interpreter per trial", SpawnExecutor(WHERE, 1, 1), False),
-        ("spawned, four workers reused", SpawnExecutor(WHERE, 4, None), False),
+    records: dict[str, ExperimentRecord] = {}
+
+    def judged(name: str, executor: TrialExecutor) -> None:
+        records[name] = _run(executor)
+
+    sequential, reused = fastest(
+        [
+            lambda: judged("sequential", SequentialExecutor()),
+            lambda: judged("reused", SpawnExecutor(WHERE, 1, None)),
+        ],
+        clock=_cpu,
+        pause_collector=False,
+    )
+    reference = records["sequential"]
+    if records["reused"] != reference:
+        raise SystemExit("The spawned experiment's record differs from the sequential one.")
+    overhead = reused / sequential - 1.0
+    verdict = "ok" if overhead <= MAX_EXECUTOR_OVERHEAD else "OVER THE PLAN'S BUDGET"
+    print(f"  sequential: {sequential:.2f} CPU s for the trials")
+    print(
+        f"  spawned, one worker reused: {reused:.2f} CPU s, overhead {overhead:+.1%} of the "
+        f"trials' (budget {MAX_EXECUTOR_OVERHEAD:.0%}), "
+        f"{(reused - sequential) / trials * 1e3:.0f} ms a trial {verdict}"
+    )
+    for name, executor in (
+        ("spawned, one fresh interpreter per trial", SpawnExecutor(WHERE, 1, 1)),
+        ("spawned, four workers reused", SpawnExecutor(WHERE, 4, None)),
     ):
-        seconds, wall, record = _timed(executor)
+        seconds, wall, record = _once(executor)
         if record != reference:
             raise SystemExit(f"The {name} experiment's record differs from the sequential one.")
-        overhead = seconds / sequential - 1.0
-        verdict = "printed, not judged"
-        if judged:
-            verdict = "ok" if overhead <= MAX_EXECUTOR_OVERHEAD else "OVER THE PLAN'S BUDGET"
-            failures += verdict != "ok"
         print(
-            f"  {name}: {seconds:.2f} CPU s, overhead {overhead:+.1%} of the trials' "
-            f"(budget {MAX_EXECUTOR_OVERHEAD:.0%}), {(seconds - sequential) / trials * 1e3:.0f} "
-            f"ms a trial ({wall:.1f} s on the clock) {verdict}"
+            f"  {name}: {seconds:.2f} CPU s, overhead {seconds / sequential - 1.0:+.1%} of the "
+            f"trials', {(seconds - sequential) / trials * 1e3:.0f} ms a trial ({wall:.1f} s on "
+            "the clock) printed, not judged"
         )
     print(f"  every record equal: {reference.counts.recorded} trials, {reference.counts}")
-    print("  judged: CPU time of the process and of its workers")
-    return 1 if failures else 0
+    print(
+        "  judged: CPU time of the process and its workers, collector running, "
+        f"fastest of {SAMPLES}"
+    )
+    return 0 if verdict == "ok" else 1
 
 
 if __name__ == "__main__":

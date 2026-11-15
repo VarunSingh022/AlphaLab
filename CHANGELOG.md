@@ -457,7 +457,7 @@ entry below says otherwise.
     * **Its lifetime.** `trials_per_worker` is the researcher's choice: `1` for
       a fresh interpreter per trial, the most isolated; `None` for one per
       worker, its start paid once.
-    * **The cost.** On one worker the executor costs 1.8 percent of the trials'
+    * **The cost.** On one worker the executor costs 2.1 percent of the trials'
       CPU time on deliberately short trials, inside the plan's 5 percent
       (`benchmarks/benchmark_experiments.py`). A start is about half a second:
       so a fresh interpreter per trial costs that much a trial, and each

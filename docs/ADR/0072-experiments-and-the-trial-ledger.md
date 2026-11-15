@@ -325,17 +325,20 @@ Building M4 settled fourteen points, each held by a test or a benchmark
       and answer cost a few milliseconds.
     * **What is judged.** `benchmarks/benchmark_experiments.py` runs 48
       deliberately short trials (about 0.6 s each). The executor's own cost, on
-      one worker reused, is 1.8 percent.
+      one worker reused, is 2.1 percent, the fastest of three interleaved runs
+      on a clock that counts the workers' CPU too, the collector running in
+      both (a worker's cannot be paused, and pausing only the parent's would
+      favour the sequential run: 4.8 percent, measured that way).
     * **Why one worker.** With `W` workers the cost is `W` starts and the
       exchanges, so the starts fall under 5 percent once each worker runs about
       ten seconds of trials. A trial of the plan's cost envelope (K.5) runs ten
       minutes.
-    * **What is printed, not judged.** Four workers measure 19.8 percent, and
-      that figure holds what no executor controls. The host's cores slow when
+    * **What is printed, not judged.** Four workers measure 20 to 28 percent
+      across runs, and that figure holds what no executor controls. The host's cores slow when
       all are busy: the same trials in four plain processes, with no executor,
       cost 10.1 percent more CPU than the sequential run, on a machine of four
       performance and four efficiency cores. A fresh interpreter per trial
-      costs a start a trial (+72.9 percent here), the price of the most
+      costs a start a trial (73 to 80 percent here), the price of the most
       isolated choice.
     * **Memory.** A record holds digests and its series, and a worker's answer
       is that series and the record: about 55 KB for ten years of daily

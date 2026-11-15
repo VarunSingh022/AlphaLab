@@ -20,8 +20,10 @@ CI = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 BENCHMARKS = ROOT / ".github" / "workflows" / "benchmarks.yml"
 PRE_COMMIT = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
 #: Modules in ``benchmarks/`` that are imported by benchmarks rather than run:
-#: the stabilized timing every ceiling is judged by (ledger TST-011).
-BENCHMARK_HELPERS = frozenset({"_stable_timing.py"})
+#: the stabilized timing every ceiling is judged by (ledger TST-011), and the
+#: experiment ``benchmark_experiments`` runs, in a module of its own because a
+#: spawned worker imports it by name (v4.3).
+BENCHMARK_HELPERS = frozenset({"_stable_timing.py", "_experiment_workload.py"})
 DEV = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"][
     "optional-dependencies"
 ]["dev"]

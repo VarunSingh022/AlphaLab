@@ -77,7 +77,7 @@ spec and registry, defined at the top level of a module and named in code as
 
 **What it costs.** A worker's start is about half a second: an interpreter,
 AlphaLab's imports and the experiment. A trial's request and answer cost a few
-milliseconds. On one reused worker the executor costs 1.8 percent of the
+milliseconds. On one reused worker the executor costs about 2 percent of the
 trials' time on deliberately short trials (`benchmarks/benchmark_experiments.py`).
 With more workers, each adds a start.
 

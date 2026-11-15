@@ -586,7 +586,7 @@
       "rationale": "A start paid once per worker is the cost the budget can bear; a researcher who wants every trial in a clean interpreter can still have it, at a start a trial. One worker measures the executor and nothing of the host. With W workers the cost is W starts and the exchanges, under 5 percent once each worker runs about ten seconds of trials; a trial of the plan's cost envelope (K.5) runs ten minutes.",
       "compatibility": "SpawnExecutor gains a required field; it is unreleased. Records are unchanged under either lifetime, and spawned equals sequential record for record.",
       "record": "docs/ADR/0072-experiments-and-the-trial-ledger.md (settled at implementation, points 8 and 14); SECURITY.md (BDY-029).",
-      "tests": "tests/integration/test_spawned_trials.py (every behaviour under both lifetimes; the starts counted); benchmarks/benchmark_experiments.py: one worker reused +1.8 percent (ok), a fresh interpreter per trial +72.9, four workers +19.8, the no-executor control +10.1."
+      "tests": "tests/integration/test_spawned_trials.py (every behaviour under both lifetimes; the starts counted); benchmarks/benchmark_experiments.py, judged by _stable_timing's method on a clock counting the workers' CPU, the collector running in both: one worker reused +2.1 percent (ok; 1.8 on single runs), a fresh interpreter per trial +73 to +80, four workers +20 to +28; the no-executor control +10.1."
     }
   ],
   "plan_changes": [
@@ -1196,7 +1196,7 @@
         },
         {
           "milestone": "M4",
-          "item": "Spawned workers serve many trials (trials_per_worker); the executor's own cost 1.8 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)",
+          "item": "Spawned workers serve many trials (trials_per_worker); the executor's own cost 2.1 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)",
           "status": "Local validation passed"
         },
         {
