@@ -186,8 +186,11 @@ Nothing is removed before 5.0.
 
 # Settled at implementation (2026-11-15)
 
-Building M4 settled eight points, each held by a test
-(`tests/integration/test_trial_ledger.py`, `tests/integration/test_spawned_trials.py`).
+Building M4 settled eleven points, each held by a test
+(`tests/integration/test_trial_ledger.py`, `tests/integration/test_spawned_trials.py`,
+`tests/integration/test_cluster_executor.py`, `tests/integration/test_ledger_consumers.py`,
+`tests/unit/cloud_research/test_registered_tasks.py`,
+`tests/regression/test_one_executor_path.py`).
 
 1. **A dataset's identity is what every trial can be held to.**
    `dataset_identity` is the dataset's id and `dataset_digest`, SHA-256 over its
@@ -235,6 +238,52 @@ Building M4 settled eight points, each held by a test
 
    Spawned and sequential runs of one experiment are equal record for record
    (`tests/integration/test_spawned_trials.py`).
+9. **The one registry is `alphalab.common`'s.** `cloud_research` may not
+   import `lifecycle`, which composes it, so D-54-11's one registry,
+   `RunnerRegistry`, lives in `alphalab.common.registry` and
+   `alphalab.lifecycle` re-exports it. It refuses with
+   `AlphaLabRegistryError`.
+   * **The cycle.** `run_cluster_cycle(..., registry=...)` looks each job's
+     `task_path` up in it by name. A name it does not hold fails the job before
+     anything is imported or submitted, and nothing is resolved as a path.
+   * **The sweep.** The job keeps its `task_path`: a registered name when the
+     cycle has a registry, a dotted path otherwise. So `submit_parameter_sweep`
+     and `collect_sweep` run through the registry unchanged.
+   * **Superseded.** Without a registry the cycle resolves the dotted path as
+     it did; `resolve_task` stays until 5.0 (D-54-6).
+10. **The cluster is one of the ledger's executors (GAP-31).**
+    `ClusterExecutor` submits each trial to a `cloud_research` cluster as a
+    registered task, and runs the cycle until every trial is done:
+    * `distributed`'s job lifecycle tracks each trial;
+    * the cycle's `assign` places it -- the cluster's own scheduler, or
+      `cluster_scheduler`'s aging or affinity policy;
+    * the task spawns the trial's worker, as `SpawnExecutor` does.
+
+    The three orchestration layers are one executor path. `lifecycle` imports
+    `cloud_research` and `distributed`, and `cluster_scheduler` joins without
+    an edge: its policies are what `assign` is given.
+    * **Cycles.** A cycle runs as many trials as the workers have room for and
+      waits for the slowest, so trials run batch by batch, not as a continuous
+      pool.
+    * **An idle cluster.** A cycle runs every job it assigns, so the cluster
+      starts with none queued or running.
+    * **No placement.** A policy that places none of the trials left is refused,
+      not waited on.
+    * **Interruptions.** One fails the trial's job and records nothing.
+    * **The cluster's state.** It stays the executor's; the ledger records the
+      trials.
+11. **The consumers reach the ledger without importing it.**
+    * **The research assistant.** It may not import `lifecycle`, so its
+      candidates reach the ledger through the one search space.
+      `candidate_space` is the `ParameterSpace` of exactly the candidates
+      `generate_candidates` made, of one template, in their order. An
+      experiment over it runs trial `i` as candidate `i`, and a limited
+      enumeration counts only what it generated.
+    * **The tracker** (D-54-3). The link is a tag, `EXPERIMENT_TAG`
+      (`alphalab.experiment_id`), namespaced so that it collides with no tag of
+      the researcher's. `experiment_tags` cites the experiment and
+      `tracked_runs` reads the citation back. Like every tag, it enters the
+      tracker run's `run_id`.
 
 # Departures from the plan's text, and why
 
@@ -247,8 +296,11 @@ Building M4 settled eight points, each held by a test
 
 # Compatibility
 
-- Additive: a new module, `lifecycle.experiments`, and the runner registry. No
-  existing function's behaviour, signature or identity changes.
+- Additive: a new module, `lifecycle.experiments`, the runner registry in
+  `common.registry`, `research_assistant.candidate_space`, and two keyword-only
+  parameters of `cloud_research.run_cluster_cycle`, `registry` and `assign`,
+  whose defaults are its 4.2.1 behaviour. No existing function's behaviour or
+  identity changes.
 - `resolve_task` stays, documented as superseded, until 5.0.
 
 # Known limitations

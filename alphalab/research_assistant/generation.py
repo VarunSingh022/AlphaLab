@@ -13,6 +13,11 @@ search space AlphaLab has, which walk-forward optimization and the cloud
 research sweep read as well -- so a grid enumerates in one order, is validated by
 one set of rules and has one identity, whichever of them searched it. Until
 v3.12 there were four parameter searches and each built its own grid.
+
+Since v4.3 the candidates feed the trial ledger (ADR-0072 section 10):
+:func:`candidate_space` is the space of exactly the candidates generated, so an
+experiment over it runs one trial per candidate, in the assistant's order, and
+counts the search the assistant made -- a limited one included.
 """
 
 from collections.abc import Mapping, Sequence
@@ -28,6 +33,7 @@ __all__ = [
     "ParameterSpace",
     "StrategyCandidate",
     "candidate_count",
+    "candidate_space",
     "generate_candidates",
     "parameter_space",
 ]
@@ -116,3 +122,30 @@ def candidate_count(space: ParameterSpace | ParameterAxes) -> int:
             choices.
     """
     return len(parameter_space(space))
+
+
+def candidate_space(candidates: Sequence[StrategyCandidate]) -> ParameterSpace:
+    """The search space of exactly ``candidates``, in their order (v4.3, ADR-0072).
+
+    An experiment over the assistant's candidates is the experiment over this
+    space: ``ExperimentSpec(..., space=candidate_space(generate_candidates(...)))``
+    runs trial ``i`` as candidate ``i``, so the ledger counts the trials the
+    assistant generated -- with ``limit``, those and no others.
+
+    Raises:
+        ResearchAssistantInputError: If there is no candidate, they are of more
+            than one template (an experiment tests one strategy), they name
+            different parameters, or one repeats.
+    """
+    if not candidates:
+        raise ResearchAssistantInputError("candidates cannot be empty.")
+    templates = sorted({candidate.template for candidate in candidates})
+    if len(templates) != 1:
+        raise ResearchAssistantInputError(
+            f"The candidates are of {len(templates)} templates ({templates}); an experiment's "
+            "trials are candidates of one strategy."
+        )
+    try:
+        return ParameterSpace.of([candidate.parameters for candidate in candidates])
+    except ResearchValidationError as error:
+        raise ResearchAssistantInputError(str(error)) from error

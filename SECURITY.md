@@ -106,6 +106,16 @@ host's privileges. A task's return value reaches the caller through the
 executor the caller supplies -- a process pool pickles it -- so a worker is
 inside the caller's trust boundary as well.
 
+Since v4.3 a cycle can run without resolving a path (GAP-05, the v4.3 review's
+SEC-001). `run_cluster_cycle(..., registry=...)` looks each job's task up by name
+in a `RunnerRegistry` the researcher built in code -- the registry the trial
+ledger's executors take -- and a name it does not hold, a dotted path to a real
+function included, fails the job before anything is imported or submitted.
+Without a registry a task is a dotted path, resolved as above: `resolve_task` is
+superseded, and stays until 5.0 (plan D-54-6). A registered task runs in the
+executor the caller supplies, inside the caller's trust boundary, like any
+other.
+
 **A spawned trial's worker refuses the network, and is not a sandbox** (ledger
 BDY-029, ADR-0072). `alphalab.lifecycle.experiments.SpawnExecutor` runs each
 trial in a fresh interpreter started as AlphaLab's own worker module.
@@ -122,6 +132,9 @@ trial in a fresh interpreter started as AlphaLab's own worker module.
   audit events, such as a C extension or a process the host lets it start, is
   not contained by it, and isolating untrusted research code is the host's or
   the deployment's.
+* **On a cluster.** `ClusterExecutor` runs each trial in the same worker. The
+  cluster's cycle places a trial on a worker and starts it; the worker is what
+  refuses the network.
 * **In process.** `SequentialExecutor` runs trials in the caller's process,
   with no hook.
 

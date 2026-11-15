@@ -48,7 +48,7 @@ Never:
 | Remote head | `20ef953ff43ff60b25a32441fb311945986b5041` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | 08e2264's (the trial ledger) and 20ef953's (SpawnExecutor) Continuous Integration; then M4's remaining part: the research assistant's candidates as an experiment's trials, the cloud sweep through the runner registry and the ledger's executors (GAP-05), one executor path over distributed and cluster_scheduler (GAP-31), the tracker linked by experiment_id (D-54-3), D-54-R3, M4's mutation series and its close. |
+| Next | Push the consumers; read 08e2264's, 20ef953's and the consumers' hosted CI at the next boundary; then M4's mutation series and its close (GAP-01, GAP-05, GAP-27 and GAP-31 on hosted CI). |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -141,6 +141,7 @@ Never:
 - **2026-11-15** M3's close (a7f867f) and ADR-0072 (60263cf) pushed. M4's first part implemented and locally validated: the trial ledger with its sequential executor, resume, nondeterminism refusal and lockbox; the 48-trial experiment counts every outcome exactly; the reference experiment's identities are pinned, identical under CPython 3.12, 3.13 and 3.14 (TD-20).
 - **2026-11-15** The trial ledger (08e2264) passed the full gate and was pushed. SpawnExecutor implemented and locally validated: a fresh interpreter per trial refusing the network before the researcher's code, spawned equal to sequential record for record, the spy-on-import refusal, interruptions recording nothing; SECURITY.md states BDY-029.
 - **2026-11-15** M3 closed on hosted CI: its close (a7f867f) passed all six cells and CodeQL, as did ADR-0072 (60263cf). SpawnExecutor (20ef953) passed the full gate (13,294 tests, build, twine, the installed distributions with the network refused) and was pushed.
+- **2026-11-15** M4's consumers implemented and validated locally: one registry in alphalab.common, cloud_research's cycle running a task by name with a pluggable assignment policy (GAP-05), ClusterExecutor as the one executor path over distributed, cluster_scheduler and cloud_research (GAP-31), research_assistant.candidate_space and the tracker's experiment tag (D-54-3). D-54-R3 decided under delegation (TD-23): alphalab.lab at M13.
 
 ## Milestones
 
@@ -179,7 +180,7 @@ Never:
 | 6 | ADR-0053 | ADR-0053 revised (R53-1..8, CR-53-1..9) | Decided under delegation (2026-11-10) | Before M1 | ADR-0053 revision 3 accepted: the draft's option C-e with R53-1 to R53-8 applied and CR-53-1 to CR-53-9 held, departing from R53-1's letter where TD-06 records. Implemented in M1. |
 | 7 | ADR-0054 | ADR-0054 split into 0054A and 0054B; D-54-5 revised | Delegated (2026-11-10): decided at its milestone | 0054A before M2; 0054B before M4 | 0054A accepted as ADR-0054 on 2026-11-14 (TD-10), applying R54-8, D-54-2, D-54-4 and D-54-12; 0054B, the experiment and trial ledger, is ADR-0072, before M4. |
 | 8 | ADR-0055 | Streaming capture and trace identity | Delegated (2026-11-10): decided at its milestone | Before M3 | — |
-| 9 | D-54-R3 | Researcher entry point alphalab.lab | Delegated (2026-11-10): decided at its milestone | Before M4 | — |
+| 9 | D-54-R3 | Researcher entry point alphalab.lab | Decided under delegation (2026-11-15) | Before M4 | TD-23: alphalab.lab, a third composition top that imports lifecycle and is imported by nothing, delivered at M13 (N20, WS-19); until then the ledger is reached from alphalab.lifecycle. |
 | 10 | D-F45 | FUT-045 in M8 | Confirmed by the owner's brief | Before M8 | The implementation brief (Part 18) places FUT-045 in its agreed programme position. The owner is asked to confirm this reading. |
 | 11 | D-F42 | FUT-042 opt-in in 4.3; default flip in 5.0 | Decided under delegation (2026-11-14) | Before M1 | FUT-042 opt-in in 4.3: ADR-0052 accepted as option C, manifest_for_run(identity_version=2) records the registry and cites the run's provenance; run provenance records the registry by default. The default flip stays FUT-042, for 5.0. |
 | 12 | D-F44 | FUT-044 in M13 | Confirmed by the owner's brief | Before M13 | Inclusion confirmed by the brief (Part 18). Whether it is the cut line stays the owner's decision. The cut-line clause is delegated (2026-11-10). |
@@ -407,6 +408,36 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0072-experiments-and-the-trial-ledger.md (Settled at implementation).
 - **Tests:** tests/integration/test_trial_ledger.py (27), tests/regression/test_experiment_identities_are_pinned.py, the workload tests/integration/experiment_workload.py.
 
+### TD-21: One registry in alphalab.common, and the research cluster as one of the ledger's executors (GAP-05, GAP-31, D-54-6, D-54-11) (WS-05, 2026-11-15)
+
+- **Problem:** D-54-11 asks for one registry serving the ledger's executors and cloud_research, and GAP-31 for one executor path over distributed, cluster_scheduler and cloud_research. But cloud_research may not import lifecycle, which composes it, so the ledger's RunnerRegistry could not serve it. cloud_research's cycle hardcoded distributed's scheduler and dotted-path resolution, so cluster_scheduler's policies could run nothing, and the ledger could not run on a cluster.
+- **Alternatives:** The registry: keep it in lifecycle and give cloud_research a second one; a structural protocol; or move the one class below both, to alphalab.common. The cycle's registry path: new submission functions for registered tasks, or the job's task_path read as a registered name when the cycle is given a registry. The executor path: a ClusterExecutor driving distributed's state machine itself, which would copy the cycle; or one that runs trials as registered tasks on cloud_research's own cycle. The generic spawned worker moved into distributed, so that cluster tasks too would run in it.
+- **Decision:** RunnerRegistry moves to alphalab.common.registry, re-exported by alphalab.lifecycle, refusing with AlphaLabRegistryError. run_cluster_cycle gains keyword-only registry and assign: with a registry a job's task_path is a name looked up in it, and one it does not hold fails the job before anything is imported or submitted. assign is the AssignmentPolicy, so cluster_scheduler's aging and affinity policies run jobs. ClusterExecutor submits each trial to an idle cloud_research cluster as a registered task whose body spawns the trial's worker, and runs the cycle until every trial is done, yielding in submission order. resolve_task stays, superseded, until 5.0.
+- **Rationale:** One class is what lets one registry serve both, and common is the one package both may import. Reading task_path as a name keeps the job format and the sweep functions, so the cloud sweep runs through the registry unchanged and the 4.2.1 behaviour is the default. Running trials on the cycle itself makes it the one path: the scheduler's policies, distributed's job lifecycle and the spawned worker each do their part once. The worker stays in lifecycle: a registered cluster task runs in the executor the caller supplies, which BDY-028 already states.
+- **Compatibility:** Additive. run_cluster_cycle's new keywords default to its 4.2.1 behaviour; RunnerRegistry and the ledger are unreleased. lifecycle gains two edges, to cloud_research and distributed, which leave the standalone-engine list; nothing imports lifecycle.
+- **Recorded in:** docs/ADR/0072-experiments-and-the-trial-ledger.md (settled at implementation, points 9 and 10); docs/ARCHITECTURE.md; SECURITY.md; ledger BDY-028 (v430_outcome).
+- **Tests:** tests/unit/common/test_runner_registry.py, tests/unit/cloud_research/test_registered_tasks.py, tests/integration/test_cluster_executor.py, tests/regression/test_one_executor_path.py.
+
+### TD-22: The research assistant and the tracker consume the ledger without importing it (ADR-0072 section 10, D-54-3) (WS-05, 2026-11-15)
+
+- **Problem:** ADR-0072 has research_assistant's generate_candidates feed TrialSpecs and links experiment_tracking to experiments by experiment_id in its tags. research_assistant may not import lifecycle, and the tag needed a name.
+- **Alternatives:** research_assistant producing TrialSpecs (an edge onto lifecycle), lifecycle importing research_assistant (ADR-0013's dependency runs through the definition, not the package), or the candidates reaching the ledger as the ParameterSpace both already share. The tag: experiment_id, or a namespaced alphalab.experiment_id.
+- **Decision:** research_assistant.candidate_space(candidates) is the ParameterSpace of exactly the candidates generated, of one template, in their order, so an experiment over it runs trial i as candidate i and a limited enumeration counts what it generated. EXPERIMENT_TAG is alphalab.experiment_id; experiment_tags(spec) cites an experiment in a tracker run's tags and tracked_runs(tracker, experiment_id) reads the citation back.
+- **Rationale:** The one search space is the seam the assistant, the sweep and walk-forward optimization already share (SCF-003). A namespaced tag cannot collide with a researcher's own, and the typed field replacing it waits for 5.0 (D-54-3).
+- **Compatibility:** Additive: candidate_space, EXPERIMENT_TAG, experiment_tags and tracked_runs. research_assistant keeps no edge to the ledger, and the tracker's run_id covers the tag as it covers every tag.
+- **Recorded in:** docs/ADR/0072-experiments-and-the-trial-ledger.md (settled at implementation, point 11); docs/COMPOSING_STRATEGIES.md.
+- **Tests:** tests/integration/test_ledger_consumers.py; tests/unit/research_assistant/test_research_assistant.py.
+
+### TD-23: D-54-R3: the researcher entry point is alphalab.lab, a third composition top, at M13 (WS-19, 2026-11-15)
+
+- **Problem:** The plan (section E.9, sign-off item 9) leaves open where the researcher's entry point lives, alphalab.lab or a workflow module, and its register places the decision before M4, when the ledger becomes public. Nothing may import lifecycle, so the entry point cannot live below it.
+- **Alternatives:** alphalab.lab; a workflow module; the ledger reached from alphalab.lifecycle alone.
+- **Decision:** alphalab.lab: a top-level module that imports lifecycle and is imported by nothing -- a third composition top beside lifecycle and alphalab.api -- delivered with its 60-line example at M13 (N20, WS-19). Until then experiments are reached from alphalab.lifecycle, where M4 exports them (R54-6). The name workflow is not used: research_assistant.workflow already holds it, and it names a process, not a place.
+- **Rationale:** The plan recommends lab. A top that imports lifecycle keeps the rule that nothing imports lifecycle, and deciding it now means M4's public names are the ones lab will compose.
+- **Compatibility:** No code at M4; alphalab.lab is additive when it lands.
+- **Recorded in:** This register (decision 9).
+- **Tests:** At M13, with alphalab.lab.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -544,6 +575,9 @@ Evidence:
 - [Pushed] M4: RunnerRegistry and SequentialExecutor; inputs held to the specification; resume; nondeterminism refused; the lockbox read once
 - [Pushed] M4: The 48-trial experiment with failures and insolvency counted; the reference experiment's identities pinned across interpreters
 - [Pushed] M4: SpawnExecutor: a fresh interpreter per trial, the network refused before the researcher's code, records in submission order; spawned equals sequential record for record
+- [Local validation passed] M4: One registry: RunnerRegistry in alphalab.common, taken by the ledger's executors and the cluster's cycle (D-54-11, TD-21)
+- [Local validation passed] M4: ClusterExecutor: trials as registered tasks on a cloud_research cluster, distributed's job lifecycle and a cluster_scheduler policy -- one executor path (GAP-31); cluster equals sequential record for record
+- [Local validation passed] M4: The consumers: research_assistant.candidate_space feeds an experiment's trials; the tracker linked by experiment_id in its tags (D-54-3, TD-22)
 
 ### WS-06: Statistical research functions
 
@@ -574,6 +608,7 @@ Evidence:
 ### WS-19: Researcher entry points, composition, reproducibility APIs
 
 - [Pushed] M4: lifecycle.experiments documented as a public module (R54-6): exported from alphalab.lifecycle and described in docs/COMPOSING_STRATEGIES.md
+- [Local validation passed] M4: D-54-R3 decided (TD-23): alphalab.lab, a third composition top, at M13
 
 ### WS-20: Documentation, guides and examples
 
@@ -601,6 +636,7 @@ Evidence:
 
 - [Hosted CI passed] M0: SEC-002: HttpTransport opens http:// and https:// only, and follows a redirect only to one of them
 - [Pushed] M4: The spy-on-import refusal (N18), and BDY-029 stated in SECURITY.md and held by a test
+- [Local validation passed] M4: cloud_research's cycle looks a task up in the registry: an unregistered name, a dotted path to a real task included, fails before anything is imported (GAP-05, D-54-6); resolve_task superseded until 5.0
 
 Evidence:
 
@@ -627,11 +663,11 @@ Evidence:
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
-| GAP-01 | No experiment or trial ledger | C/P0 | In progress at M4 (WS-05, ADR-0072): the ledger, its identities, outcomes, records, resume and lockbox are delivered locally with the sequential executor; the spawning executor and the consumers follow. | WS-05 | M4 |
+| GAP-01 | No experiment or trial ledger | C/P0 | Delivered locally at M4 (WS-05, ADR-0072): the ledger, its identities, outcomes, records, resume and lockbox, with sequential, spawned and cluster executors and the research assistant and tracker as consumers. Closes at M4's close, on hosted CI. | WS-05 | M4 |
 | GAP-02 | Validation not over backtests | C/P0 | Open | WS-24 | M5 |
 | GAP-03 | DET-007 ambient ids | H/P0 | Open: scopes isolated and registry ids derived; awaiting hosted CI | WS-02 | M0 |
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |
-| GAP-05 | SEC-001 dotted-path resolution | H/P0 | In progress at M4 (WS-23, ADR-0072): the runner registry replaces dotted-path resolution for the ledger's executors, and a spawned worker refuses a definition that reaches for the network as it is imported (the spy-on-import refusal). cloud_research's sweep moving onto the registry is M4's next part. | WS-23, WS-05 | M4 |
+| GAP-05 | SEC-001 dotted-path resolution | H/P0 | Delivered locally at M4 (WS-23, ADR-0072, TD-21): the ledger's executors and cloud_research's cycle look a name up in one registry and resolve nothing, so an unregistered name, a dotted path to a real task included, fails before anything is imported; a spawned worker refuses a definition that reaches for the network as it is imported (the spy-on-import refusal). resolve_task stays, superseded, until 5.0 (D-54-6). Closes when hosted CI passes it. | WS-23, WS-05 | M4 |
 | GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open: refused in code and documented; closes when M0 is accepted | WS-23 | M0 |
 | GAP-07 | v4.2.x formats not frozen | H/P0 | Open: acceptance met (REP-3 reads v4.2.1; hosted CI passed on dc61a75); closes when M0 is accepted | WS-01 | M0 |
 | GAP-08 | Return extraction; → retention trims equity | H/P0 | Closed at M3 (WS-04, ADR-0055, plan K.1): run_captured reads every trial's return series as the run records its equity, whatever it keeps, and keep_equity keeps a bounded run's whole curve; 16-variant PBO from bounded captures equals full history's exactly, on hosted CI (0649893, acf4ce4). | WS-04 | M3 |
@@ -657,7 +693,7 @@ Evidence:
 | GAP-28 | Researcher boilerplate | M/P2 | Open | WS-19 | M13 |
 | GAP-29 | REL-001 v4.2.1 assets | — | Closed (D-V5): historical limitation | — | — |
 | GAP-30 | Stale documentation (CON-A/N/V/X) | M/P1 | Open: the seven High items corrected and guarded in M0; Medium and Low items follow by M13 | WS-20 | M0 (High) + every M |
-| GAP-31 | Three orchestration layers unbound | M/P2 | Open | WS-05 | M4 |
+| GAP-31 | Three orchestration layers unbound | M/P2 | Delivered locally at M4 (WS-05, ADR-0072, TD-21): ClusterExecutor runs a ledgered experiment's trials as registered tasks on cloud_research's cycle, which tracks them through distributed's job lifecycle and places them by its assignment policy, cluster_scheduler's included; the record equals the sequential one. Closes when hosted CI passes it. | WS-05 | M4 |
 | GAP-32 | No vectorised screening | M/P3 | Open (D-V3 via L4) | WS-09, WS-15 | M11 |
 | GAP-33 | Non-normal distributions missing | M/P1 | Closed at M2's hosted exit gate (fe3c80b; WS-03): Student's t, chi-squared, F, gamma, beta, binomial and Poisson, held to published tables. | WS-03 | M2 |
 | GAP-34 | 9,248-line pipeline module | L/P3 | Open | WS-15 | M11 |

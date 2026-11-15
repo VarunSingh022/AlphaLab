@@ -37,6 +37,7 @@ from alphalab.backtesting.capture import (
 )
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE
+from alphalab.common.exceptions import AlphaLabRegistryError
 from alphalab.lifecycle.experiments import (
     SEARCH,
     ExperimentError,
@@ -404,11 +405,13 @@ def test_a_specification_that_is_not_one_is_refused(changed: dict[str, Any], mat
 
 
 def test_a_runner_is_looked_up_by_name_never_resolved() -> None:
-    with pytest.raises(ExperimentError, match="never resolved to code"):
+    """The ledger's registry is the shared one (D-54-11), and refuses as it does."""
+
+    with pytest.raises(AlphaLabRegistryError, match="never resolved to code"):
         REGISTRY.runner("alphalab.lifecycle.experiments.run_trial")
-    with pytest.raises(ExperimentError, match="already holds"):
+    with pytest.raises(AlphaLabRegistryError, match="already holds"):
         REGISTRY.register("bands", build)
-    with pytest.raises(ExperimentError, match="never resolved to code"):
+    with pytest.raises(AlphaLabRegistryError, match="never resolved to code"):
         run_experiment(_spec(), REGISTRY, "elsewhere", _ledger(), SequentialExecutor())
 
 

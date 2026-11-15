@@ -1307,7 +1307,8 @@ nothing. It stores an identity and a factory and nothing about what a strategy
 *is*. It **never resolves a name to code** — no `importlib`, no class-name
 derivation, because a name is not a type. (One package does:
 `cloud_research.resolve_task` imports the module a job's task path names, the
-trust boundary ledger BDY-028 states.) A duplicate registration is refused
+trust boundary ledger BDY-028 states. Since v4.3 it is superseded, and kept until
+5.0, by a cycle that looks a task up by name in a `RunnerRegistry`.) A duplicate registration is refused
 naming both incumbent and challenger; an unknown identity is refused listing what
 *is* registered; a factory returning something undispatchable is refused at
 construction rather than at its first market event.

@@ -68,6 +68,7 @@ from alphalab.common.point_in_time import (
     VisibilityRule,
 )
 from alphalab.common.point_in_time import known_as_of as generic_known_as_of
+from alphalab.common.registry import RunnerRegistry
 from alphalab.common.results import Result
 from alphalab.common.serialization import dataclass_to_dict
 from alphalab.common.statistics import (
@@ -132,6 +133,7 @@ __all__ = [
     "RankMethod",
     "RateRecord",
     "Result",
+    "RunnerRegistry",
     "StampedRecord",
     "TieBreak",
     "TimeInForce",

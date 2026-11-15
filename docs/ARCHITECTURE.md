@@ -1059,9 +1059,9 @@ An independent, deterministic, individually tested library that is reached by
 **neither** wired path: `portfolio_optimizer`, `reporting`,
 `feature_store`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
-`cloud_research`, `cluster_scheduler`, `distributed`,
-`research_assistant`, `brokers`, `scheduler`, `scenario`. (`plugins` and
-`optimizer` were on it until v3.12 — see ADR-0047.)
+`cluster_scheduler`, `research_assistant`, `brokers`, `scheduler`, `scenario`.
+(`plugins` and `optimizer` were on it until v3.12 — see ADR-0047;
+`cloud_research` and `distributed` until v4.3, below.)
 (`production`, `integrations` and `kernel` were on this list until v2.17, which
 removed them — see ADR-0034; `live` and `feed` until v3.10 — see ADR-0045;
 `workbench` until v3.11 — see ADR-0046.)
@@ -1097,6 +1097,18 @@ lifecycle path; and by `alphalab.api`, which is where an application enters. The
 edge is one-way — nothing in `factor_library` imports `research`, `lifecycle` or
 `api` — and `tests/regression/test_import_graph_stays_acyclic.py` measures that
 on every run.
+
+**`cloud_research` and `distributed` left this list in v4.3**, and
+`cluster_scheduler` and `research_assistant` stayed on it (ADR-0072, GAP-31).
+The trial ledger's `ClusterExecutor` runs an experiment's trials as jobs on a
+`cloud_research` cluster, whose cycle drives `distributed`'s job lifecycle, so
+`alphalab.lifecycle` imports both: the three orchestration layers are one
+executor path. `cluster_scheduler` joins that path without an edge: its
+policies are what a cycle's `assign` is given. `research_assistant` feeds the
+ledger through the one search space, `research.ParameterSpace`
+(`candidate_space`), and imports nothing of the ledger's. Nothing in any of
+them imports `lifecycle`, and `tests/regression/test_one_executor_path.py`
+measures these edges.
 
 **`alt_data` left this list in v3.7**, for the reason `factor_library` did:
 `alphalab.research` imports it (event studies), and so do `factor_library`
@@ -1134,8 +1146,9 @@ authority. `alphalab.broker` is reached from the execution path through
 owner writes through.
 
 `alphalab.lifecycle` imports `experiment_tracking`, `model_registry`,
-`deployment_manager`, `research` and `backtesting` (`studio` and `enterprise`
-until v3.11, which removed them). It
+`deployment_manager`, `research` and `backtesting`, and since v4.3
+`cloud_research` and `distributed` (`studio` and `enterprise` until v3.11, which
+removed them). It
 does **not** import `research_assistant`: that package produces a candidate and
 `to_strategy_definition` lifts it into the canonical `StrategyDefinition` the
 lifecycle takes, so the dependency runs through the definition rather than the
@@ -2253,8 +2266,10 @@ object that satisfies one of its protocols (see "Plugin Architecture" below).
 One package is the exception, and states it: `cloud_research.resolve_task`
 imports the module a job's `task_path` names and calls the callable in it, so a
 task path selects code to execute and must never come from untrusted input
-(ledger BDY-028, `SECURITY.md`). The strategy class registry, by contrast,
-never resolves a name to code (ADR-0035).
+(ledger BDY-028, `SECURITY.md`). Since v4.3 it is superseded, and kept until 5.0:
+a cycle given a `common.registry.RunnerRegistry` looks a task up by name and
+resolves nothing, as the trial ledger's executors do (ADR-0072). The strategy
+class registry, by contrast, never resolves a name to code (ADR-0035).
 **Removed in v3.12** with `alphalab/optimizer` (ledger SCF-003, ADR-0047).
 
 ---

@@ -58,9 +58,8 @@ import subprocess
 import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field, fields, is_dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum, unique
-from types import MappingProxyType
 from typing import Any, Final, Protocol
 
 from alphalab.alt_data.streaming import ObservationDelivery
@@ -76,7 +75,16 @@ from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.provenance import run_provenance
 from alphalab.backtesting.replay_snapshot import dataset_digest
 from alphalab.backtesting.schedule import RunSchedule
+from alphalab.cloud_research.cluster import (
+    AssignmentPolicy,
+    CloudResearchState,
+    run_cluster_cycle,
+    submit_research_job,
+)
 from alphalab.common.exceptions import AlphaLabError
+from alphalab.common.registry import RunnerRegistry
+from alphalab.distributed.job import JobType
+from alphalab.experiment_tracking.tracker import ExperimentRun, ExperimentTracker
 from alphalab.instrument.snapshot import registry_digest
 from alphalab.lifecycle.exceptions import LifecycleInputError
 from alphalab.lifecycle.reproducibility import digest_run
@@ -95,10 +103,12 @@ from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 __all__ = [
     "EXPERIMENT_RECORD_SCHEME",
     "EXPERIMENT_SCHEME",
+    "EXPERIMENT_TAG",
     "SEARCH",
     "TRIAL_MATRIX_SCHEME",
     "TRIAL_RECORD_SCHEME",
     "TRIAL_SCHEME",
+    "ClusterExecutor",
     "DatasetIdentity",
     "ExperimentDefinition",
     "ExperimentError",
@@ -122,9 +132,11 @@ __all__ = [
     "TrialSpec",
     "canonical_experiment_key",
     "dataset_identity",
+    "experiment_tags",
     "read_lockbox",
     "run_experiment",
     "run_trial",
+    "tracked_runs",
 ]
 
 #: The scheme an experiment's canonical key is written under.
@@ -642,49 +654,6 @@ class TrialInputs:
 Runner = Callable[[TrialSpec], TrialInputs]
 
 
-@dataclass(frozen=True, slots=True)
-class RunnerRegistry:
-    """Runners by name. A trial names its runner; the name never resolves to code (BDY-028).
-
-    Attributes:
-        runners: Name -> runner, in registration order.
-    """
-
-    runners: Mapping[str, Runner] = field(default_factory=lambda: MappingProxyType({}))
-
-    def register(self, name: str, runner: Runner) -> RunnerRegistry:
-        """A registry with ``runner`` under ``name``.
-
-        Raises:
-            ExperimentError: If ``name`` is blank or taken, or ``runner`` is not
-                callable.
-        """
-
-        _require_text(name, "A runner's name")
-        if name in self.runners:
-            raise ExperimentError(f"The registry already holds a runner named {name!r}.")
-        if not callable(runner):
-            raise ExperimentError(f"Runner {name!r} must be callable, got {runner!r}.")
-        return RunnerRegistry(MappingProxyType({**self.runners, name: runner}))
-
-    def runner(self, name: str) -> Runner:
-        """The runner registered as ``name``.
-
-        Raises:
-            ExperimentError: If no runner has that name. Nothing is imported to
-                find one.
-        """
-
-        held = self.runners.get(name)
-        if held is None:
-            known = ", ".join(sorted(self.runners)) or "none"
-            raise ExperimentError(
-                f"No runner is registered as {name!r} (the registry holds {known}); a name "
-                "is looked up, never resolved to code (BDY-028)."
-            )
-        return held
-
-
 # --- running one trial ----------------------------------------------------------------
 
 
@@ -952,6 +921,74 @@ def _ran_from_payload(payload: Mapping[str, Any]) -> _Ran:
 _WORKER: Final = "alphalab.lifecycle._trial_worker"
 
 
+def _require_definition(definition: object, owner: str) -> str:
+    module, colon, attribute = (
+        definition.partition(":") if isinstance(definition, str) else ("", "", "")
+    )
+    if not module or not colon or not attribute.isidentifier():
+        raise ExperimentError(
+            f"{owner}.definition names where the experiment is defined, "
+            f"'package.module:NAME'; got {definition!r}."
+        )
+    return str(definition)
+
+
+def _spawn(
+    definition: str,
+    spec: ExperimentSpec,
+    experiment_id: str,
+    runner: str,
+    trial: TrialSpec,
+    path: list[str],
+) -> _Ran | None:
+    """Run ``trial`` in a fresh interpreter; ``None`` when it was interrupted."""
+
+    request = json.dumps(
+        {
+            "definition": definition,
+            "experiment_id": experiment_id,
+            "path": path,
+            "runner": runner,
+            "trial_id": trial.trial_id,
+        }
+    )
+    # AlphaLab's own worker module, with fixed arguments: nothing in the
+    # command comes from a request.
+    process = subprocess.Popen(
+        [sys.executable, "-m", _WORKER],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        out, _ = process.communicate(request, timeout=spec.limits.seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        return None
+    lines = [line for line in out.splitlines() if line.strip()]
+    if process.returncode != 0 or not lines:
+        return None
+    answer = json.loads(lines[-1])
+    if "mismatch" in answer:
+        raise ExperimentError(
+            f"The spawned worker loaded another experiment: {answer['mismatch']}."
+        )
+    if "failed" in answer:
+        return _trial_left(
+            spec,
+            trial,
+            TrialOutcome.FAILED,
+            f"the experiment's definition did not load: {answer['failed']}",
+        )
+    return _ran_from_payload(answer)
+
+
+def _search_path() -> list[str]:
+    return [entry for entry in sys.path if entry]
+
+
 @dataclass(frozen=True, slots=True)
 class SpawnExecutor:
     """Runs each trial in a fresh interpreter that refuses the network (ADR-0072 section 6).
@@ -978,14 +1015,7 @@ class SpawnExecutor:
     workers: int
 
     def __post_init__(self) -> None:
-        module, colon, attribute = (
-            self.definition.partition(":") if isinstance(self.definition, str) else ("", "", "")
-        )
-        if not module or not colon or not attribute.isidentifier():
-            raise ExperimentError(
-                "SpawnExecutor.definition names where the experiment is defined, "
-                f"'package.module:NAME'; got {self.definition!r}."
-            )
+        _require_definition(self.definition, "SpawnExecutor")
         if isinstance(self.workers, bool) or not isinstance(self.workers, int) or self.workers < 1:
             raise ExperimentError(f"SpawnExecutor.workers must be positive, got {self.workers!r}.")
 
@@ -998,10 +1028,10 @@ class SpawnExecutor:
     ) -> Iterator[_Ran]:
         registry.runner(runner)
         experiment_id = spec.experiment_id
-        path = [entry for entry in sys.path if entry]
+        path = _search_path()
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             running = [
-                pool.submit(self._spawn, spec, experiment_id, runner, trial, path)
+                pool.submit(_spawn, self.definition, spec, experiment_id, runner, trial, path)
                 for trial in trials
             ]
             for future in running:
@@ -1009,54 +1039,132 @@ class SpawnExecutor:
                 if ran is not None:
                     yield ran
 
-    def _spawn(
+
+#: The registered task a cluster job of a :class:`ClusterExecutor` runs.
+_CLUSTER_TASK: Final = "trial"
+
+
+class _Interrupted(Exception):
+    """A trial's time limit passed, or its worker died: its job fails, and it records nothing."""
+
+
+@dataclass(frozen=True, slots=True)
+class ClusterExecutor:
+    """Runs each trial as a job on a research cluster: the one executor path (GAP-31).
+
+    The trials are submitted to ``cluster`` as jobs and run by
+    :func:`~alphalab.cloud_research.run_cluster_cycle` through a
+    :class:`~alphalab.common.registry.RunnerRegistry`, as any registered task
+    is: :mod:`alphalab.distributed`'s job lifecycle queues, starts and completes
+    or fails each one; ``assign`` decides which worker takes which -- the
+    cluster's own scheduler, or a policy of :mod:`alphalab.cluster_scheduler`;
+    and each trial runs in a fresh interpreter that refuses the network, as
+    under :class:`SpawnExecutor`. A request carries identities only.
+
+    A cycle runs as many trials as the workers have capacity for, and what the
+    trials left is yielded in submission order as each prefix of them is done.
+    A trial past its time limit, or a worker that dies, fails its job and is
+    interrupted: it leaves nothing, and a resume runs it again. The cluster's
+    own bookkeeping stays the executor's; the ledger records the trials.
+
+    Attributes:
+        definition: Where the experiment is defined, ``"package.module:NAME"``.
+        cluster: The cluster the trials run on, with no job queued or running.
+        assign: The assignment policy; the cluster's own scheduler when ``None``.
+        timestamp: The instant the cluster's jobs and events are stamped with.
+    """
+
+    definition: str
+    cluster: CloudResearchState
+    assign: AssignmentPolicy | None = None
+    timestamp: float = 0.0
+
+    def __post_init__(self) -> None:
+        _require_definition(self.definition, "ClusterExecutor")
+        if not isinstance(self.cluster, CloudResearchState):
+            raise ExperimentError(
+                f"ClusterExecutor.cluster must be a CloudResearchState, got {self.cluster!r}."
+            )
+        distributed = self.cluster.distributed
+        if not any(worker.capacity > 0 for worker in distributed.workers.values()):
+            raise ExperimentError("ClusterExecutor.cluster has no worker to run a trial on.")
+        if distributed.queued_jobs or distributed.running_jobs:
+            raise ExperimentError(
+                "ClusterExecutor.cluster has jobs queued or running; an experiment runs on an "
+                "idle cluster, so that no job but its trials is run in its cycles."
+            )
+        if self.assign is not None and not callable(self.assign):
+            raise ExperimentError(f"ClusterExecutor.assign must be callable, got {self.assign!r}.")
+        if (
+            isinstance(self.timestamp, bool)
+            or not isinstance(self.timestamp, (int, float))
+            or not math.isfinite(self.timestamp)
+        ):
+            raise ExperimentError(
+                f"ClusterExecutor.timestamp must be a finite instant, got {self.timestamp!r}."
+            )
+
+    def execute(
         self,
         spec: ExperimentSpec,
-        experiment_id: str,
+        registry: RunnerRegistry,
         runner: str,
-        trial: TrialSpec,
-        path: list[str],
-    ) -> _Ran | None:
-        request = json.dumps(
-            {
-                "definition": self.definition,
-                "experiment_id": experiment_id,
-                "path": path,
-                "runner": runner,
-                "trial_id": trial.trial_id,
-            }
-        )
-        # AlphaLab's own worker module, with fixed arguments: nothing in the
-        # command comes from a request.
-        process = subprocess.Popen(
-            [sys.executable, "-m", _WORKER],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-        )
-        try:
-            out, _ = process.communicate(request, timeout=spec.limits.seconds)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.communicate()
-            return None
-        lines = [line for line in out.splitlines() if line.strip()]
-        if process.returncode != 0 or not lines:
-            return None
-        answer = json.loads(lines[-1])
-        if "mismatch" in answer:
-            raise ExperimentError(
-                f"The spawned worker loaded another experiment: {answer['mismatch']}."
+        trials: Sequence[TrialSpec],
+    ) -> Iterator[_Ran]:
+        registry.runner(runner)
+        experiment_id = spec.experiment_id
+        path = _search_path()
+        by_id = {trial.trial_id: trial for trial in trials}
+        # What a trial's spawning raised: a worker that loaded another experiment,
+        # or anything else SpawnExecutor would let through. A cycle records it as
+        # its job's failure; it is raised here, as SpawnExecutor raises it.
+        raised: list[Exception] = []
+
+        def run(trial_id: str) -> _Ran:
+            try:
+                ran = _spawn(self.definition, spec, experiment_id, runner, by_id[trial_id], path)
+            except Exception as error:
+                raised.append(error)
+                raise
+            if ran is None:
+                raise _Interrupted(f"trial {trial_id} was interrupted")
+            return ran
+
+        tasks = RunnerRegistry().register(_CLUSTER_TASK, run)
+        state = self.cluster
+        pending: list[str] = []
+        for trial in trials:
+            state, job_id = submit_research_job(
+                state,
+                JobType.BACKTEST,
+                _CLUSTER_TASK,
+                {"trial_id": trial.trial_id},
+                0,
+                float(self.timestamp),
             )
-        if "failed" in answer:
-            return _trial_left(
-                spec,
-                trial,
-                TrialOutcome.FAILED,
-                f"the experiment's definition did not load: {answer['failed']}",
-            )
-        return _ran_from_payload(answer)
+            pending.append(job_id)
+        capacity = sum(worker.capacity for worker in state.distributed.workers.values())
+        with ThreadPoolExecutor(max_workers=capacity) as pool:
+            while pending:
+                waiting = len(pending)
+                state = run_cluster_cycle(
+                    state, pool, float(self.timestamp), registry=tasks, assign=self.assign
+                )
+                if raised:
+                    raise raised[0]
+                done = state.distributed
+                while pending and (
+                    pending[0] in done.completed_jobs or pending[0] in done.failed_jobs
+                ):
+                    held = state.results.get(pending.pop(0))
+                    if held is not None:
+                        yield held
+                unassigned = sum(1 for job in done.queued_jobs if job.job_id in pending)
+                if unassigned == waiting:
+                    raise ExperimentError(
+                        f"The cluster's workers took none of the {waiting} trials left: its "
+                        "assignment policy assigns no queued job to any worker."
+                    )
 
 
 #: The evidence kinds a ledger files under.
@@ -1298,3 +1406,37 @@ def read_lockbox(
         LockboxRead(spec.experiment_id, lockbox_id, trial.trial_id, lockbox.reread)
     )
     return ran
+
+
+# --- the tracker link (D-54-3) -----------------------------------------------------------
+
+#: The tag a tracker run cites an experiment by (D-54-3). ``experiment_tracking``
+#: stays the governance registry, and its runs are linked to the ledger's
+#: experiments by ``experiment_id`` in their ``tags``, until a typed field
+#: replaces the tag at 5.0.
+EXPERIMENT_TAG: Final = "alphalab.experiment_id"
+
+
+def experiment_tags(spec: ExperimentSpec) -> dict[str, str]:
+    """The tags a tracker run cites ``spec`` by (D-54-3).
+
+    ``start_run(tracker, spec.name, parameters, timestamp, tags=experiment_tags(spec))``
+    records a run as the experiment's, and :func:`tracked_runs` finds it. A
+    run's own tags are merged in by the caller; the tag enters its ``run_id``,
+    as every tag does.
+    """
+
+    return {EXPERIMENT_TAG: spec.experiment_id}
+
+
+def tracked_runs(tracker: ExperimentTracker, experiment_id: str) -> tuple[ExperimentRun, ...]:
+    """The tracker's runs that cite ``experiment_id``, in the order they were started.
+
+    Raises:
+        ExperimentError: If ``experiment_id`` is not an experiment's identity.
+    """
+
+    _require_hex(experiment_id, "An experiment_id")
+    return tuple(
+        run for run in tracker.runs.values() if run.tags.get(EXPERIMENT_TAG) == experiment_id
+    )

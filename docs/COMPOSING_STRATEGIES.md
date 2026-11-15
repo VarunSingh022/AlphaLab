@@ -302,6 +302,23 @@ v4.3 records the population a statistic is given (ADR-0072).
   SequentialExecutor())` runs every trial the ledger has no record of. It holds
   each trial's inputs to the specification, and captures each run
   (`backtesting.run_captured`, ADR-0055).
+* **Where trials run.** The executor decides, and the record is the same under
+  each:
+  * `SequentialExecutor`, in this process;
+  * `SpawnExecutor`, each trial in a fresh interpreter that refuses the network
+    before it imports the researcher's code;
+  * `ClusterExecutor`, each trial as a job on a `cloud_research` cluster,
+    placed by the cluster's scheduler or a `cluster_scheduler` policy, in the
+    same worker.
+
+  Neither spawned executor is a sandbox: isolating untrusted code is the
+  host's (`SECURITY.md`).
+* **Candidates from the research assistant.**
+  `research_assistant.candidate_space(generate_candidates(...))` is the space
+  of exactly the candidates generated, so the experiment runs one trial per
+  candidate, in the assistant's order.
+* **The tracker.** A tracker run cites its experiment by tag:
+  `start_run(..., tags=experiment_tags(spec))`, read back by `tracked_runs`.
 * **Outcomes.** Every trial ends `COMPLETED`, `INSOLVENT`, `STRATEGY_FAILED`,
   `REFUSED` or `FAILED`, and is counted (`LedgerCount`); an interruption leaves
   nothing, and a resume runs it again. A record holds digests and the series'

@@ -463,6 +463,24 @@ entry below says otherwise.
     before it reaches it (`tests/integration/test_spawned_trials.py`).
     SECURITY.md states the boundary: the hook is a guard, and a process is not
     a sandbox (ledger BDY-029).
+  * **One registry** [plan D-54-11]. `RunnerRegistry` is `alphalab.common`'s,
+    re-exported by `alphalab.lifecycle`, and the ledger's executors and a
+    research cluster's cycle take the same one. It refuses with
+    `AlphaLabRegistryError`.
+  * **`ClusterExecutor`** [GAP-31] runs each trial as a job on a
+    `cloud_research` cluster. `distributed`'s job lifecycle tracks it, an
+    assignment policy places it -- the cluster's own or a `cluster_scheduler`
+    policy -- and it runs in the spawned worker. The three orchestration
+    layers are one executor path. An experiment on a cluster equals the
+    sequential one record for record, under each policy and over as many
+    cycles as its capacity needs (`tests/integration/test_cluster_executor.py`).
+  * **The consumers** [ADR-0072 section 10, plan D-54-3].
+    `research_assistant.candidate_space` is the space of exactly the
+    candidates `generate_candidates` made, so an experiment over it runs one
+    trial per candidate, in the assistant's order. `experiment_tags` and
+    `tracked_runs` link a tracker run to its experiment by `experiment_id` in
+    its tags, under `EXPERIMENT_TAG`, until a typed field replaces the tag at
+    5.0 (`tests/integration/test_ledger_consumers.py`).
 
 ## Changed
 
@@ -574,6 +592,16 @@ entry below says otherwise.
   AlphaLab's TLS policy. `SECURITY.md` says so (CON-X16), and
   `tests/unit/marketdata/test_http_transport.py` holds it against a loopback
   provider; it fails on the parent commit.
+
+* **A research cluster runs a task by name** [SEC-001, GAP-05, plan WS-23 and
+  D-54-6, ledger BDY-028]. `cloud_research.run_cluster_cycle` takes a
+  `registry`, and looks each job's task up in it by name. A name it does not
+  hold -- a dotted path to a real, importable function included -- fails the
+  job before anything is imported or submitted, and nothing is resolved as a
+  path. The cycle also takes `assign`, the `AssignmentPolicy` its workers
+  follow, `cluster_scheduler`'s included. Without a registry a task is a
+  dotted path, resolved as before: `resolve_task` is superseded and stays
+  until 5.0 (`tests/unit/cloud_research/test_registered_tasks.py`).
 
 ---
 
