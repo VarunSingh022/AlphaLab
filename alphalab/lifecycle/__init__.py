@@ -430,6 +430,11 @@ from alphalab.lifecycle.reproducibility import (
     verify_manifest,
 )
 from alphalab.lifecycle.rerun import RERUN_DIFFERENCE_LIMIT, RerunReport, rerun_from_manifest
+from alphalab.lifecycle.selection import (
+    CaptureAssessment,
+    assess_captures,
+    trial_matrix_from_captures,
+)
 from alphalab.lifecycle.specification import (
     DEPLOYMENT_SPECIFICATION_SCHEME,
     BrokerCapabilities,
@@ -515,6 +520,7 @@ __all__ = [
     "BrokerRequirements",
     "CapitalPlanIdentity",
     "CapitalPolicy",
+    "CaptureAssessment",
     "CertificationEvidence",
     "CertificationProperty",
     "CertificationReport",
@@ -623,6 +629,7 @@ __all__ = [
     "approve_deployment",
     "archive_progression",
     "assess_adaptive_replay",
+    "assess_captures",
     "assess_reproducibility",
     "authorize_run",
     "begin_progression",
@@ -702,6 +709,7 @@ __all__ = [
     "specification_for_version",
     "specification_id_for",
     "strategy_names",
+    "trial_matrix_from_captures",
     "tz_database_version",
     "unmet_broker_requirements",
     "unmet_market_requirements",

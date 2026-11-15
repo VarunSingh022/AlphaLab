@@ -32,6 +32,11 @@ what the policy may change, and all it may change:
                     compiled analytics, which then describe the entries kept
 =================== =============================================================
 
+``keep_equity`` (v4.3, ADR-0055) exempts the equity curve from ``results``: a
+run that bounds its fills and ledger keeps every equity point, so its compiled
+analytics describe its whole history. It is written into a snapshot only when it
+is true, so a policy without it is stored exactly as before.
+
 The OMS order book, the execution reports by order and, in a live session, the
 routed and settled orders are kept for every order the run has placed: they are
 state a later step looks orders up in, not history, and they grow with orders
@@ -88,15 +93,19 @@ class RetentionPolicy:
         audit_events: Entries kept in each subsystem audit log.
         results: Fills, trades, trade records, equity points and ledger
             transactions kept, each.
+        keep_equity: Whether the equity points are kept whole whatever
+            ``results`` bounds (v4.3, ADR-0055).
 
     Raises:
-        RuntimeValidationError: If a bound is not a positive integer or ``None``.
+        RuntimeValidationError: If a bound is not a positive integer or ``None``,
+            or ``keep_equity`` is not a boolean.
     """
 
     market_history: int | None = None
     steps: int | None = None
     audit_events: int | None = None
     results: int | None = None
+    keep_equity: bool = False
 
     def __post_init__(self) -> None:
         for name in ("market_history", "steps", "audit_events", "results"):
@@ -108,6 +117,33 @@ class RetentionPolicy:
                     f"RetentionPolicy.{name} is {value!r}; it must be a positive whole number "
                     "of entries, or None to keep every one."
                 )
+        if not isinstance(self.keep_equity, bool):
+            raise RuntimeValidationError(
+                f"RetentionPolicy.keep_equity is {self.keep_equity!r}; it must be True or False."
+            )
+
+    def __serializable__(self) -> dict[str, int | bool | None]:
+        """The bounds, and ``keep_equity`` only when it is true.
+
+        Every policy written before v4.3 is stored, and so digested, exactly as
+        it was (ADR-0055 section 5).
+        """
+
+        stored: dict[str, int | bool | None] = {
+            "market_history": self.market_history,
+            "steps": self.steps,
+            "audit_events": self.audit_events,
+            "results": self.results,
+        }
+        if self.keep_equity:
+            stored["keep_equity"] = True
+        return stored
+
+    @property
+    def equity_bound(self) -> int | None:
+        """The bound the equity points are trimmed to: ``results``, unless kept whole."""
+
+        return None if self.keep_equity else self.results
 
     @property
     def keeps_everything(self) -> bool:

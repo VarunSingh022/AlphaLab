@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `1343f90c224651c16741dba32058adeecb489e1d` |
+| Remote head | `553b1501e2bb5745fa5caa90a3fe6bc71debfb2a` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M2's close on hosted CI; then M3 (WS-04 capture and trace identity, keep_equity; WS-06's selection bridge; WS-13's dated membership and pack format), whose entry needs ADR-0055 and ADR-0059. |
+| Next | M3: WS-13's dated membership, the survivorship review and the reference-pack format, then GR-5; the capture commit's hosted CI. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -83,6 +83,8 @@ Never:
 | `839ab67` | CodeQL | 43588195916 | success |
 | `1343f90` | Continuous Integration | 43608287963 | success: all six quality-gate cells; GR-2's published day-count examples held on Linux and macOS |
 | `1343f90` | CodeQL | 43608287961 | success |
+| `fe3c80b` | Continuous Integration | 43612751493 | success: all six quality-gate cells, carrying M2's mutation series and close |
+| `fe3c80b` | CodeQL | 43612751471 | success |
 
 ## Continuation log
 
@@ -119,6 +121,8 @@ Never:
 - **2026-11-14** M2 delivered: WS-03, WS-06 and WS-13's N21 passed hosted CI on all six cells; the mutation series caught 42 of 42 (R04 after a test that names the trimmed end). M2 is held at local validation until this record's own commit passes hosted CI.
 - **2026-11-14** ADR-0055 accepted (TD-15): streaming research capture, M3's first entry condition; FUT-049 and LIM-012 record its limitations. PC-06 records the eigensystem's algorithm change against plan H.1.
 - **2026-11-14** ADR-0059 accepted (TD-16): dated membership through the registry, a survivorship review, and the reference-pack format; FUT-050 records its limitation. M3's entry conditions (M0, ADR-0055, ADR-0059) are met.
+- **2026-11-14** M2's exit gate passed on hosted CI (fe3c80b, all six cells and CodeQL); GAP-10, GAP-33 and GAP-36 closed. GAP-09 stays open for M3's selection bridge. ADR-0055 and ADR-0059 pushed (553b150).
+- **2026-11-15** M3's capture (WS-04) and selection bridge (WS-06) implemented and locally validated: keep_equity, one private step loop, run_captured with its extractor and trace, and assess_captures, whose 16-variant PBO equals full history's exactly. TD-17 settles ADR-0055 at implementation: the trace starts from the configuration kept whole, after testing showed the run's configuration_id moves with retention. PC-07 records the trace's measured cost, 12.6 to 14.4 percent against the plan's 10.
 
 ## Milestones
 
@@ -127,8 +131,8 @@ Never:
 | G0 | In progress | WS-00 | §Z G0 items all decided |
 | M0 | Hosted CI passed | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
 | M1 | Hosted CI passed | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
-| M2 | Local validation passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
-| M3 | Not started | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
+| M2 | Hosted CI passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
+| M3 | In progress | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Not started | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Not started | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Not started | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
@@ -345,6 +349,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0059-historical-universes-and-reference-data-packs.md; ledger FUT-050; BDY-013 kept for the engine.
 - **Tests:** Built in M3: membership's refusals and point-in-time reads; the registry digest unchanged without universes; GR-5's pair of runs, the point-in-time run and the survivorship-biased control, with the control's trades named; the pack's digest and refusals.
 
+### TD-17: ADR-0055 at implementation: a trace from the configuration kept whole, bookings met by operation, GROSS and EXCLUDED exactly, and a canonical writer (WS-04, 2026-11-15)
+
+- **Problem:** Implementing ADR-0055 showed three gaps. Its trace started from the run's configuration_id, which covers the retention policy, so the trace could not be equal across retentions as section 5 requires. The run keeps equity points and bookings in separate logs, several of each a step, so GROSS and EXCLUDED had no exact way to know which bookings a point shows. And the trace's serialization through serialize cost 28 percent of a run.
+- **Alternatives:** The trace's start: (a) the run's configuration_id; (b) the configuration with its retention set aside; (c) no configuration at all. Placing a booking: (i) by its own timestamp, wrong under latency, where a fill is stamped after the event that books it, and for child fills booked after the record's point; (ii) by the operation that booked it, observed after every operation. The serialization: (x) serialize, per step; (y) a per-type writer producing serialize's text byte for byte.
+- **Decision:** (b), with the record's configuration_id the run's own; (ii), with a refusal if one operation records equity at two instants under GROSS or EXCLUDED; and (y), held to serialize by the pinned identities, computed with serialize before the writer existed. GROSS adds back the valuation's own commission_paid at each point, which is a fill's commission, fees and tax. EXCLUDED removes CashFlowBooked, CashDeposited and CashWithdrawn amounts, never a conversion's legs, converted at the closing point's rates. TRUNCATE keeps the return into the first insolvent instant. The trace reads its logs once a step.
+- **Rationale:** A retention decides what a run keeps, not what it does. Every operation books before the point it records, so an operation is the finest unit at which a booking's point is known, and the schedule cursor's loop already applies one entry at a time. Each adjustment is held to a counterfactual run exactly. The writer's text is serialize's, so the trace's canonical form stays the repository's one form.
+- **Compatibility:** No identity moves for any run: the step loop and the cursor's loop are the ones run took, with no observer given; the full suite and every frozen replay are unchanged. _recorded_configuration moved from the lifecycle to runtime.run_snapshot unchanged.
+- **Recorded in:** docs/ADR/0055-streaming-research-capture-and-the-identity-of-an-economic-history.md (Settled at implementation); plan change PC-07; ledger LIM-013.
+- **Tests:** tests/integration/test_streaming_capture.py (20), tests/unit/backtesting/test_capture_types.py (38), tests/regression/test_capture_identities_are_pinned.py, tests/regression/test_retention_keep_equity.py (15), tests/integration/test_selection_over_captures.py (9).
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -355,6 +369,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | PC-04 | 2026-11-10 | Delegated authority (TD-05) | The package version moves to 4.3.0 before M1, in a development state the release gate refuses: the CHANGELOG leads with '# [4.3.0] - Unreleased', the package and its records are 4.3.0's, and the release-facing documents describe 4.2.1. The release commit at M13 dates the heading and moves those documents (W.3 runbook, before step 1). | The plan did not say when the version moves, and M1 is the first milestone to change the public API. Since v4.2.1 the suite held every commit to the release state, so no commit after it could have passed before the version moved. |
 | PC-05 | 2026-11-14 | Delegated authority (TD-12) | WS-03's M2 item 'ml.linalg and ml's splits delegate (GAP-48)' delivers one authority on every path outside ml -- the duplicates documented, kept unchanged, and held off every other module by a regression test -- and GAP-48's deprecation, with the replacements a deprecation must name, moves to M7, GAP-48's own milestone, with WS-08's work on ml's public surface. Removal stays 5.0. | Delegation would change what the duplicates return to their callers. ml's splitters split sample indices and give the last fold the remainder; the research splitters split timestamps with a validation window, purging and no partial fold. ml.linalg's matrix_inverse refuses at an absolute pivot of 1e-12, and common.linalg has no general inverse, nor any matmul, transpose or identity to name as a replacement. ADR-0015 section 9 requires a deprecation to name its replacement and removal release, and the charter forbids a breaking change for convenience; the plan itself holds GAP-48 at M7 in its gap register. |
 | PC-06 | 2026-11-14 | Delegated authority (TD-11) | Plan H.1 names cyclic Jacobi as the symmetric eigensystem's algorithm. common.linalg.symmetric_eigensystem is Householder tridiagonalization and implicit QL (Bowdler, Martin, Reinsch and Wilkinson's tql2) instead; the thin SVD stays one-sided Jacobi as H.1 names it. H.1's validation -- reconstruction bounds, orthogonality, known matrices -- and WS-03's budget are kept. | The two parts of the plan could not both hold: cyclic Jacobi was written first and measured at 147.5 s for a 500 x 500 eigensystem against WS-03's 30 s budget; Householder and implicit QL, equally backward stable with orthonormal vectors, measured 20.7 s. Of an algorithm and a budget, the budget is the acceptance criterion. |
+| PC-07 | 2026-11-15 | Delegated authority (TD-17) | Plan K.1 budgets the capture at 10 percent of the run's time. The series meets it at 1 to 4 percent; with its trace the capture costs 12.6 to 14.4 percent on a strategy that does no work of its own, measured at four trade densities, where digest_run costs 76 to 105 percent. benchmarks/benchmark_capture.py holds the series to 10 percent, and series and trace together to 15. | Unlike PC-06, no design meets the budget. With a trade on every eighth record the trace costs 12.2 percent without the order events and 11.4 percent without the equity points: most of its cost is the work it does every step, after the canonical serialization was made 2.7 times faster, byte for byte. Covering less would make the trace identify less of the history, and still miss the budget. The trace is opt-in, its cost is a fixed amount per step, and so a smaller share of a run whose strategy computes anything (LIM-013). The owner's acceptance of M3 decides whether 15 percent stands. |
 
 ## Workstreams
 
@@ -364,7 +379,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-01 | Compatibility and historical-contract integrity | M0, M13 | In progress |
 | WS-02 | Deterministic identity and provenance | M0, M1 | Hosted CI passed |
 | WS-03 | Scientific computing and numerical foundations | M2 | Hosted CI passed |
-| WS-04 | Streaming research-result capture | M3 | Not started |
+| WS-04 | Streaming research-result capture | M3 | In progress |
 | WS-05 | Experiment and trial ledger, executor, runner registry | M4 | Not started |
 | WS-06 | Statistical research functions | M2, M3, M5 | In progress |
 | WS-07 | Econometrics and time series | M6 | Not started |
@@ -464,6 +479,14 @@ Evidence:
 - common.estimate: Estimate (parameters at full precision, standard errors, method under its scheme, data id, typed settings, ConvergenceReport, NumericalClass) and its identity, SHA-256 over canonical_estimate_key (alphalab.estimate.v1): the problem always, the fitted values and the convergence outcome only for class 1 or 2. tests/unit/common/test_estimate.py (58): every problem field moves the identity under every class; a class-2 value moves it to its last bit; a class-3 value never does; mapping order is irrelevant; a setting's type is part of its value (1, 1.0, True, '1', 'true' are five identities); a string cannot forge a line of the key; two identities pinned, identical under CPython 3.12.4, 3.13.18 and 3.14.10.
 - GAP-48 at M2, as PC-05 restates it: ml.linalg's four helpers and ml.cross_validation's two splitters are documented as duplicates of common.linalg and the research splitters, kept unchanged for their callers, and tests/regression/test_one_research_authority_per_concept.py (test_nothing_outside_ml_computes_through_its_duplicates) holds every module outside ml off them; ml.linear_regression has solved through common.linalg.least_squares since v3.12. deep_learning.numerical_gradient is a recorded namesake (TD-12). The deprecation, with replacements, is at M7.
 
+### WS-04: Streaming research-result capture
+
+- [Pushed] M3: ADR-0055 accepted (TD-15), and settled at implementation (TD-17)
+- [Local validation passed] M3: RetentionPolicy.keep_equity: the equity curve kept whole under a results bound, recorded only when true
+- [Local validation passed] M3: One private step loop for BacktestEngine.run and run_captured; the schedule cursor's one loop, observable
+- [Local validation passed] M3: run_captured: the extractor (grid, costs, cash flows, currency, insolvency), the record, the trace from the configuration kept whole
+- [Local validation passed] M3: benchmarks/benchmark_capture.py at four trade densities (PC-07, LIM-013)
+
 ### WS-06: Statistical research functions
 
 - [Hosted CI passed] M2: ADR-0054 accepted (plan 0054A)
@@ -471,6 +494,7 @@ Evidence:
 - [Hosted CI passed] M2: White's Reality Check and Hansen's SPA
 - [Hosted CI passed] M2: PBO by CSCV, with an exact-enumeration oracle
 - [Hosted CI passed] M2: MinTRL and the autocorrelation-adjusted PSR
+- [Local validation passed] M3: The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history
 
 Evidence:
 
@@ -531,7 +555,7 @@ Evidence:
 
 ## Gaps
 
-48 open, 1 closed, 4 discarded.
+45 open, 4 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -543,8 +567,8 @@ Evidence:
 | GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open: refused in code and documented; closes when M0 is accepted | WS-23 | M0 |
 | GAP-07 | v4.2.x formats not frozen | H/P0 | Open: acceptance met (REP-3 reads v4.2.1; hosted CI passed on dc61a75); closes when M0 is accepted | WS-01 | M0 |
 | GAP-08 | Return extraction; → retention trims equity | H/P0 | Open (scope = ADR-0055) | WS-04 | M3 |
-| GAP-09 | Selection statistics missing | C/P1 | Delivered at M2 (WS-06, TD-13): TrialMatrix, PBO by CSCV against an exact-enumeration oracle, RC, SPA, MinTRL, the adjusted PSR, the stationary bootstrap. The bridge to captured backtests is M3's. | WS-06 | M2 (bridge M3) |
-| GAP-10 | No numerical foundation | C/P1 | Delivered at M2 (WS-03, ADR-0058): distributions, linear algebra, optimisers, quadrature, the Estimate. Closes with M2's hosted exit gate. | WS-03 | M2 |
+| GAP-09 | Selection statistics missing | C/P1 | Delivered at M2 (WS-06, TD-13): TrialMatrix, PBO by CSCV against an exact-enumeration oracle, RC, SPA, MinTRL, the adjusted PSR, the stationary bootstrap. The bridge to captured backtests (lifecycle.selection) is delivered locally at M3, and its 16-variant PBO equals full history's exactly; GAP-09 closes when hosted CI passes it. | WS-06 | M2 (bridge M3) |
+| GAP-10 | No numerical foundation | C/P1 | Closed at M2's hosted exit gate (fe3c80b; WS-03, ADR-0058): distributions, linear algebra, optimisers, quadrature, the Estimate, each against its oracle. | WS-03 | M2 |
 | GAP-11 | No econometrics | H/P1 | Open | WS-07 | M6 |
 | GAP-12 | No model protocol | C/P1 | Open | WS-08 | M7 |
 | GAP-13 | ML dataset not PIT | H/P1 | Open | WS-08 | M7 |
@@ -567,10 +591,10 @@ Evidence:
 | GAP-30 | Stale documentation (CON-A/N/V/X) | M/P1 | Open: the seven High items corrected and guarded in M0; Medium and Low items follow by M13 | WS-20 | M0 (High) + every M |
 | GAP-31 | Three orchestration layers unbound | M/P2 | Open | WS-05 | M4 |
 | GAP-32 | No vectorised screening | M/P3 | Open (D-V3 via L4) | WS-09, WS-15 | M11 |
-| GAP-33 | Non-normal distributions missing | M/P1 | Delivered at M2 (WS-03): Student's t, chi-squared, F, gamma, beta, binomial and Poisson, held to published tables. Closes with M2's hosted exit gate. | WS-03 | M2 |
+| GAP-33 | Non-normal distributions missing | M/P1 | Closed at M2's hosted exit gate (fe3c80b; WS-03): Student's t, chi-squared, F, gamma, beta, binomial and Poisson, held to published tables. | WS-03 | M2 |
 | GAP-34 | 9,248-line pipeline module | L/P3 | Open | WS-15 | M11 |
 | GAP-35 | Windows untested | M/P2 | Open | WS-21 | M11 [OD] |
-| GAP-36 | US-centric day counts | H/P1 | Delivered locally at M2 (N21, TD-14): the world's bond and swap day counts, each by its published definition, an instrument's terms explicit; GR-2's published worked examples matched. N21's other conventions in plan G.3 -- business-day conventions and FX value dates -- are where plan G.2 places them, at M10 with WS-14 (GR-6) and WS-27 (GR-3). Closes with M2's hosted exit gate. | WS-13 | M2 |
+| GAP-36 | US-centric day counts | H/P1 | Closed at M2's hosted exit gate (fe3c80b; N21, TD-14): the world's bond and swap day counts, each by its published definition, an instrument's terms explicit; GR-2's published worked examples matched. N21's other conventions in plan G.3 -- business-day conventions and FX value dates -- are where plan G.2 places them, at M10 with WS-14 (GR-6) and WS-27 (GR-3). | WS-13 | M2 |
 | GAP-37 | Closed construction objectives; one solver | M/P2 | Open (D-V3) | WS-12 | M9 |
 | GAP-38 | Remainders cancelled; size-less fills | M/P2 | Open | WS-11 | M8 |
 | GAP-39 | (candidate) silent zero fill | — | Discarded | — | — |

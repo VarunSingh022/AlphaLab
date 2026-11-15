@@ -188,6 +188,7 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     # ADR-0055, v4.3: streaming research capture.
     ("0055", "A paused replay is not captured"): "FUT-049",
     ("0055", "A series is in the run's base currency"): "LIM-012",
+    ("0055", "A trace costs more than the plan's budget"): "LIM-013",
     # ADR-0059, v4.3: historical universes and reference-data packs.
     ("0059", "A delisting does not settle a held position"): "FUT-050",
     ("0059", "AlphaLab ships no membership data"): "BDY-013",

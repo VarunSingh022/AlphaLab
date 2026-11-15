@@ -588,7 +588,8 @@ def retained(state: ExecutionPipelineState) -> ExecutionPipelineState:
 
     for name in ("fills", "trades", "trade_records", "portfolio_snapshots"):
         log = getattr(state, name)
-        kept = trimmed(log, policy.results)
+        bound = policy.equity_bound if name == "portfolio_snapshots" else policy.results
+        kept = trimmed(log, bound)
         if kept is not log:
             changes[name] = kept
     return evolve(state, **changes) if changes else state

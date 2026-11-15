@@ -18,6 +18,12 @@ continue durably: a backtest through the run snapshot, and since v4.1 a replay
 through :class:`~alphalab.backtesting.replay.PausedReplay` and
 :mod:`alphalab.backtesting.replay_snapshot` (ledger FUT-001).
 
+Since v4.3 a third entry drives the backtest's own step loop:
+:func:`~alphalab.backtesting.capture.run_captured` returns the result
+:meth:`~alphalab.backtesting.engine.BacktestEngine.run` returns, beside the
+run's return series and an identity of its history that no retention moves
+(ADR-0055).
+
 As of v2.14 neither owns run state. A run is a
 :class:`~alphalab.runtime.run.RunState` configured by a
 :class:`~alphalab.runtime.run.RunConfig`, and these are drivers over it --
@@ -33,6 +39,27 @@ from alphalab.backtesting.algorithmic import (
     ExecutionPlanError,
     FinishedParent,
     VenueCheck,
+)
+from alphalab.backtesting.capture import (
+    CAPTURE_EXTRACTOR_SCHEME,
+    CAPTURE_SERIES_SCHEME,
+    CAPTURE_TRACE_SCHEME,
+    EVERY_INSTANT,
+    Captured,
+    CaptureError,
+    CaptureRecord,
+    CaptureSpec,
+    CashFlows,
+    Costs,
+    EveryInstant,
+    FixedInterval,
+    Insolvency,
+    InsolventCaptureError,
+    ReturnExtractor,
+    TraceCounts,
+    canonical_captured_series_key,
+    canonical_extractor_key,
+    run_captured,
 )
 from alphalab.backtesting.dataset import (
     MarketDataset,
@@ -127,7 +154,11 @@ from alphalab.runtime.execution_pipeline import UnpricedAsset, UnpricedReason
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunState, RunStep
 
 __all__ = [
+    "CAPTURE_EXTRACTOR_SCHEME",
+    "CAPTURE_SERIES_SCHEME",
+    "CAPTURE_TRACE_SCHEME",
     "EMPTY_SCHEDULE",
+    "EVERY_INSTANT",
     "RUN_PROVENANCE_SCHEMA",
     "RUN_PROVENANCE_SCHEME",
     "RUN_SCHEDULE_DIGEST_SCHEME",
@@ -137,7 +168,13 @@ __all__ = [
     "BacktestEngine",
     "BacktestError",
     "BacktestResult",
+    "CaptureError",
+    "CaptureRecord",
+    "CaptureSpec",
+    "Captured",
+    "CashFlows",
     "ChildFill",
+    "Costs",
     "DailyAccrual",
     "DailyBorrowFee",
     "DailyInterest",
@@ -147,14 +184,18 @@ __all__ = [
     "EarlierElections",
     "ElectiveExchange",
     "ElectiveTerms",
+    "EveryInstant",
     "ExecutionMode",
     "ExecutionPlan",
     "ExecutionPlanError",
     "FillDecision",
     "FillPolicy",
     "FinishedParent",
+    "FixedInterval",
     "Funding",
     "ImmediateFill",
+    "Insolvency",
+    "InsolventCaptureError",
     "LiquidityCappedFill",
     "LiquidityContext",
     "MarketDataset",
@@ -173,6 +214,7 @@ __all__ = [
     "ReplayBacktest",
     "ReplayProgress",
     "ReplayResult",
+    "ReturnExtractor",
     "RunConfig",
     "RunProvenance",
     "RunSchedule",
@@ -192,11 +234,14 @@ __all__ = [
     "ScheduledSettlement",
     "ScheduledSplit",
     "StaticFill",
+    "TraceCounts",
     "UnpricedAsset",
     "UnpricedReason",
     "UnsupportedRecordError",
     "VenueCheck",
     "advance",
+    "canonical_captured_series_key",
+    "canonical_extractor_key",
     "commission_paid",
     "equity_values",
     "executed_fills",
@@ -211,6 +256,7 @@ __all__ = [
     "provenance_from_primitives",
     "publish",
     "realized_pnl",
+    "run_captured",
     "run_provenance",
     "session_for",
     "steps_with_fills",

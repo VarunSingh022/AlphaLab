@@ -95,7 +95,7 @@ from alphalab.persistence.serializer import serialize
 from alphalab.research.study import StudyResult, canonical_study_key
 from alphalab.runtime.execution_pipeline import ExecutionRouting
 from alphalab.runtime.run import ExecutionMode
-from alphalab.runtime.run_snapshot import RunSnapshot
+from alphalab.runtime.run_snapshot import _recorded_configuration
 from alphalab.runtime.run_snapshot import capture as capture_run
 from alphalab.strategy.adaptive import AdaptiveReplay
 
@@ -297,34 +297,6 @@ class RunDigest:
     dataset_id: str | None
     strategy_ids: tuple[str, ...]
     live_objects: tuple[str, ...]
-
-
-def _recorded_configuration(snapshot: RunSnapshot) -> dict[str, Any]:
-    strategies = sorted(snapshot.pipeline.strategy, key=lambda record: record.strategy_id)
-    return {
-        "pipeline": snapshot.pipeline.config,
-        "mode": snapshot.mode,
-        "start_timestamp": snapshot.start_timestamp,
-        "ordering": snapshot.ordering,
-        "max_market_data_age_seconds": snapshot.max_market_data_age_seconds,
-        "years_elapsed": snapshot.years_elapsed,
-        "risk_free_rate": snapshot.risk_free_rate,
-        "compile_analytics": snapshot.compile_analytics,
-        "fill_policy_type": snapshot.fill_policy_type,
-        # How the fill policy was configured, as the pipeline's record carries
-        # the sizing model's and the simulator's (ledger PER-008): two runs that
-        # differ only in a cost or fill parameter are two configurations.
-        "fill_policy_description": snapshot.fill_policy_description,
-        "strategies": [
-            {
-                "strategy_id": record.strategy_id,
-                "instance_type": record.instance_type,
-                "config": record.config,
-                "subscriptions": list(record.subscriptions),
-            }
-            for record in strategies
-        ],
-    }
 
 
 def digest_run(result: BacktestResult) -> RunDigest:

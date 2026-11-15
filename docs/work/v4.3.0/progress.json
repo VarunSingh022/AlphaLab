@@ -470,6 +470,19 @@
       "compatibility": "Additive: a registry without universes digests and snapshots exactly as before; no identity or format moves.",
       "record": "docs/ADR/0059-historical-universes-and-reference-data-packs.md; ledger FUT-050; BDY-013 kept for the engine.",
       "tests": "Built in M3: membership's refusals and point-in-time reads; the registry digest unchanged without universes; GR-5's pair of runs, the point-in-time run and the survivorship-biased control, with the control's trades named; the pack's digest and refusals."
+    },
+    {
+      "id": "TD-17",
+      "date": "2026-11-15",
+      "workstream": "WS-04",
+      "title": "ADR-0055 at implementation: a trace from the configuration kept whole, bookings met by operation, GROSS and EXCLUDED exactly, and a canonical writer",
+      "problem": "Implementing ADR-0055 showed three gaps. Its trace started from the run's configuration_id, which covers the retention policy, so the trace could not be equal across retentions as section 5 requires. The run keeps equity points and bookings in separate logs, several of each a step, so GROSS and EXCLUDED had no exact way to know which bookings a point shows. And the trace's serialization through serialize cost 28 percent of a run.",
+      "alternatives": "The trace's start: (a) the run's configuration_id; (b) the configuration with its retention set aside; (c) no configuration at all. Placing a booking: (i) by its own timestamp, wrong under latency, where a fill is stamped after the event that books it, and for child fills booked after the record's point; (ii) by the operation that booked it, observed after every operation. The serialization: (x) serialize, per step; (y) a per-type writer producing serialize's text byte for byte.",
+      "decision": "(b), with the record's configuration_id the run's own; (ii), with a refusal if one operation records equity at two instants under GROSS or EXCLUDED; and (y), held to serialize by the pinned identities, computed with serialize before the writer existed. GROSS adds back the valuation's own commission_paid at each point, which is a fill's commission, fees and tax. EXCLUDED removes CashFlowBooked, CashDeposited and CashWithdrawn amounts, never a conversion's legs, converted at the closing point's rates. TRUNCATE keeps the return into the first insolvent instant. The trace reads its logs once a step.",
+      "rationale": "A retention decides what a run keeps, not what it does. Every operation books before the point it records, so an operation is the finest unit at which a booking's point is known, and the schedule cursor's loop already applies one entry at a time. Each adjustment is held to a counterfactual run exactly. The writer's text is serialize's, so the trace's canonical form stays the repository's one form.",
+      "compatibility": "No identity moves for any run: the step loop and the cursor's loop are the ones run took, with no observer given; the full suite and every frozen replay are unchanged. _recorded_configuration moved from the lifecycle to runtime.run_snapshot unchanged.",
+      "record": "docs/ADR/0055-streaming-research-capture-and-the-identity-of-an-economic-history.md (Settled at implementation); plan change PC-07; ledger LIM-013.",
+      "tests": "tests/integration/test_streaming_capture.py (20), tests/unit/backtesting/test_capture_types.py (38), tests/regression/test_capture_identities_are_pinned.py, tests/regression/test_retention_keep_equity.py (15), tests/integration/test_selection_over_captures.py (9)."
     }
   ],
   "plan_changes": [
@@ -514,6 +527,13 @@
       "decision": "Delegated authority (TD-11)",
       "change": "Plan H.1 names cyclic Jacobi as the symmetric eigensystem's algorithm. common.linalg.symmetric_eigensystem is Householder tridiagonalization and implicit QL (Bowdler, Martin, Reinsch and Wilkinson's tql2) instead; the thin SVD stays one-sided Jacobi as H.1 names it. H.1's validation -- reconstruction bounds, orthogonality, known matrices -- and WS-03's budget are kept.",
       "reason": "The two parts of the plan could not both hold: cyclic Jacobi was written first and measured at 147.5 s for a 500 x 500 eigensystem against WS-03's 30 s budget; Householder and implicit QL, equally backward stable with orthonormal vectors, measured 20.7 s. Of an algorithm and a budget, the budget is the acceptance criterion."
+    },
+    {
+      "id": "PC-07",
+      "date": "2026-11-15",
+      "decision": "Delegated authority (TD-17)",
+      "change": "Plan K.1 budgets the capture at 10 percent of the run's time. The series meets it at 1 to 4 percent; with its trace the capture costs 12.6 to 14.4 percent on a strategy that does no work of its own, measured at four trade densities, where digest_run costs 76 to 105 percent. benchmarks/benchmark_capture.py holds the series to 10 percent, and series and trace together to 15.",
+      "reason": "Unlike PC-06, no design meets the budget. With a trade on every eighth record the trace costs 12.2 percent without the order events and 11.4 percent without the equity points: most of its cost is the work it does every step, after the canonical serialization was made 2.7 times faster, byte for byte. Covering less would make the trace identify less of the history, and still miss the budget. The trace is opt-in, its cost is a fixed amount per step, and so a smaller share of a run whose strategy computes anything (LIM-013). The owner's acceptance of M3 decides whether 15 percent stands."
     }
   ],
   "milestones": [
@@ -586,7 +606,7 @@
       "deliverables": "Numerical foundation; global day counts; selection statistics (pure)",
       "exit_gate": "Published-table tests; GR-2; oracle suite; cross-host identity equality",
       "size": "L",
-      "status": "Local validation passed",
+      "status": "Hosted CI passed",
       "evidence": [
         "Exit gate, published tables: the distributions against published tables at the digits they print (tests/unit/common/test_distributions.py); the Hilbert matrix's published condition number, 1.495105864e7, by the new SVD; MinTRL's normal-returns textbook form; QUADPACK's QK15 constants, verified exact to degree 22 (Kronrod) and 13 (Gauss) in 60-digit Decimal; GR-2's day counts against ISDA's worked examples (the 1998 memorandum for ACT/ACT ISDA and ICMA; the 2008 note for 30E/360 and 30E/360 ISDA) and reference implementations where ISDA prints none (QuantLib for BUS/252, Strata for ACT/365L and NL/365).",
         "Exit gate, GR-2: met (WS-13's evidence); the long first ICMA coupon by the definition's sum over determination periods.",
@@ -594,7 +614,8 @@
         "Exit gate, cross-host identity equality: hosted CI passed all six cells (Linux x86-64 and macOS arm64, CPython 3.12, 3.13 and 3.14) on every M2 code commit -- 4d63dfb and d28d306 with 9ef9bce, 117da41, 0d46a05, 5f4c718, c243587, 839ab67 and 1343f90 -- holding the pins of the eigensystem, SVD, Cholesky, least squares and math.hypot, the quadrature, the optimisers, the estimate identities, PBO, the stationary bootstrap and RC and SPA, each computed identically under the three interpreters before it was pinned.",
         "Mutation series Q (WS-03), R (WS-06) and S (WS-13): 42 mutations, one defect each, run by docs/audit/scripts/mutation_v4_3.py over the whole suite (baseline 13,026 passed). 41 were caught on the first run. R04 (Trim.OLDEST dropping the newest periods) survived: the trimming test compared PBOs, which coincided over six splits. A test naming the trimmed end by the selections (test_the_trimmed_end_is_the_one_named) was added, and R04 re-run against it was caught.",
         "Full local gates passed on 117da41, 0d46a05, 5f4c718, c243587 (quick), 839ab67 and 1343f90; the full gate's example run found DOC-015 on the way, and its suite PER-004's enum table.",
-        "Defects found and fixed in M2: NUM-017 (the normal CDF's lower tail), EXE-015 (a schedule's allocation took the caller's decimal context), DOC-015 (example 39's day-count prose). Limits stated rather than loosened: a line search cannot resolve a gradient below about sqrt(eps |f|); a singularity where floats are sparse cannot be approached past their spacing."
+        "Defects found and fixed in M2: NUM-017 (the normal CDF's lower tail), EXE-015 (a schedule's allocation took the caller's decimal context), DOC-015 (example 39's day-count prose). Limits stated rather than loosened: a line search cannot resolve a gradient below about sqrt(eps |f|); a singularity where floats are sparse cannot be approached past their spacing.",
+        "Hosted: fe3c80b, M2's close (the mutation series, its oracles and the register), passed all six quality-gate cells (run 43612751493) and CodeQL (run 43612751471). M2's exit gate is met on hosted CI; acceptance is the owner's."
       ]
     },
     {
@@ -608,8 +629,12 @@
       "deliverables": "Capture and trace identity; `keep_equity`; selection bridge; dated membership; pack format",
       "exit_gate": "16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5",
       "size": "M",
-      "status": "Not started",
-      "evidence": []
+      "status": "In progress",
+      "evidence": [
+        "Exit gate, 16-variant PBO from captures = from full history: tests/integration/test_selection_over_captures.py -- sixteen variants captured under RetentionPolicy(market_history=24, steps=10, audit_events=16, results=12) give PBO equal to their full histories' under both measures: the same fraction, selections and logits, over 70 splits (local).",
+        "Exit gate, capture <= 10 %: the series costs 1 to 4 percent of the run; with its trace 12.6 to 14.4 percent, above the plan's budget, recorded as PC-07 and LIM-013 for the owner's acceptance (benchmarks/benchmark_capture.py, local).",
+        "Exit gate, GR-5: not yet; it needs WS-13's dated membership."
+      ]
     },
     {
       "id": "M4",
@@ -954,8 +979,34 @@
       "milestones": [
         "M3"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M3",
+          "item": "ADR-0055 accepted (TD-15), and settled at implementation (TD-17)",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M3",
+          "item": "RetentionPolicy.keep_equity: the equity curve kept whole under a results bound, recorded only when true",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M3",
+          "item": "One private step loop for BacktestEngine.run and run_captured; the schedule cursor's one loop, observable",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M3",
+          "item": "run_captured: the extractor (grid, costs, cash flows, currency, insolvency), the record, the trace from the configuration kept whole",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M3",
+          "item": "benchmarks/benchmark_capture.py at four trade densities (PC-07, LIM-013)",
+          "status": "Local validation passed"
+        }
+      ],
       "evidence": []
     },
     {
@@ -1002,6 +1053,11 @@
           "milestone": "M2",
           "item": "MinTRL and the autocorrelation-adjusted PSR",
           "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M3",
+          "item": "The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history",
+          "status": "Local validation passed"
         }
       ],
       "evidence": [
@@ -1410,7 +1466,7 @@
       "problem": "Selection statistics missing",
       "severity": "C/P1",
       "status": "Open",
-      "status_note": "Delivered at M2 (WS-06, TD-13): TrialMatrix, PBO by CSCV against an exact-enumeration oracle, RC, SPA, MinTRL, the adjusted PSR, the stationary bootstrap. The bridge to captured backtests is M3's.",
+      "status_note": "Delivered at M2 (WS-06, TD-13): TrialMatrix, PBO by CSCV against an exact-enumeration oracle, RC, SPA, MinTRL, the adjusted PSR, the stationary bootstrap. The bridge to captured backtests (lifecycle.selection) is delivered locally at M3, and its 16-variant PBO equals full history's exactly; GAP-09 closes when hosted CI passes it.",
       "workstreams": [
         "WS-06"
       ],
@@ -1421,8 +1477,8 @@
       "id": "GAP-10",
       "problem": "No numerical foundation",
       "severity": "C/P1",
-      "status": "Open",
-      "status_note": "Delivered at M2 (WS-03, ADR-0058): distributions, linear algebra, optimisers, quadrature, the Estimate. Closes with M2's hosted exit gate.",
+      "status": "Closed",
+      "status_note": "Closed at M2's hosted exit gate (fe3c80b; WS-03, ADR-0058): distributions, linear algebra, optimisers, quadrature, the Estimate, each against its oracle.",
       "workstreams": [
         "WS-03"
       ],
@@ -1696,8 +1752,8 @@
       "id": "GAP-33",
       "problem": "Non-normal distributions missing",
       "severity": "M/P1",
-      "status": "Open",
-      "status_note": "Delivered at M2 (WS-03): Student's t, chi-squared, F, gamma, beta, binomial and Poisson, held to published tables. Closes with M2's hosted exit gate.",
+      "status": "Closed",
+      "status_note": "Closed at M2's hosted exit gate (fe3c80b; WS-03): Student's t, chi-squared, F, gamma, beta, binomial and Poisson, held to published tables.",
       "workstreams": [
         "WS-03"
       ],
@@ -1732,8 +1788,8 @@
       "id": "GAP-36",
       "problem": "US-centric day counts",
       "severity": "H/P1",
-      "status": "Open",
-      "status_note": "Delivered locally at M2 (N21, TD-14): the world's bond and swap day counts, each by its published definition, an instrument's terms explicit; GR-2's published worked examples matched. N21's other conventions in plan G.3 -- business-day conventions and FX value dates -- are where plan G.2 places them, at M10 with WS-14 (GR-6) and WS-27 (GR-3). Closes with M2's hosted exit gate.",
+      "status": "Closed",
+      "status_note": "Closed at M2's hosted exit gate (fe3c80b; N21, TD-14): the world's bond and swap day counts, each by its published definition, an instrument's terms explicit; GR-2's published worked examples matched. N21's other conventions in plan G.3 -- business-day conventions and FX value dates -- are where plan G.2 places them, at M10 with WS-14 (GR-6) and WS-27 (GR-3).",
       "workstreams": [
         "WS-13"
       ],
@@ -2131,7 +2187,7 @@
   },
   "state": {
     "updated": "2026-11-14",
-    "remote_head": "1343f90c224651c16741dba32058adeecb489e1d",
+    "remote_head": "553b1501e2bb5745fa5caa90a3fe6bc71debfb2a",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2319,10 +2375,22 @@
         "workflow": "CodeQL",
         "run": 43608287961,
         "result": "success"
+      },
+      {
+        "sha": "fe3c80b",
+        "workflow": "Continuous Integration",
+        "run": 43612751493,
+        "result": "success: all six quality-gate cells, carrying M2's mutation series and close"
+      },
+      {
+        "sha": "fe3c80b",
+        "workflow": "CodeQL",
+        "run": 43612751471,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M2's close on hosted CI; then M3 (WS-04 capture and trace identity, keep_equity; WS-06's selection bridge; WS-13's dated membership and pack format), whose entry needs ADR-0055 and ADR-0059.",
+    "next": "M3: WS-13's dated membership, the survivorship review and the reference-pack format, then GR-5; the capture commit's hosted CI.",
     "open_questions": []
   },
   "log": [
@@ -2457,6 +2525,14 @@
     {
       "date": "2026-11-14",
       "entry": "ADR-0059 accepted (TD-16): dated membership through the registry, a survivorship review, and the reference-pack format; FUT-050 records its limitation. M3's entry conditions (M0, ADR-0055, ADR-0059) are met."
+    },
+    {
+      "date": "2026-11-14",
+      "entry": "M2's exit gate passed on hosted CI (fe3c80b, all six cells and CodeQL); GAP-10, GAP-33 and GAP-36 closed. GAP-09 stays open for M3's selection bridge. ADR-0055 and ADR-0059 pushed (553b150)."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "M3's capture (WS-04) and selection bridge (WS-06) implemented and locally validated: keep_equity, one private step loop, run_captured with its extractor and trace, and assess_captures, whose 16-variant PBO equals full history's exactly. TD-17 settles ADR-0055 at implementation: the trace starts from the configuration kept whole, after testing showed the run's configuration_id moves with retention. PC-07 records the trace's measured cost, 12.6 to 14.4 percent against the plan's 10."
     }
   ]
 }

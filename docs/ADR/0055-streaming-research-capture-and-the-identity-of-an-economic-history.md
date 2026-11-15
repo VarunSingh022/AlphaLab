@@ -148,12 +148,72 @@ any that do not. `assess_captures` runs the selection statistics over it. The
 statistics are never disconnected from AlphaLab's own backtests, and never wait
 for ADR-0072's ledger.
 
+# Settled at implementation (2026-11-15)
+
+Implementing this record settled five points it left open or stated wrongly.
+None moves an identity made before; each is held by a test
+(`tests/integration/test_streaming_capture.py`).
+
+1. **The trace starts from the configuration kept whole.** Section 4 started the
+   chain from the run's `configuration_id`. That identity covers the retention
+   policy, which is part of the pipeline's configuration, so a chain started
+   from it could not be the same under two retentions, as section 5 requires.
+   The chain starts instead from the `configuration_id` of the same
+   configuration with its retention policy set aside: the identity the run has
+   when it keeps everything, which every retention of it shares. The record's
+   `configuration_id` is the run's own, as `digest_run` derives it. The run's
+   seed is not configuration, but the identifiers it draws name the fills and
+   orders, so a reseeded run has another trace.
+2. **A booking meets its point by operation.** The step loop tells the capture
+   the state after every operation it performs: each schedule entry and each
+   slice the cursor closes, the record's slice close, the record, and the
+   algorithms' work. Every operation books what it books before the equity
+   point it records. So what an operation booked shows in its own last point,
+   or, when it recorded none (an algorithm's child fills, a funding), in the
+   next point the run records. A run in which one operation recorded equity at
+   two instants would refuse a GROSS or EXCLUDED capture rather than place a
+   booking wrongly.
+3. **GROSS and EXCLUDED, exactly.**
+   * GROSS adds back, at each point, the commission paid that the point's own
+     valuation reports: `commission_paid` converted at the rates the point was
+     valued at. A fill's commission is its commission, fees and tax, which
+     reach the portfolio as one debit. The spread, slippage and impact in the
+     fill price stay.
+   * EXCLUDED removes the cash flows the portfolio booked (`CashFlowBooked`:
+     dividends, interest, fees, funding) and the cash deposited or withdrawn
+     (`CashDeposited`, `CashWithdrawn`), converted at the rates of the period's
+     closing point. A conversion's two legs move no value in or out, and are
+     not removed.
+
+   Each is held to a counterfactual run, exactly: GROSS to the same run paying
+   no commission, EXCLUDED to the same run with no flows.
+4. **TRUNCATE keeps the wipe-out.** The series ends at the first grid instant
+   whose equity is at or below zero, and its last return is the one into that
+   instant, whose base was solvent: a series truncated before its loss would
+   hide it.
+5. **The trace reads each step once**, from the state the step ended in, so a
+   bound smaller than one step's output is what is refused (section 4). The
+   series reads after every operation.
+
 # Departures from the plan's text, and why
 
 - **The series is kept at full precision** (plan K.1, item 4, proposed a series
   "rounded per H.1 for identity"). ADR-0058 (plan change PC-02) replaced H.1's
   rounding: a value enters an identity at full precision when it is class 1 or
   2, and the returns are class 2.
+- **The trace costs more than the plan's 10 percent** (plan change PC-07).
+  `benchmarks/benchmark_capture.py` measures the capture at four trade
+  densities on a strategy that does no work of its own, the case where every
+  ratio is largest. The series costs 1 to 4 percent of the run, inside the
+  plan's budget. The trace adds a fixed cost per step: the canonical
+  serialization of what the step added, an equity point at the least, and one
+  link. Together they cost 12.6 to 14.4 percent, where `digest_run` costs 76 to
+  105 percent. Narrowing what the trace covers would not reach 10 percent
+  either. With a trade on every eighth record it costs 12.2 percent without the
+  order events, and 11.4 percent without the equity points: most of its cost is
+  the work it does every step, whatever the step added. Unlike PC-06, no design
+  meets the budget, so the trace keeps what this record covers. The benchmark
+  holds the series to 10 percent, and series and trace together to 15.
 - **The grid's third member, a declared calendar's sessions, waits for the
   calendars.** Sessions come from ADR-0059's reference packs, which M3 begins.
   A grid from a pack is added when a pack can supply one. `EVERY_INSTANT` and
@@ -178,6 +238,10 @@ for ADR-0072's ledger.
 - **A series is in the run's base currency.** Converting a captured series to
   another currency needs a rate source the capture would have to state, and is
   not done here.
+- **A trace costs more than the plan's budget.** Series and trace together
+  cost 12.6 to 14.4 percent of a run whose strategy does no work of its own,
+  against the plan's 10 (PC-07). The cost is a fixed amount of Python work per
+  step, so it is a smaller share of a run whose strategy computes anything.
 
 # Consequences
 

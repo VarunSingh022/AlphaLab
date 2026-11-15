@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import AbstractContextManager
-from typing import Any, overload
+from typing import Any, Protocol, overload
 
 from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.backtesting.algorithmic import ExecutionPlan, algorithmic_run
@@ -42,11 +42,14 @@ from alphalab.backtesting.algorithmic import work as work_children
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
 from alphalab.backtesting.queueing import queued_result, queued_run
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE, RunSchedule, ScheduleCursor
+from alphalab.backtesting.schedule import _before as schedule_before
+from alphalab.backtesting.schedule import _finish as schedule_finish
 from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, QueuedResult
 from alphalab.common.evolve import evolve
 from alphalab.common.ids import id_scope, id_source
 from alphalab.execution.queue import QueueModel
 from alphalab.market.state import MarketState
+from alphalab.portfolio.fx import FxRates
 from alphalab.runtime.execution_pipeline import ContextFactory, ExecutionPipelineResult
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunEngine, RunState
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
@@ -286,34 +289,104 @@ class BacktestEngine:
         assumptions name the model. Refused beside ``execution``.
         """
 
-        config, book = algorithmic_run(config, execution, ExecutionMode.BACKTEST)
-        queued = queued_run(config, queue)
-        cursor = ScheduleCursor.start(schedule.with_observations(observations))
-        with id_scope(config.seed):
-            state = evolve(
-                initialize(evolve(config, mode=ExecutionMode.BACKTEST), strategy_state),
-                source_id=dataset.dataset_id,
+        return _drive(
+            config,
+            dataset,
+            strategy_state,
+            context_factory,
+            observations,
+            schedule,
+            execution,
+            queue,
+            None,
+        )
+
+
+class _RunObserver(Protocol):
+    """What the step loop tells an observer of its run (v4.3, ADR-0055).
+
+    An observer reads and changes nothing: the loop hands it each state and goes
+    on from that same state, so a run takes the same steps with one or without.
+    """
+
+    def seen(self, state: RunState, rates: FxRates) -> None:
+        """After each operation: the state it produced, and the rates it valued the book at."""
+
+    def step_ended(self) -> None:
+        """After each step: the run's initialization, each record, the end of the data."""
+
+
+def _drive(
+    config: RunConfig,
+    dataset: MarketDataset,
+    strategy_state: StrategyRuntimeState,
+    context_factory: ContextFactory,
+    observations: Iterable[ObservationDelivery[Any]],
+    schedule: RunSchedule,
+    execution: ExecutionPlan | None,
+    queue: QueueModel | None,
+    observer: _RunObserver | None,
+) -> BacktestResult:
+    """The one step loop :meth:`BacktestEngine.run` and a captured run drive (ADR-0055).
+
+    ``observer``, when given, is told the state after every operation the loop
+    performs -- each schedule entry and each slice the cursor closes, the
+    record's own slice close, the record, the algorithms' work -- and the end of
+    every step. Each operation books what it books before the equity point it
+    records, so what an observer reads after one is never another's.
+    """
+
+    observe = None if observer is None else observer.seen
+    config, book = algorithmic_run(config, execution, ExecutionMode.BACKTEST)
+    queued = queued_run(config, queue)
+    cursor = ScheduleCursor.start(schedule.with_observations(observations))
+    with id_scope(config.seed):
+        state = evolve(
+            initialize(evolve(config, mode=ExecutionMode.BACKTEST), strategy_state),
+            source_id=dataset.dataset_id,
+        )
+        if observer is not None:
+            observer.seen(state, cursor.rates)
+            observer.step_ended()
+        for record in dataset.records:
+            # Everything ordered before this record's instant, in order; an
+            # instant's slice closes before anything later than it.
+            cursor, state = schedule_before(
+                cursor, state, record.timestamp, context_factory, observe
             )
-            for record in dataset.records:
-                # Everything ordered before this record's instant, in order; an
-                # instant's slice closes before anything later than it.
-                cursor, state = cursor.before(state, record.timestamp, context_factory)
-                # The first record of an instant completes the one before it.
-                state = RunEngine.close_slice(
-                    state, context_factory, cursor.rates, before=record.timestamp
-                )
-                state, result = RunEngine.advance(
-                    state, record, context_factory, rates=cursor.rates, queue=queued
-                )
-                if result is not None and result.queue is not None:
-                    queued = result.queue
-                if book is not None and result is not None:
-                    book, state = work_children(book, state, result.market_event, cursor.rates)
-            cursor, state = cursor.finish(state, context_factory, dataset.records[-1].timestamp)
-            state = RunEngine.close_slice(state, context_factory, cursor.rates)
-            if queued is not None:
-                return queued_result(state, queued)
-            if book is None:
-                return finalize(state)
+            # The first record of an instant completes the one before it.
+            state = RunEngine.close_slice(
+                state, context_factory, cursor.rates, before=record.timestamp
+            )
+            if observe is not None:
+                observe(state, cursor.rates)
+            state, result = RunEngine.advance(
+                state, record, context_factory, rates=cursor.rates, queue=queued
+            )
+            if observe is not None:
+                observe(state, cursor.rates)
+            if result is not None and result.queue is not None:
+                queued = result.queue
+            if book is not None and result is not None:
+                book, state = work_children(book, state, result.market_event, cursor.rates)
+                if observe is not None:
+                    observe(state, cursor.rates)
+            if observer is not None:
+                observer.step_ended()
+        cursor, state = schedule_finish(
+            cursor, state, context_factory, dataset.records[-1].timestamp, observe
+        )
+        state = RunEngine.close_slice(state, context_factory, cursor.rates)
+        if observe is not None:
+            observe(state, cursor.rates)
+        if book is not None and queued is None:
             book, state = finish_children(book, state)
-            return AlgorithmicResult(run=RunEngine.finalize(state), algorithms=book)
+            if observe is not None:
+                observe(state, cursor.rates)
+        if observer is not None:
+            observer.step_ended()
+        if queued is not None:
+            return queued_result(state, queued)
+        if book is None:
+            return finalize(state)
+        return AlgorithmicResult(run=RunEngine.finalize(state), algorithms=book)

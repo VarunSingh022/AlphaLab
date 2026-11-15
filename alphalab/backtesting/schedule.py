@@ -1458,8 +1458,7 @@ class ScheduleCursor:
         Called with the timestamp of the record about to be handed to the run.
         """
 
-        boundary = (timestamp, int(SchedulePlace.RECORDS))
-        return self._apply_while(state, context_factory, lambda entry: entry.key[:2] < boundary)
+        return _before(self, state, timestamp, context_factory, None)
 
     def finish(
         self, state: RunState, context_factory: ContextFactory, last: float | None = None
@@ -1473,28 +1472,76 @@ class ScheduleCursor:
         An entry after it is beyond the data, and is not applied.
         """
 
-        end = state.last_record_timestamp if last is None else last
-        if end is None:
-            return self, state
-        return self._apply_while(state, context_factory, lambda entry: entry.at <= end)
+        return _finish(self, state, context_factory, last, None)
 
-    def _apply_while(
-        self,
-        state: RunState,
-        context_factory: ContextFactory,
-        due: Callable[[ScheduleEntry], bool],
-    ) -> tuple[ScheduleCursor, RunState]:
-        entries = self.schedule.entries
-        position, rates = self.position, self.rates
-        while position < len(entries) and due(entries[position]):
-            entry = entries[position]
-            # The slice of an instant closes before anything later than it.
-            state = RunEngine.close_slice(state, context_factory, rates, before=entry.at)
-            rates, state = _apply(entry, state, rates, context_factory)
-            position += 1
-        if position == self.position:
-            return self, state
-        return ScheduleCursor(self.schedule, position, rates), state
+
+#: Told the run's state, and the rate table it stands at, after each operation a
+#: cursor performs -- each slice it closes, each entry it applies -- by a driver
+#: that observes its run (v4.3, ADR-0055). It reads; it changes nothing.
+_StepObserver = Callable[[RunState, FxRates], None]
+
+
+def _before(
+    cursor: ScheduleCursor,
+    state: RunState,
+    timestamp: float,
+    context_factory: ContextFactory,
+    observe: _StepObserver | None,
+) -> tuple[ScheduleCursor, RunState]:
+    """:meth:`ScheduleCursor.before`, telling ``observe`` of each operation."""
+
+    boundary = (timestamp, int(SchedulePlace.RECORDS))
+    return _apply_while(
+        cursor, state, context_factory, lambda entry: entry.key[:2] < boundary, observe
+    )
+
+
+def _finish(
+    cursor: ScheduleCursor,
+    state: RunState,
+    context_factory: ContextFactory,
+    last: float | None,
+    observe: _StepObserver | None,
+) -> tuple[ScheduleCursor, RunState]:
+    """:meth:`ScheduleCursor.finish`, telling ``observe`` of each operation."""
+
+    end = state.last_record_timestamp if last is None else last
+    if end is None:
+        return cursor, state
+    return _apply_while(cursor, state, context_factory, lambda entry: entry.at <= end, observe)
+
+
+def _apply_while(
+    cursor: ScheduleCursor,
+    state: RunState,
+    context_factory: ContextFactory,
+    due: Callable[[ScheduleEntry], bool],
+    observe: _StepObserver | None,
+) -> tuple[ScheduleCursor, RunState]:
+    """Apply each due entry in order: the one loop every cursor call runs.
+
+    ``observe``, when given, is told the state after each slice closed and
+    after each entry applied -- each with the rate table that operation valued
+    the book at -- so that what one operation booked is never mistaken for
+    another's (ADR-0055). Without it, the loop is the one it always was.
+    """
+
+    entries = cursor.schedule.entries
+    position, rates = cursor.position, cursor.rates
+    while position < len(entries) and due(entries[position]):
+        entry = entries[position]
+        # The slice of an instant closes before anything later than it.
+        state = RunEngine.close_slice(state, context_factory, rates, before=entry.at)
+        if observe is not None:
+            observe(state, rates)
+        valued_at = rates
+        rates, state = _apply(entry, state, rates, context_factory)
+        if observe is not None:
+            observe(state, valued_at)
+        position += 1
+    if position == cursor.position:
+        return cursor, state
+    return ScheduleCursor(cursor.schedule, position, rates), state
 
 
 def _apply(

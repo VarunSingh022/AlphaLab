@@ -2412,8 +2412,12 @@ def _retention(value: Any, where: str) -> RetentionPolicy:
     for name in ("market_history", "steps", "audit_events", "results"):
         bound = require(payload, name)
         bounds[name] = None if bound is None else as_int(bound, f"{where}.{name}")
+    # Written only when true (v4.3, ADR-0055): absent is every earlier policy's False.
+    keep_equity = payload.get("keep_equity", False)
+    if not isinstance(keep_equity, bool):
+        raise StateDecodeError(f"{where}.keep_equity is {keep_equity!r}; it must be a boolean.")
     try:
-        return RetentionPolicy(**bounds)
+        return RetentionPolicy(**bounds, keep_equity=keep_equity)
     except AlphaLabError as error:
         raise StateDecodeError(f"{where}: {error}") from error
 

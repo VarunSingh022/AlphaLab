@@ -297,6 +297,68 @@ entry below says otherwise.
   worked periods and on 300 random ones
   (`tests/unit/conventions/test_global_day_counts.py`).
 
+* **Streaming research capture** [plan WS-04, K.1, ADR-0055]. `run_captured`
+  in `alphalab.backtesting.capture` runs a backtest exactly as
+  `BacktestEngine.run` does -- one private step loop drives both, and an
+  observer reads it without changing it -- and returns `Captured`: the result
+  `run` returns, field for field and with the same `result_id`, beside a
+  `CaptureRecord`. The capture draws no identifier.
+  * **The series.** A `ReturnExtractor` states, with no defaults, every choice
+    that shapes the series:
+    * the grid: `EVERY_INSTANT`, or `FixedInterval(seconds, origin)`, compared
+      exactly;
+    * `Costs.NET` or `Costs.GROSS`, which adds back at each point the
+      commission, fees and tax its valuation reports;
+    * `CashFlows.INCLUDED` or `CashFlows.EXCLUDED`, which removes booked
+      dividends, interest, fees, funding, deposits and withdrawals, though not
+      a conversion's two legs;
+    * the run's base currency;
+    * `Insolvency.REFUSE` (`InsolventCaptureError`) or `Insolvency.TRUNCATE`.
+
+    Returns are analytics' own arithmetic at full precision, so an
+    `EVERY_INSTANT`, `NET`, `INCLUDED` series is `period_returns` of the same
+    run with full history, value for value, whatever the run kept. GROSS is held
+    to the same run paying no commission, and EXCLUDED to the same run with no
+    flows, exactly.
+  * **The trace.** `trace_id` is a SHA-256 chain over what each step added to
+    the fills, the ledger, the OMS's order events and the equity points, each
+    entry in `serialize`'s canonical form. It starts from the configuration
+    kept whole, so it is the same under every retention, and a bound smaller
+    than one step's output is refused rather than traced short.
+  * **The identities.** `extractor_id`, `series_id` and `trace_id` are pinned,
+    computed identically under CPython 3.12, 3.13 and 3.14
+    (`tests/integration/test_streaming_capture.py`,
+    `tests/regression/test_capture_identities_are_pinned.py`).
+  * **The cost** is measured by `benchmarks/benchmark_capture.py` at four trade
+    densities. The series costs 1 to 4 percent of the run. With the trace the
+    capture costs 12.6 to 14.4 percent on a strategy that does no work of its
+    own, against the plan's 10, where `digest_run` costs 76 to 105 percent
+    (plan change PC-07, ledger LIM-013).
+
+  `_recorded_configuration` moved from the lifecycle into
+  `alphalab.runtime.run_snapshot` unchanged, so the configuration a trace starts
+  from is the one `digest_run` hashes.
+
+* **`RetentionPolicy.keep_equity`** [ADR-0055 section 5]. A new defaulted
+  field. When true, the `results` bound no longer trims the equity points, so a
+  run that bounds its fills and ledger keeps its whole equity curve and
+  compiles analytics equal to full history's, value for value. A snapshot
+  records it only when it is true, so a policy without it is stored, and
+  digested, byte for byte as v4.2.1 stored it: the eight frozen bounded
+  checkpoints hold that text (`tests/regression/test_retention_keep_equity.py`).
+
+* **Selection statistics over captured backtests** [plan K.2, WS-06, GAP-09].
+  `alphalab.lifecycle.selection` holds two functions:
+  * `trial_matrix_from_captures` builds ADR-0054's `TrialMatrix` from captures
+    sharing one extractor and one grid, and refuses any that do not;
+  * `assess_captures` runs the probability of backtest overfitting over the
+    matrix, and returns `CaptureAssessment`, which names the extractor and each
+    trial's `series_id` beside the result.
+
+  M3's exit gate: PBO over sixteen captured variants, each run under a
+  retention policy that keeps a few dozen entries of every log, equals PBO over
+  their full histories exactly (`tests/integration/test_selection_over_captures.py`).
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package
