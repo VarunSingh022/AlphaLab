@@ -1726,7 +1726,7 @@
       "SeedRole": "enum alphalab.lifecycle.reproducibility.SeedRole[IDENTIFIER_STREAM, STOCHASTIC_STEPS, ABSENT]",
       "SequentialExecutor": "class alphalab.lifecycle.experiments.SequentialExecutor() -> None",
       "SourceBytesView": "class alphalab.lifecycle.reproducibility.SourceBytesView(*args, **kwargs)",
-      "SpawnExecutor": "class alphalab.lifecycle.experiments.SpawnExecutor(definition: 'str', workers: 'int') -> None",
+      "SpawnExecutor": "class alphalab.lifecycle.experiments.SpawnExecutor(definition: 'str', workers: 'int', trials_per_worker: 'int | None') -> None",
       "StageTransition": "class alphalab.lifecycle.progression.StageTransition(from_stage: 'StrategyLifecycleStage', to_stage: 'StrategyLifecycleStage', reason: 'str', timestamp: 'float', actor_id: 'str' = '') -> None",
       "StateExpectation": "class alphalab.lifecycle.health.StateExpectation(name: 'str', expected: 'str | None', observed: 'str | None') -> None",
       "StateReconciliation": "class alphalab.lifecycle.reconciliation.StateReconciliation(mismatches: 'tuple[Mismatch, ...]' = (), unreconciled: 'tuple[UnreconciledArea, ...]' = (), compared_orders: 'int' = 0, compared_fills: 'int' = 0, compared_positions: 'int' = 0, unassigned: 'tuple[str, ...]' = ()) -> None",

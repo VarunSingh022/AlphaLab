@@ -117,8 +117,8 @@ executor the caller supplies, inside the caller's trust boundary, like any
 other.
 
 **A spawned trial's worker refuses the network, and is not a sandbox** (ledger
-BDY-029, ADR-0072). `alphalab.lifecycle.experiments.SpawnExecutor` runs each
-trial in a fresh interpreter started as AlphaLab's own worker module.
+BDY-029, ADR-0072). `alphalab.lifecycle.experiments.SpawnExecutor` runs trials
+in interpreters it starts as AlphaLab's own worker module.
 * **The order.** Before the worker imports anything of the researcher's, it
   installs an audit hook that refuses the network: `socket`, `ssl`,
   `http.client` and `urllib` events raise. A definition that reaches for the
@@ -132,9 +132,15 @@ trial in a fresh interpreter started as AlphaLab's own worker module.
   audit events, such as a C extension or a process the host lets it start, is
   not contained by it, and isolating untrusted research code is the host's or
   the deployment's.
-* **On a cluster.** `ClusterExecutor` runs each trial in the same worker. The
-  cluster's cycle places a trial on a worker and starts it; the worker is what
-  refuses the network.
+* **Trials in one worker.** A worker loads the experiment once and runs as
+  many trials as its executor says: one for a fresh interpreter per trial
+  (`trials_per_worker=1`), or as many as it is given. Trials in one worker
+  share its process, as sequential trials share the caller's. A fresh
+  interpreter per trial is the executor's most isolated choice, and it is not a
+  sandbox either.
+* **On a cluster.** `ClusterExecutor` runs each trial in a worker of its own,
+  the same worker module. The cluster's cycle places a trial on a worker and
+  starts it; the worker is what refuses the network.
 * **In process.** `SequentialExecutor` runs trials in the caller's process,
   with no hook.
 

@@ -74,7 +74,12 @@ def test_a_record_of_every_outcome_is_reproduced_in_a_fresh_process() -> None:
     }
     for outcome, trial in first_of_each.items():
         rerun = rerun_trial(
-            spec, REGISTRY, "reference", ledger, trial.trial_id, SpawnExecutor(WHERE, workers=1)
+            spec,
+            REGISTRY,
+            "reference",
+            ledger,
+            trial.trial_id,
+            SpawnExecutor(WHERE, workers=1, trials_per_worker=1),
         )
         assert rerun.reproduced, outcome
         assert rerun.rerun == rerun.held == ledger.find(trial.trial_id).record_id  # type: ignore[union-attr]
@@ -118,7 +123,9 @@ def test_an_interrupted_rerun_left_no_record() -> None:
         "sleepy",
         ledger,
         late.trial_id,
-        SpawnExecutor("tests.integration.experiment_workload:SLOW_DEFINITION", workers=1),
+        SpawnExecutor(
+            "tests.integration.experiment_workload:SLOW_DEFINITION", workers=1, trials_per_worker=1
+        ),
     )
 
     assert rerun.rerun is None and not rerun.reproduced
@@ -139,7 +146,7 @@ def test_a_rerun_names_a_recorded_trial_of_the_experiment() -> None:
     "executor",
     [
         SequentialExecutor(),
-        SpawnExecutor(WHERE, workers=4),
+        SpawnExecutor(WHERE, workers=4, trials_per_worker=None),
         ClusterExecutor(
             WHERE, initialize_cluster("lab", num_workers=2, capacity_per_worker=2, timestamp=0.0)
         ),

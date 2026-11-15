@@ -447,12 +447,21 @@ entry below says otherwise.
   `experiment_id` and `experiment_record_id` are pinned, computed identically
   under CPython 3.12, 3.13 and 3.14
   (`tests/regression/test_experiment_identities_are_pinned.py`).
-  * **`SpawnExecutor`** runs each trial in a fresh interpreter: AlphaLab's own
+  * **`SpawnExecutor`** runs trials in spawned interpreters: AlphaLab's own
     worker module, which refuses the network before it imports anything of the
     researcher's.
-    * **The worker.** It loads the experiment from an `ExperimentDefinition`
-      named in code as `"module:NAME"`, holds it to the submitted experiment,
-      and runs the one trial its request names by identity.
+    * **The worker.** It loads the experiment once, from an
+      `ExperimentDefinition` named in code as `"module:NAME"`. It then runs the
+      trials it is asked for one at a time, each held to the submitted
+      experiment and named by identity.
+    * **Its lifetime.** `trials_per_worker` is the researcher's choice: `1` for
+      a fresh interpreter per trial, the most isolated; `None` for one per
+      worker, its start paid once.
+    * **The cost.** On one worker the executor costs 1.8 percent of the trials'
+      CPU time on deliberately short trials, inside the plan's 5 percent
+      (`benchmarks/benchmark_experiments.py`). A start is about half a second:
+      so a fresh interpreter per trial costs that much a trial, and each
+      further worker one start.
     * **Order.** Records are kept in submission order whatever order trials
       finish in, so a spawned experiment equals the sequential one record for
       record.

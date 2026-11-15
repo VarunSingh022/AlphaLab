@@ -51,11 +51,14 @@ experiment has the same record on every host.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import math
+import queue
 import subprocess
 import sys
+import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, fields, is_dataclass, replace
@@ -943,6 +946,9 @@ _WORKER: Final = "alphalab.lifecycle._trial_worker"
 #: worker that never reported, as dead.
 _START_ALLOWANCE: Final = 600.0
 
+#: How long a worker whose input has closed may take to end before it is killed.
+_STOP_ALLOWANCE: Final = 30.0
+
 
 def _require_definition(definition: object, owner: str) -> str:
     module, colon, attribute = (
@@ -956,6 +962,102 @@ def _require_definition(definition: object, owner: str) -> str:
     return str(definition)
 
 
+def _request(experiment_id: str, runner: str, trial: TrialSpec) -> str:
+    """A trial's request: identities only, never code."""
+
+    return json.dumps(
+        {"experiment_id": experiment_id, "runner": runner, "trial_id": trial.trial_id}
+    )
+
+
+class _Worker:
+    """A spawned worker: AlphaLab's own module, the experiment loaded once, a trial at a time.
+
+    Its answers are read as they come, so a worker is never blocked writing
+    one; what a trial writes elsewhere is discarded. A worker that ends -- a
+    trial outran its limit, or crashed -- answers nothing, and is replaced.
+    """
+
+    def __init__(self, definition: str, path: list[str]) -> None:
+        # AlphaLab's own worker module, with fixed arguments: nothing in the
+        # command comes from a request.
+        self._process = subprocess.Popen(
+            [sys.executable, "-m", _WORKER],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            encoding="utf-8",
+        )
+        self._answers: queue.SimpleQueue[str | None] = queue.SimpleQueue()
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader.start()
+        self._send(json.dumps({"definition": definition, "path": path}))
+
+    def _read(self) -> None:
+        assert self._process.stdout is not None
+        with self._process.stdout as answers:
+            for line in answers:
+                if line.strip():
+                    self._answers.put(line)
+        self._answers.put(None)
+
+    def _send(self, line: str) -> bool:
+        assert self._process.stdin is not None
+        try:
+            self._process.stdin.write(line + "\n")
+            self._process.stdin.flush()
+        except OSError:
+            return False
+        return True
+
+    def ask(self, request: str, seconds: float | None) -> str | None:
+        """The worker's answer, or ``None`` when it ended or outran the limit and its allowance."""
+
+        if not self._send(request):
+            return None
+        try:
+            return self._answers.get(
+                timeout=None if seconds is None else seconds + _START_ALLOWANCE
+            )
+        except queue.Empty:
+            self._process.kill()
+            return None
+
+    def stop(self) -> None:
+        """End the worker: it ends when its input does, and one that will not is killed."""
+
+        assert self._process.stdin is not None
+        with contextlib.suppress(OSError):
+            self._process.stdin.close()
+        try:
+            self._process.wait(timeout=_STOP_ALLOWANCE)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+            self._process.wait()
+        # The worker has ended, so its output is at its end: the reader finishes
+        # and closes it.
+        self._reader.join()
+
+
+def _answered(spec: ExperimentSpec, trial: TrialSpec, answer: str | None) -> _Ran | None:
+    """What a worker's answer says the trial left; ``None`` when it was interrupted."""
+
+    if answer is None:
+        return None
+    held = json.loads(answer)
+    if "mismatch" in held:
+        raise ExperimentError(f"The spawned worker loaded another experiment: {held['mismatch']}.")
+    if "failed" in held:
+        return _trial_left(
+            spec,
+            trial,
+            TrialOutcome.FAILED,
+            f"the experiment's definition did not load: {held['failed']}",
+        )
+    return _ran_from_payload(held)
+
+
 def _spawn(
     definition: str,
     spec: ExperimentSpec,
@@ -964,51 +1066,15 @@ def _spawn(
     trial: TrialSpec,
     path: list[str],
 ) -> _Ran | None:
-    """Run ``trial`` in a fresh interpreter; ``None`` when it was interrupted."""
+    """Run ``trial`` in a fresh interpreter of its own; ``None`` when it was interrupted."""
 
-    request = json.dumps(
-        {
-            "definition": definition,
-            "experiment_id": experiment_id,
-            "path": path,
-            "runner": runner,
-            "trial_id": trial.trial_id,
-        }
-    )
-    # AlphaLab's own worker module, with fixed arguments: nothing in the
-    # command comes from a request.
-    process = subprocess.Popen(
-        [sys.executable, "-m", _WORKER],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    seconds = spec.limits.seconds
+    worker = _Worker(definition, path)
     try:
-        out, _ = process.communicate(
-            request, timeout=None if seconds is None else seconds + _START_ALLOWANCE
+        return _answered(
+            spec, trial, worker.ask(_request(experiment_id, runner, trial), spec.limits.seconds)
         )
-    except subprocess.TimeoutExpired:
-        process.kill()
-        process.communicate()
-        return None
-    lines = [line for line in out.splitlines() if line.strip()]
-    if process.returncode != 0 or not lines:
-        return None
-    answer = json.loads(lines[-1])
-    if "mismatch" in answer:
-        raise ExperimentError(
-            f"The spawned worker loaded another experiment: {answer['mismatch']}."
-        )
-    if "failed" in answer:
-        return _trial_left(
-            spec,
-            trial,
-            TrialOutcome.FAILED,
-            f"the experiment's definition did not load: {answer['failed']}",
-        )
-    return _ran_from_payload(answer)
+    finally:
+        worker.stop()
 
 
 def _search_path() -> list[str]:
@@ -1017,33 +1083,49 @@ def _search_path() -> list[str]:
 
 @dataclass(frozen=True, slots=True)
 class SpawnExecutor:
-    """Runs each trial in a fresh interpreter that refuses the network (ADR-0072 section 6).
+    """Runs trials in spawned interpreters that refuse the network (ADR-0072 section 6).
 
     Each worker is a new Python process started as AlphaLab's own worker module.
     Before it imports anything of the researcher's it installs an audit hook
     that refuses the network; it then imports ``definition`` -- an
     :class:`ExperimentDefinition`, named here in code as ``"module:attribute"``
-    -- holds it to the submitted experiment, and runs the one trial its request
-    names by identity. A request carries identities only, never code.
+    -- once, and runs the trials it is asked for one at a time, each held to the
+    submitted experiment and named by identity. A request carries identities
+    only, never code.
 
     Up to ``workers`` trials run at once, and what they left is yielded in the
     order they were submitted, whatever order they finish in. A trial past the
     experiment's time limit, or a worker that dies, is interrupted: it leaves
-    nothing, and a resume runs it again. A definition that does not load is the
-    researcher's code failing, and each trial is recorded ``FAILED``.
+    nothing, a fresh worker takes the next trial, and a resume runs it again. A
+    definition that does not load is the researcher's code failing, and each
+    trial is recorded ``FAILED``.
 
     Attributes:
         definition: Where the experiment is defined, ``"package.module:NAME"``.
         workers: How many trials run at once.
+        trials_per_worker: How many trials a worker runs before a fresh one
+            takes its place: ``1`` for a fresh interpreter per trial, the most
+            isolated and, at about half a second of start each, the slowest;
+            ``None`` for as many as it is given, the start paid once a worker.
+            Trials in one worker share its process, as sequential trials share
+            the caller's.
     """
 
     definition: str
     workers: int
+    trials_per_worker: int | None
 
     def __post_init__(self) -> None:
         _require_definition(self.definition, "SpawnExecutor")
         if isinstance(self.workers, bool) or not isinstance(self.workers, int) or self.workers < 1:
             raise ExperimentError(f"SpawnExecutor.workers must be positive, got {self.workers!r}.")
+        reuse = self.trials_per_worker
+        if reuse is not None and (
+            isinstance(reuse, bool) or not isinstance(reuse, int) or reuse < 1
+        ):
+            raise ExperimentError(
+                f"SpawnExecutor.trials_per_worker must be positive or None, got {reuse!r}."
+            )
 
     def execute(
         self,
@@ -1055,15 +1137,40 @@ class SpawnExecutor:
         registry.runner(runner)
         experiment_id = spec.experiment_id
         path = _search_path()
-        with ThreadPoolExecutor(max_workers=self.workers) as pool:
-            running = [
-                pool.submit(_spawn, self.definition, spec, experiment_id, runner, trial, path)
-                for trial in trials
-            ]
+        # Each of the pool's threads keeps one worker, and asks it for one
+        # trial at a time.
+        held = threading.local()
+        lock = threading.Lock()
+        live: set[_Worker] = set()
+
+        def one(trial: TrialSpec) -> _Ran | None:
+            worker: _Worker | None = getattr(held, "worker", None)
+            if worker is None:
+                worker = _Worker(self.definition, path)
+                held.worker, held.served = worker, 0
+                with lock:
+                    live.add(worker)
+            held.served += 1
+            answer = worker.ask(_request(experiment_id, runner, trial), spec.limits.seconds)
+            limit = self.trials_per_worker
+            if answer is None or (limit is not None and held.served >= limit):
+                worker.stop()
+                held.worker = None
+                with lock:
+                    live.discard(worker)
+            return _answered(spec, trial, answer)
+
+        pool = ThreadPoolExecutor(max_workers=self.workers)
+        try:
+            running = [pool.submit(one, trial) for trial in trials]
             for future in running:
                 ran = future.result()
                 if ran is not None:
                     yield ran
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
+            for worker in live:
+                worker.stop()
 
 
 #: The registered task a cluster job of a :class:`ClusterExecutor` runs.
@@ -1084,8 +1191,8 @@ class ClusterExecutor:
     is: :mod:`alphalab.distributed`'s job lifecycle queues, starts and completes
     or fails each one; ``assign`` decides which worker takes which -- the
     cluster's own scheduler, or a policy of :mod:`alphalab.cluster_scheduler`;
-    and each trial runs in a fresh interpreter that refuses the network, as
-    under :class:`SpawnExecutor`. A request carries identities only.
+    and each trial runs in a fresh interpreter of its own that refuses the
+    network, the worker :class:`SpawnExecutor` uses. A request carries identities only.
 
     A cycle runs as many trials as the workers have capacity for, and what the
     trials left is yielded in submission order as each prefix of them is done.

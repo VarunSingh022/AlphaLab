@@ -574,6 +574,19 @@
       "compatibility": "Additive (TrialRerun, rerun_trial); the ledger and its executors are unreleased. No record moved: the reference experiment's pinned identities hold, because a runner's identifiers do not enter its run's.",
       "record": "docs/ADR/0072-experiments-and-the-trial-ledger.md (settled at implementation, points 5, 12 and 13; two departures).",
       "tests": "tests/integration/test_ledger_reproduces.py; tests/integration/test_spawned_trials.py::test_a_limit_times_the_trial_never_the_workers_start."
+    },
+    {
+      "id": "TD-25",
+      "date": "2026-11-15",
+      "workstream": "WS-05",
+      "title": "Spawned workers serve many trials, as the researcher chooses, and an executor's cost is judged on one worker",
+      "problem": "WS-05 item 15 holds an executor's overhead to at most 5 percent of the summed trial time. SpawnExecutor started a fresh interpreter for every trial, and a start is about half a second -- 0.01 s of interpreter and 0.44 s of importing alphalab.lifecycle.experiments, which loads the lifecycle package -- so on 48 trials of about 0.6 s it cost 73 percent. Measuring four workers also showed what no executor controls: the same trials in four plain processes, with no executor, cost 10.1 percent more CPU than one, on a host of four performance and four efficiency cores.",
+      "alternatives": "Trimming AlphaLab's imports (any import of the ledger loads the lifecycle package, so not without restructuring it); a fork server (fork safety on macOS); workers that load the experiment once and serve trials one at a time, the fresh interpreter per trial kept as a choice. Judging the budget on four workers, which counts the host's slowdown as the executor's, or on one, which measures what the executor itself costs.",
+      "decision": "The worker reads a header naming the experiment, then one request per trial, and loads the definition once, behind the network refusal. SpawnExecutor(definition, workers, trials_per_worker) keeps one worker per pool thread: trials_per_worker is required, 1 for a fresh interpreter per trial and None for one per worker. A worker that ends interrupts its trial and a fresh one takes the next. Answers go to a duplicate of the standard output, which itself goes to the standard error. benchmarks/benchmark_experiments.py judges the executor's own cost on one worker reused against the plan's 5 percent, and prints a fresh interpreter per trial and four workers, with what each figure holds.",
+      "rationale": "A start paid once per worker is the cost the budget can bear; a researcher who wants every trial in a clean interpreter can still have it, at a start a trial. One worker measures the executor and nothing of the host. With W workers the cost is W starts and the exchanges, under 5 percent once each worker runs about ten seconds of trials; a trial of the plan's cost envelope (K.5) runs ten minutes.",
+      "compatibility": "SpawnExecutor gains a required field; it is unreleased. Records are unchanged under either lifetime, and spawned equals sequential record for record.",
+      "record": "docs/ADR/0072-experiments-and-the-trial-ledger.md (settled at implementation, points 8 and 14); SECURITY.md (BDY-029).",
+      "tests": "tests/integration/test_spawned_trials.py (every behaviour under both lifetimes; the starts counted); benchmarks/benchmark_experiments.py: one worker reused +1.8 percent (ok), a fresh interpreter per trial +72.9, four workers +19.8, the no-executor control +10.1."
     }
   ],
   "plan_changes": [
@@ -1180,6 +1193,11 @@
           "milestone": "M4",
           "item": "A time limit times the trial from the worker's load, never its start (TD-24, found by M4's first mutation run)",
           "status": "Local validation passed"
+        },
+        {
+          "milestone": "M4",
+          "item": "Spawned workers serve many trials (trials_per_worker); the executor's own cost 1.8 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -1627,8 +1645,8 @@
       "id": "GAP-05",
       "problem": "SEC-001 dotted-path resolution",
       "severity": "H/P0",
-      "status": "Open",
-      "status_note": "Delivered locally at M4 (WS-23, ADR-0072, TD-21): the ledger's executors and cloud_research's cycle look a name up in one registry and resolve nothing, so an unregistered name, a dotted path to a real task included, fails before anything is imported; a spawned worker refuses a definition that reaches for the network as it is imported (the spy-on-import refusal). resolve_task stays, superseded, until 5.0 (D-54-6). Closes when hosted CI passes it.",
+      "status": "Closed",
+      "status_note": "Closed at M4 (WS-23, ADR-0072, TD-21): the ledger's executors and cloud_research's cycle look a name up in one registry and resolve nothing, so an unregistered name, a dotted path to a real task included, fails before anything is imported; a spawned worker refuses a definition that reaches for the network as it is imported (the spy-on-import refusal). resolve_task stays, superseded, until 5.0 (D-54-6). Passed on hosted CI, all six cells: 20ef953 (the spawned worker) and 98174f1 (the registry path).",
       "workstreams": [
         "WS-23",
         "WS-05"
@@ -1938,8 +1956,8 @@
       "id": "GAP-31",
       "problem": "Three orchestration layers unbound",
       "severity": "M/P2",
-      "status": "Open",
-      "status_note": "Delivered locally at M4 (WS-05, ADR-0072, TD-21): ClusterExecutor runs a ledgered experiment's trials as registered tasks on cloud_research's cycle, which tracks them through distributed's job lifecycle and places them by its assignment policy, cluster_scheduler's included; the record equals the sequential one. Closes when hosted CI passes it.",
+      "status": "Closed",
+      "status_note": "Closed at M4 (WS-05, ADR-0072, TD-21): ClusterExecutor runs a ledgered experiment's trials as registered tasks on cloud_research's cycle, which tracks them through distributed's job lifecycle and places them by its assignment policy, cluster_scheduler's included; the record equals the sequential one. Passed on hosted CI, all six cells, on 98174f1.",
       "workstreams": [
         "WS-05"
       ],
@@ -2398,7 +2416,7 @@
   },
   "state": {
     "updated": "2026-11-15",
-    "remote_head": "98174f1",
+    "remote_head": "6267194",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2682,10 +2700,22 @@
         "workflow": "CodeQL",
         "run": 43699261013,
         "result": "success"
+      },
+      {
+        "sha": "98174f1",
+        "workflow": "Continuous Integration",
+        "run": 43701843005,
+        "result": "success: all six quality-gate cells, the registry path and the cluster executor included"
+      },
+      {
+        "sha": "98174f1",
+        "workflow": "CodeQL",
+        "run": 43701843009,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "Gate and push TD-24; WS-05's executor-overhead acceptance (at most 5 percent of the summed trial time) measured and met; the example 'a ledgered sweep' and an experiments guide; then M4's mutation series on the final tree, and its close.",
+    "next": "Gate and push TD-25; the example 'a ledgered sweep' and the experiments guide; then M4's mutation series on the final tree, and its close (GAP-01 on hosted CI).",
     "open_questions": []
   },
   "log": [
@@ -2868,6 +2898,10 @@
     {
       "date": "2026-11-15",
       "entry": "M4's first mutation run (EX01 to EX29) is not evidence: every catch it reported was the time-limit tests failing under the harness's load, whatever the mutation. Diagnosed with data -- 0 of 9 normal trials recorded under load, a worker's start alone outrunning the two-second limit -- and fixed at the root: the worker times its trial from the moment it has loaded the experiment (TD-24). Reading WS-05 and GAP-01 against M4 also added rerun_trial and an experiment that draws no identifier. The series is re-run on the final tree."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "The consumers (98174f1) passed hosted CI on all six cells: GAP-05 and GAP-31 closed. rerun_trial, zero identifier draws and the trial-timed limit (6267194) passed the full gate and were pushed. Spawned workers now serve many trials (TD-25): the executor's own cost is 1.8 percent of the trials', inside WS-05's 5 percent."
     }
   ]
 }

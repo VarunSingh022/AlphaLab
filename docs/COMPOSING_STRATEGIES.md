@@ -305,8 +305,9 @@ v4.3 records the population a statistic is given (ADR-0072).
 * **Where trials run.** The executor decides, and the record is the same under
   each:
   * `SequentialExecutor`, in this process;
-  * `SpawnExecutor`, each trial in a fresh interpreter that refuses the network
-    before it imports the researcher's code;
+  * `SpawnExecutor`, trials in spawned interpreters that refuse the network
+    before they import the researcher's code: a fresh one per trial, or one per
+    worker for many trials, as `trials_per_worker` says;
   * `ClusterExecutor`, each trial as a job on a `cloud_research` cluster,
     placed by the cluster's scheduler or a `cluster_scheduler` policy, in the
     same worker.
