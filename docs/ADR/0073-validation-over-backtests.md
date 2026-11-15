@@ -160,7 +160,8 @@ event-window variant.
 Building M5 settled these points, each held by a test
 (`tests/unit/lifecycle/test_validation_designs.py`,
 `tests/unit/research/test_combinatorial_cv.py`,
-`tests/integration/test_walk_forward_over_backtests.py`).
+`tests/integration/test_walk_forward_over_backtests.py`,
+`tests/integration/test_cv_and_cpcv_over_backtests.py`).
 
 1. **A dataset's identity carries its instants.** `DatasetIdentity` gains
    `instants`, its records' distinct timestamps in order: what a design splits.
@@ -202,6 +203,15 @@ Building M5 settled these points, each held by a test
    test-window trial the experiment could name -- each fold and each candidate,
    `every_trial` -- and finds the one a request names, so a request still
    carries identities only.
+10. **Cross-validated and combinatorial selections are the experiment's.**
+    * **The selection.** A cross-validated or CPCV experiment selects once, by
+      a candidate's mean score over every fold or path. Only a candidate that
+      completed in all of them is eligible. The record's `selected` holds it.
+    * **The paths.** A CPCV record's `paths` holds each candidate's paths: the
+      series of its test groups, joined in group order, each a history of the
+      whole sample. A path a trial left incomplete is `None`.
+    * **The scores.** Fold and path scores use the design's measure, as the
+      walk-forward selection does.
 
 # Compatibility
 

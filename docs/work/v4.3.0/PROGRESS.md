@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `d2e4359` |
+| Remote head | `f55e4a5` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M5b: walk-forward over backtests -- runs restricted to a trial's window, the warm-up never scored, the ledger's selection recorded, REPORT trials after it, resume; then CV and CPCV, the ledger's statistics, the promotion method, S-13 and the leak mutants. |
@@ -109,6 +109,8 @@ Never:
 | `0d3c98c` | CodeQL | 43711320364 | success |
 | `eef7556` | Continuous Integration | 43712078205 | success: all six quality-gate cells, carrying ADR-0073 |
 | `eef7556` | CodeQL | 43712078208 | success |
+| `d2e4359` | Continuous Integration | 43713433219 | success: all six quality-gate cells, carrying M5's validation designs and research's CPCV splitter |
+| `d2e4359` | CodeQL | 43713433204 | success |
 
 ## Continuation log
 
@@ -703,8 +705,9 @@ Evidence:
 ### WS-24: Validation over actual backtests
 
 - [Hosted CI passed] M5: ADR-0073 accepted (TD-26): validation over backtests, M5's entry condition
-- [Pushed] M5: Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)
-- [Local validation passed] M5: Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)
+- [Hosted CI passed] M5: Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)
+- [Pushed] M5: Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)
+- [Local validation passed] M5: CV and CPCV over backtests: every candidate on every fold or test group, CPCV's paths joined per candidate, the experiment's selection by the mean score over every fold or path (ADR-0073 settled 10)
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 

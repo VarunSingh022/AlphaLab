@@ -43,6 +43,7 @@ from alphalab.research.walk_forward import WindowMode, walk_forward_splits
 from alphalab.research.walk_forward_optimization import Refit
 
 __all__ = [
+    "DESIGNS",
     "REPORT",
     "SEARCH",
     "SELECT",
@@ -57,6 +58,11 @@ __all__ = [
     "TrialWindow",
     "ValidationDesign",
     "WalkForward",
+    "combinatorial",
+    "design_key",
+    "report_window",
+    "sample",
+    "windows",
 ]
 
 #: The phase of a trial in a search over the whole sample.

@@ -541,6 +541,16 @@ entry below says otherwise.
     A spawned walk-forward experiment equals the sequential one: a worker
     finds a test-window trial among `every_trial`
     (`tests/integration/test_walk_forward_over_backtests.py`).
+* **Cross-validation and CPCV over backtests** [plan WS-24, K.4, D-54-5,
+  ADR-0073]. Every candidate is backtested on every fold's validation window,
+  or every test group of every CPCV split.
+  * **The selection.** The candidate with the best mean score over every fold
+    or path is `selected`; a candidate that did not complete everywhere is
+    counted and never selected.
+  * **CPCV's paths.** A CPCV record's `paths` holds each candidate's paths,
+    its test groups' series joined, each a history of the whole sample. A
+    spawned CPCV experiment equals the sequential one
+    (`tests/integration/test_cv_and_cpcv_over_backtests.py`).
 
 ## Changed
 

@@ -1562,11 +1562,16 @@
         {
           "milestone": "M5",
           "item": "Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M5",
           "item": "Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M5",
+          "item": "CV and CPCV over backtests: every candidate on every fold or test group, CPCV's paths joined per candidate, the experiment's selection by the mean score over every fold or path (ADR-0073 settled 10)",
           "status": "Local validation passed"
         }
       ],
@@ -2475,7 +2480,7 @@
   },
   "state": {
     "updated": "2026-11-15",
-    "remote_head": "d2e4359",
+    "remote_head": "f55e4a5",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2818,6 +2823,18 @@
         "sha": "eef7556",
         "workflow": "CodeQL",
         "run": 43712078208,
+        "result": "success"
+      },
+      {
+        "sha": "d2e4359",
+        "workflow": "Continuous Integration",
+        "run": 43713433219,
+        "result": "success: all six quality-gate cells, carrying M5's validation designs and research's CPCV splitter"
+      },
+      {
+        "sha": "d2e4359",
+        "workflow": "CodeQL",
+        "run": 43713433204,
         "result": "success"
       }
     ],

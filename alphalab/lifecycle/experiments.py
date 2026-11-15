@@ -97,6 +97,8 @@ from alphalab.lifecycle.designs import (
     DESIGNS,
     REPORT,
     SEARCH,
+    CombinatorialPurged,
+    CrossValidated,
     ExperimentError,
     FullSample,
     Lockbox,
@@ -104,6 +106,7 @@ from alphalab.lifecycle.designs import (
     ValidationDesign,
     WalkForward,
     _require_text,
+    combinatorial,
     design_key,
     report_window,
     windows,
@@ -1492,6 +1495,12 @@ class ExperimentRecord:
         out_of_sample: For a walk-forward design whose test windows tile, the
             ``series_id`` of its selections' test-window series, joined in fold
             order; ``None`` when a fold left none.
+        selected: For a cross-validated or combinatorial design, the candidate
+            selected by its mean score over every fold or path, rendered; ``None``
+            when no candidate completed everywhere.
+        paths: For a combinatorial design, each candidate, rendered, and the
+            ``series_id`` of each of its paths -- its test groups' series joined in
+            order -- or ``None`` for a path a trial left incomplete.
     """
 
     experiment_id: str
@@ -1500,6 +1509,8 @@ class ExperimentRecord:
     matrix_id: str | None
     selections: tuple[tuple[int, str | None], ...] = ()
     out_of_sample: str | None = None
+    selected: str | None = None
+    paths: tuple[tuple[str, tuple[str | None, ...]], ...] = ()
 
     @property
     def experiment_record_id(self) -> str:
@@ -1520,6 +1531,10 @@ class ExperimentRecord:
             payload["selections"] = [[fold, label] for fold, label in self.selections]
         if self.out_of_sample is not None:
             payload["out_of_sample"] = self.out_of_sample
+        if self.selected is not None:
+            payload["selected"] = self.selected
+        if self.paths:
+            payload["paths"] = [[label, list(ids)] for label, ids in self.paths]
         return _digest_text(payload)
 
 
@@ -1572,6 +1587,13 @@ def run_experiment(
             report_trial(spec, fold, candidate) for fold, candidate in chosen if candidate
         )
         _run_missing(spec, registry, runner, ledger, executor, reports)
+    selected: str | None = None
+    paths: tuple[tuple[str, tuple[str | None, ...]], ...] = ()
+    if isinstance(design, CrossValidated):
+        selected = _best(spec, design.measure, _fold_scores(design.measure, ledger, trials))
+    elif isinstance(design, CombinatorialPurged):
+        paths = _paths(spec, design, ledger, trials)
+        selected = _best(spec, design.measure, _path_scores(design.measure, ledger, paths))
     records: list[TrialRecord] = []
     for trial in (*trials, *reports):
         held = ledger.find(trial.trial_id)
@@ -1588,7 +1610,9 @@ def run_experiment(
         counts=LedgerCount.of(records),
         matrix_id=matrix_id,
         selections=selections,
-        out_of_sample=_out_of_sample(ledger, reports) if reports else None,
+        out_of_sample=_out_of_sample(spec, ledger, reports) if reports else None,
+        selected=selected,
+        paths=paths,
     )
 
 
@@ -1655,41 +1679,132 @@ def _select(
     return chosen
 
 
-def _out_of_sample(ledger: TrialLedger, reports: Sequence[TrialSpec]) -> str | None:
+def _series_score(ledger: TrialLedger, trial: TrialSpec, measure: SelectionMeasure) -> float | None:
+    """A completed trial's score by ``measure``; ``None`` for any other, or one too short."""
+
+    held = ledger.find(trial.trial_id)
+    if held is None or held.outcome is not TrialOutcome.COMPLETED or held.series_id is None:
+        return None
+    _, returns = ledger.series(held.series_id)
+    return _score(returns, measure) if len(returns) >= 2 else None
+
+
+def _fold_scores(
+    measure: SelectionMeasure, ledger: TrialLedger, trials: Sequence[TrialSpec]
+) -> dict[str, list[float | None]]:
+    """Each candidate's score on every fold, rendered candidate to fold scores."""
+
+    scores: dict[str, list[float | None]] = {}
+    for trial in trials:
+        scores.setdefault(trial.label, []).append(_series_score(ledger, trial, measure))
+    return scores
+
+
+def _join(ledger: TrialLedger, series_ids: Sequence[str | None], extractor_id: str) -> str | None:
+    """Series joined at the instants where one ends and the next begins, filed; else ``None``."""
+
+    instants: list[float] = []
+    returns: list[float] = []
+    for series_id in series_ids:
+        if series_id is None:
+            return None
+        held_instants, held_returns = ledger.series(series_id)
+        if instants and held_instants[0] != instants[-1]:
+            return None
+        instants.extend(held_instants if not instants else held_instants[1:])
+        returns.extend(held_returns)
+    joined_id = _sha256(canonical_captured_series_key(instants, returns, None))
+    ledger.keep_series(
+        CaptureRecord(
+            extractor_id=extractor_id,
+            instants=tuple(instants),
+            returns=tuple(returns),
+            series_id=joined_id,
+            insolvent_at=None,
+            steps=0,
+            configuration_id=None,
+            trace_id=None,
+            traced=None,
+        )
+    )
+    return joined_id
+
+
+def _paths(
+    spec: ExperimentSpec,
+    design: CombinatorialPurged,
+    ledger: TrialLedger,
+    trials: Sequence[TrialSpec],
+) -> tuple[tuple[str, tuple[str | None, ...]], ...]:
+    """Each candidate's CPCV paths: its test groups' series joined in group order, filed."""
+
+    report = combinatorial(design, spec.dataset.instants)
+    by_place = {(trial.label, trial.fold, trial.phase): trial for trial in trials}
+    built: list[tuple[str, tuple[str | None, ...]]] = []
+    for candidate in spec.space.candidates:
+        label = _render(candidate)
+        joined: list[str | None] = []
+        for path in report.paths:
+            series_ids: list[str | None] = []
+            for group, split in enumerate(path):
+                held = ledger.find(by_place[(label, split, f"test:{group}")].trial_id)
+                complete = held is not None and held.outcome is TrialOutcome.COMPLETED
+                series_ids.append(held.series_id if complete and held is not None else None)
+            joined.append(_join(ledger, series_ids, spec.capture.extractor.extractor_id))
+        built.append((label, tuple(joined)))
+    return tuple(built)
+
+
+def _path_scores(
+    measure: SelectionMeasure,
+    ledger: TrialLedger,
+    paths: Sequence[tuple[str, tuple[str | None, ...]]],
+) -> dict[str, list[float | None]]:
+    """Each candidate's score on every path."""
+
+    scores: dict[str, list[float | None]] = {}
+    for label, ids in paths:
+        scores[label] = [
+            None if each is None else _score(ledger.series(each)[1], measure) for each in ids
+        ]
+    return scores
+
+
+def _best(
+    spec: ExperimentSpec, measure: SelectionMeasure, scores: Mapping[str, list[float | None]]
+) -> str | None:
+    """The candidate with the best mean score over every fold or path, ties to the first.
+
+    A candidate that did not complete everywhere is counted and never selected.
+    """
+
+    best: tuple[float, str] | None = None
+    for candidate in spec.space.candidates:
+        label = _render(candidate)
+        held = scores.get(label, [])
+        if not held or any(each is None for each in held):
+            continue
+        mean = math.fsum(each for each in held if each is not None) / len(held)
+        if best is None or mean > best[0]:
+            best = (mean, label)
+    return None if best is None else best[1]
+
+
+def _out_of_sample(
+    spec: ExperimentSpec, ledger: TrialLedger, reports: Sequence[TrialSpec]
+) -> str | None:
     """The selections' test-window series joined in fold order, filed; ``None`` if they do not join.
 
     They join when every fold's selection completed and each series starts at
     the instant the previous one ended: test windows that tile the sample.
     """
 
-    instants: list[float] = []
-    returns: list[float] = []
-    extractor_id = ""
+    series_ids: list[str | None] = []
     for report in reports:
-        record = ledger.find(report.trial_id)
-        if record is None or record.outcome is not TrialOutcome.COMPLETED:
-            return None
-        if record.series_id is None:
-            return None
-        held_instants, held_returns = ledger.series(record.series_id)
-        if instants and held_instants[0] != instants[-1]:
-            return None
-        instants.extend(held_instants if not instants else held_instants[1:])
-        returns.extend(held_returns)
-        extractor_id = record.extractor_id
-    joined = CaptureRecord(
-        extractor_id=extractor_id,
-        instants=tuple(instants),
-        returns=tuple(returns),
-        series_id=_sha256(canonical_captured_series_key(instants, returns, None)),
-        insolvent_at=None,
-        steps=0,
-        configuration_id=None,
-        trace_id=None,
-        traced=None,
-    )
-    ledger.keep_series(joined)
-    return joined.series_id
+        held = ledger.find(report.trial_id)
+        complete = held is not None and held.outcome is TrialOutcome.COMPLETED
+        series_ids.append(held.series_id if complete and held is not None else None)
+    return _join(ledger, series_ids, spec.capture.extractor.extractor_id)
 
 
 def _capture_of(ledger: TrialLedger, record: TrialRecord) -> CaptureRecord:

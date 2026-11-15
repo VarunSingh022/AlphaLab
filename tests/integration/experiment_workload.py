@@ -24,7 +24,7 @@ from alphalab.backtesting.capture import (
     ReturnExtractor,
 )
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE
-from alphalab.lifecycle.designs import WalkForward
+from alphalab.lifecycle.designs import CombinatorialPurged, PurgeSpec, WalkForward
 from alphalab.lifecycle.experiments import (
     ExperimentDefinition,
     ExperimentRecord,
@@ -267,3 +267,13 @@ def walk_forward_spec(refit: Refit = Refit.TRAIN) -> ExperimentSpec:
 
 #: The walk-forward experiment, where a spawned worker loads it.
 WALK_FORWARD_DEFINITION = ExperimentDefinition(walk_forward_spec(), REGISTRY)
+
+#: The reference experiment validated by CPCV: four groups, two tested by each of
+#: six splits, a three-instant warm-up, where a spawned worker loads it.
+CPCV_DEFINITION = ExperimentDefinition(
+    replace(
+        spec(),
+        validation=CombinatorialPurged(4, 2, 3, SelectionMeasure.MEAN, PurgeSpec(1, 0.0), None),
+    ),
+    REGISTRY,
+)
