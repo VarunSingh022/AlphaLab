@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `f82480c` |
+| Remote head | `0d3c98c` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | Push M4's close and read its hosted CI; update Draft PR #22; then M5 (WS-24, WS-06): an ADR for validation designs over backtests, before its code. |
+| Next | M4's close (0d3c98c) on hosted CI; then M5 (WS-24, WS-06) under ADR-0073: the designs, walk-forward over backtests with its warm-up, CV and CPCV, the ledger's statistics, the promotion method, the leak mutants and S-13. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -103,6 +103,8 @@ Never:
 | `98174f1` | CodeQL | 43701843009 | success |
 | `6267194` | Continuous Integration | 43704312816 | success: all six quality-gate cells; rerun_trial in a fresh process, zero identifier draws, the trial-timed limit |
 | `6267194` | CodeQL | 43704312808 | success |
+| `f82480c` | Continuous Integration | 43707197973 | success: all six quality-gate cells; reusable workers under both lifetimes, example 80 in the installed smoke test with the network refused |
+| `f82480c` | CodeQL | 43707197928 | success |
 
 ## Continuation log
 
@@ -154,6 +156,8 @@ Never:
 - **2026-11-15** The consumers (98174f1) passed hosted CI on all six cells: GAP-05 and GAP-31 closed. rerun_trial, zero identifier draws and the trial-timed limit (6267194) passed the full gate and were pushed. Spawned workers now serve many trials (TD-25): the executor's own cost is 1.8 percent of the trials', inside WS-05's 5 percent.
 - **2026-11-15** 6267194 (rerun_trial, zero draws, the trial-timed limit) passed hosted CI on all six cells. a2c1616 (spawned workers serve many trials, TD-25), f1ea0be (example 80 and docs/EXPERIMENTS.md) and f82480c (the executor benchmark by the stabilized method, the gate having caught two benchmark guards on a2c1616) passed the full gate at f82480c and were pushed. M4's mutation series (EX01 to EX39) runs on the final tree.
 - **2026-11-15** M4's exit gate met locally on the final tree: 48 trials counted with their failures and insolvencies; spawned and cluster runs equal the sequential record for record; the spy-on-import refusal; rerun_trial reproduces a record in a fresh interpreter; the executor's own cost 2.1 percent. Mutation series EX caught 40 of 40 on the final tree, after an invalid first run (TD-24) and two tests added for EX05 and the yield order. GAP-01 closed.
+- **2026-11-15** f82480c (reusable workers, example 80, the executor benchmark) passed hosted CI on all six cells. M4's close (0d3c98c: the mutation series EX, 40 of 40 caught on the final tree, and the tests it asked for) passed the full gate and was pushed; Draft PR #22 updated.
+- **2026-11-15** ADR-0073 accepted (TD-26): validation over backtests -- designs in the specification, research's splitters (CPCV among them), a trial per candidate, fold and phase over a window the ledger restricts, a warm-up never scored, selections recorded, the ledger's statistics and selection-aware promotion evidence. M5's entry conditions are M2 and M4, M4's close on hosted CI.
 
 ## Milestones
 
@@ -470,6 +474,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0072-experiments-and-the-trial-ledger.md (settled at implementation, points 8 and 14); SECURITY.md (BDY-029).
 - **Tests:** tests/integration/test_spawned_trials.py (every behaviour under both lifetimes; the starts counted); benchmarks/benchmark_experiments.py, judged by _stable_timing's method on a clock counting the workers' CPU, the collector running in both: one worker reused +2.1 percent (ok; 1.8 on single runs), a fresh interpreter per trial +73 to +80, four workers +20 to +28; the no-executor control +10.1.
 
+### TD-26: ADR-0073 accepted: validation over backtests, M5's entry condition (WS-24, 2026-11-15)
+
+- **Problem:** GAP-02: walk-forward, cross-validation and CPCV run on series, not on strategies, and ADR-0072's experiment has one design, the full sample. The plan (K.4, WS-24, N2, S-13) asks for designs in the specification, a declared warm-up never scored, fold-restricted runs, selection recorded as trials, CPCV paths, the ledger's statistics and a promotion method that leaves every evidence_id unchanged; it assigns the ADR no number.
+- **Alternatives:** Designs as a separate study object beside the experiment, or inside ExperimentSpec. Selection by the caller, or by the ledger as a recorded fact. CPCV's splits in lifecycle, or in research beside the other splitters. A trial's window passed to the runner to restrict, or the ledger restricting the run as it holds back a lockbox.
+- **Decision:** ExperimentSpec.validation takes FullSample, WalkForward, CrossValidated or CombinatorialPurged, every choice stated. Folds are research's splitters' over the dataset's instants, a new combinatorial_purged_splits among them. A trial is a candidate, a fold and a phase (SEARCH, SELECT, REPORT, VALIDATE, TEST) over a window the ledger restricts its run to, the warm-up run and never scored. The ledger selects and records the selection; run_experiment runs what a design names, then what a selection names. ExperimentRecord gains the selections, the out-of-sample series and the paths, written only when present. trial_matrix_of and assess_experiment read the ledger; ValidationMethod gains EXPERIMENT, and EXPERIMENT evidence must state its family count.
+- **Rationale:** A design is what a trial's result turns on, so it belongs where the experiment's identity covers it. A selection the caller makes is the leak the ledger exists to close. The split mathematics has one authority. Restricting the run in the ledger keeps a runner from seeing data a window may not.
+- **Compatibility:** Additive. A full-sample experiment's records and pinned identities are ADR-0072's; the new record fields are written only when present; the ValidationMethod member is appended.
+- **Recorded in:** docs/ADR/0073-validation-over-backtests.md.
+- **Tests:** M5's: the leak mutants (purge boundary, embargo off, warm-up scored, lockbox reused) and S-13.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -510,7 +524,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-21 | Platform, CI and test infrastructure | M0, M11 | In progress |
 | WS-22 | Live venue controls (FUT-044) | M13 | Not started |
 | WS-23 | Security and trust boundaries | M0, M4 | In progress |
-| WS-24 | Validation over actual backtests | M5 | Not started |
+| WS-24 | Validation over actual backtests | M5 | In progress |
 | WS-25 | Factor and feature research | M6, M11 | Not started |
 | WS-26 | Per-venue execution (FUT-045) | M8 | Not started |
 | WS-27 | FX and multi-currency correctness | M10 | Not started |
@@ -613,9 +627,9 @@ Evidence:
 - [Hosted CI passed] M4: rerun_trial: a record of every outcome reproduced in a fresh process (GAP-01's acceptance, WS-05 item 14)
 - [Hosted CI passed] M4: An experiment draws no identifier from the scope around it, under every executor (ADR-0029 D6); a candidate not of the configuration type refused (R54-3)
 - [Hosted CI passed] M4: A time limit times the trial from the worker's load, never its start (TD-24, found by M4's first mutation run)
-- [Pushed] M4: Spawned workers serve many trials (trials_per_worker); the executor's own cost 2.1 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)
-- [Pushed] M4: Example 80, a ledgered sweep (in the installed smoke test, the network refused), and docs/EXPERIMENTS.md, the experiments guide (WS-05 item 17)
-- [Local validation passed] M4: Mutation series EX (40): the ledger, its executors, the one registry, the cluster, rerun_trial, identifiers drawn from no caller, the consumers -- 40 of 40 caught on the final tree
+- [Hosted CI passed] M4: Spawned workers serve many trials (trials_per_worker); the executor's own cost 2.1 percent of the trials', inside WS-05's 5 percent (benchmarks/benchmark_experiments.py, TD-25)
+- [Hosted CI passed] M4: Example 80, a ledgered sweep (in the installed smoke test, the network refused), and docs/EXPERIMENTS.md, the experiments guide (WS-05 item 17)
+- [Pushed] M4: Mutation series EX (40): the ledger, its executors, the one registry, the cluster, rerun_trial, identifiers drawn from no caller, the consumers -- 40 of 40 caught on the final tree
 
 ### WS-06: Statistical research functions
 
@@ -680,6 +694,10 @@ Evidence:
 
 - alphalab/marketdata/transport.py: _require_http refuses every other scheme and a URL with no host before anything is opened; _HttpRedirectsOnly refuses a redirect to any other scheme before urllib's own rules (which follow ftp://). tests/unit/marketdata/test_http_transport.py (15 tests against a loopback provider; 11 fail on the parent): seven refused URL forms with no opener used, a hostless URL, a local file never returned, http with its query, a followed http redirect, refused ftp/data/file redirects, and an https request carrying tls_context(). Certificate: source digest re-made; no evidence moved.
 - Hosted CI passed on 7574b87 (CI run 42764459914, six cells; CodeQL 42764459942).
+
+### WS-24: Validation over actual backtests
+
+- [Implemented locally] M5: ADR-0073 accepted (TD-26): validation over backtests, M5's entry condition
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
@@ -781,3 +799,4 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | ADR-0069 | RL and DL episode driver (N24) | WS-16 | Before M12 | Not drafted in the repository |
 | ADR-0070 | Depth protocol and microstructure (reopens BDY-003; ns time stays 5.0) | WS-17 | After M13 | Not drafted in the repository |
 | ADR-0071 | Release integrity and guarded publication | WS-29 | G0 | Not drafted in the repository |
+| ADR-0073 | Validation over backtests: designs, folds, a declared warm-up and selection-aware evidence | WS-24 | Before M5 | Accepted (2026-11-15) |
