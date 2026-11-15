@@ -359,6 +359,54 @@ entry below says otherwise.
   retention policy that keeps a few dozen entries of every log, equals PBO over
   their full histories exactly (`tests/integration/test_selection_over_captures.py`).
 
+* **Historical universes, as they were known** [plan WS-13, N23, GAP-43,
+  ADR-0059].
+  * **Dated twice.** `alphalab.instrument.membership` adds `MembershipChange`
+    (`ADDITION`, `REMOVAL` or `DELISTING`), dated when it takes effect and
+    when it was announced, at or before. A change announced after it took
+    effect is refused.
+  * **A history that could have happened.** `HistoricalUniverse` refuses an
+    asset added while a member, removed or delisted while not one, or changed
+    twice at one instant. `members(at, as_of=...)` reads only the changes
+    announced by `as_of`.
+  * **In the registry.** `InstrumentRegistry.universes` carries them, declared
+    with `register_universe`, which refuses a member the registry does not
+    hold. `InstrumentRegistrySnapshot` gains `universes`, written only when
+    one is carried, so a registry without a universe snapshots and digests byte
+    for byte as v4.2.1 wrote it.
+  * **What a strategy reads.** `context.universe.members(universe, at)` reads
+    as known at the strategy's own instant, through `UniverseView.members` and
+    `UniverseProtocol.members`, so a change is never seen before its
+    announcement. A registry without the named universe refuses the question;
+    `NoUniverse` answers none. A class written to `UniverseProtocol` adds
+    `members`, as it added `halted` and `price_band` in 4.2.0.
+  * **The survivorship review.** `research.bias.membership_review` lists each
+    fill made outside membership as it was known: `BEFORE_ANNOUNCEMENT` when
+    the asset's addition was announced only later, `NOT_A_MEMBER` otherwise. It
+    scores nothing (RES-001).
+
+  GR-5 holds (`tests/integration/test_survivorship_is_caught.py`). A
+  point-in-time strategy's review is clean. A control holding today's survivors
+  is named by its trade in the winner before its addition was announced. Its
+  advantage, 92.4 on 1,000,000, is exactly the loser's fall it missed and the
+  winner's rise it caught.
+
+* **Reference-data packs** [plan G.1, N10, ADR-0059]. `alphalab.data.packs`
+  holds `ReferencePack`:
+  * reference data with its evidence: a `PackSource` (publisher and
+    document), when it was taken, the range it covers, a licence note, typed
+    entries, and a content digest under `REFERENCE_PACK_SCHEME`;
+  * it refuses entries that do not match the digest, an entry of an unknown
+    type or shape, an entry outside its range or announced after it was taken,
+    and a universe it does not hold. A missing entry is refused, never assumed;
+  * `universe_from_pack` reads a pack's membership into a `HistoricalUniverse`
+    that keeps the pack's coverage and knowledge, so a question outside them is
+    refused in a run as well;
+  * a run cites `ReferencePack.citation` beside its record.
+
+  AlphaLab still ships no data (BDY-013). The loader and the distributions are
+  M10's.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

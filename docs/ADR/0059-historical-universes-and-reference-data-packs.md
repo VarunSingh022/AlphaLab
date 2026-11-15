@@ -114,6 +114,43 @@ A pack is evidence, not truth. A run that used one cites its `pack_id`, version
 and digest beside its record, as ADR-0053's provenance does for a schedule. It
 is never assumed authentic because its digest matches.
 
+# Settled at implementation (2026-11-15)
+
+Implementing this record settled five points. None moves an identity made
+before, and each is held by a test.
+
+1. **A pack's format is data's; what an entry means is its domain's.** The data
+   package may reach nothing on the execution path: its only outward edges are
+   `common` and `options` (`tests/regression/test_import_graph_stays_acyclic.py`).
+   So `data.packs` holds the format and the checks that need nothing but the
+   pack: entries as records tagged with their type, held to that type's shape;
+   the digest over their canonical JSON; the range; the announcement horizon;
+   and the refusal of a universe the pack does not hold.
+   `instrument.membership.universe_from_pack` types the entries as
+   `MembershipChange` values, and so refuses a history that could not have
+   happened when the pack is read.
+2. **A universe from a pack keeps the pack's bounds.** `HistoricalUniverse`
+   takes an optional `coverage` and `known_until`, and refuses a query outside
+   either. A universe read from a pack carries the pack's `[valid_from,
+   valid_to)` and `as_of`, so section 4's refusals hold inside a run, through
+   the registry, and not only on the pack. A universe the researcher writes is
+   unbounded unless they bound it.
+3. **What a view without a registry answers.** `UniverseView.members` and
+   `NoUniverse.members` answer no members when the run has no registry, as
+   every other universe answer does, and `configured` says why. A registry
+   without the named universe refuses, as section 2 says.
+4. **Every member is an instrument.** `register_universe` refuses a history
+   naming an asset the registry does not hold, as `declare_trading_controls`
+   refuses a halt of an unknown instrument. A delisted company is registered
+   like any other, so a run can be held to it.
+5. **The review's two kinds, and their order.** A change takes effect no
+   earlier than it is announced, so membership at an instant was always known
+   by then. A fill outside membership is `BEFORE_ANNOUNCEMENT` when the asset's
+   next addition was announced after it, and `NOT_A_MEMBER` otherwise, a sale
+   after a removal included. GR-5 measures the bias exactly: the control's
+   advantage is the loser's fall it missed plus the winner's rise it caught
+   (`tests/integration/test_survivorship_is_caught.py`).
+
 # Departures from the plan's text, and why
 
 - **The query is `members(universe, at)` on the universe view, with `as_of`
@@ -121,6 +158,10 @@ is never assumed authentic because its digest matches.
   carry several universes, an index and its sector sub-indices, so the
   universe is named. `as_of` is not the strategy's to choose, or it could
   choose the future.
+- **A pack's entries are typed where their meaning lives.** Section 4 lists
+  the `MembershipChange` as a pack's first entry type. The pack holds the
+  entry tagged with that type, and `instrument.membership` reads it into one,
+  because the data package may not import the instrument package.
 - **Delisting ends membership; it does not yet settle a position.** A
   `DELISTING` change ends an asset's membership. Cashing out a position held
   through a delisting is execution's, as a scheduled settlement is, and research
@@ -133,8 +174,9 @@ is never assumed authentic because its digest matches.
   answers exactly as before, and `UniverseView`'s existing answers are
   unchanged.
 - New names: `instrument.membership` (`MembershipChange`, `MembershipKind`,
-  `HistoricalUniverse`), `UniverseView.members`, `research.bias.membership_review`,
-  `data.packs.ReferencePack`.
+  `HistoricalUniverse`, `universe_from_pack`), `register_universe`,
+  `UniverseView.members` and `UniverseProtocol.members`,
+  `research.bias.membership_review`, and `data.packs.ReferencePack`.
 - No `result_id`, `configuration_id`, digest or persisted format moves for any
   run, registry or snapshot made before.
 

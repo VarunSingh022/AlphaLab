@@ -87,6 +87,7 @@ from alphalab.instrument.classification import (
 from alphalab.instrument.controls import TradingControls
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
 from alphalab.instrument.margin import MarginModel, OptionPricing, ScenarioMargin
+from alphalab.instrument.membership import HistoricalUniverse
 from alphalab.instrument.record import DatedAlias, InstrumentRecord, normalize_sector_label
 from alphalab.instrument.terms import OptionTerms
 from alphalab.options.enums import ExerciseStyle
@@ -108,6 +109,7 @@ __all__ = [
     "register_dated_alias",
     "register_instrument",
     "register_instruments",
+    "register_universe",
     "sector_as_of",
 ]
 
@@ -171,6 +173,10 @@ class InstrumentRegistry:
             what the execution path reads after every market step, so a registry
             declaring no recall costs that path nothing. An index, derived like
             ``margined``.
+        universes: universe name -> its dated membership, a
+            :class:`~alphalab.instrument.membership.HistoricalUniverse` (v4.3,
+            ADR-0059). Declared with :func:`register_universe`. A registry
+            holding none snapshots and digests exactly as before.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
@@ -190,6 +196,7 @@ class InstrumentRegistry:
     margin_model: MarginModel | None = None
     controls: TradingControls | None = None
     recallable: PersistentMap[str, None] | None = None
+    universes: PersistentMap[str, HistoricalUniverse] = field(default_factory=PersistentMap)
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -205,6 +212,8 @@ class InstrumentRegistry:
             object.__setattr__(self, "dated", PersistentMap(self.dated))
         if not isinstance(self.dimensions, PersistentMap):
             object.__setattr__(self, "dimensions", PersistentMap(self.dimensions))
+        if not isinstance(self.universes, PersistentMap):
+            object.__setattr__(self, "universes", PersistentMap(self.universes))
         if self.members is None:
             # Built once, when a registry is declared from mappings; every write
             # below passes the index on, kept true, so this never runs again.
@@ -962,3 +971,37 @@ def declare_trading_controls(
                     f"lists on ({', '.join(sorted(venues))})."
                 )
     return replace(registry, controls=controls)
+
+
+def register_universe(
+    registry: InstrumentRegistry, universe: HistoricalUniverse
+) -> InstrumentRegistry:
+    """The registry carrying ``universe``'s dated membership (v4.3, ADR-0059).
+
+    Every asset the history names must be an instrument the registry holds: a
+    member is an instrument, and one the registry has never heard of is more
+    likely a mistake than a constituent. A delisted company is registered like
+    any other, so a run can be held to it.
+
+    Raises:
+        InstrumentRegistrationError: If ``universe`` is not a
+            :class:`~alphalab.instrument.membership.HistoricalUniverse`, the
+            registry already carries a universe of its name, or the history names
+            an instrument the registry does not hold.
+    """
+
+    if not isinstance(universe, HistoricalUniverse):
+        raise InstrumentRegistrationError(
+            f"A universe is registered as a HistoricalUniverse, got {universe!r}."
+        )
+    if universe.name in registry.universes:
+        raise InstrumentRegistrationError(
+            f"The registry already carries the universe {universe.name!r}: one name, one history."
+        )
+    unknown = sorted(universe.assets - set(registry.instruments))
+    if unknown:
+        raise InstrumentRegistrationError(
+            f"The universe {universe.name!r} names {', '.join(unknown)}, which the registry does "
+            "not hold. Register every member, the delisted included, first."
+        )
+    return replace(registry, universes=registry.universes.set(universe.name, universe))

@@ -2321,13 +2321,18 @@ Replay", none of which was true).
 | `analytics` | `common`, `core` |
 | `portfolio` | `common`, `conventions`, `core`, `persistence` |
 | `market` | `common`, `data`, `instrument`, `marketdata` |
-| `research` | `alt_data`, `common`, `factor_library` |
+| `research` | `alt_data`, `common`, `core`, `factor_library`, `instrument` |
 | `factor_library` | `alt_data`, `analytics`, `common`, `data`, `market` |
 | `portfolio_optimizer` | `analytics`, `common`, `conventions` |
 
 Must not depend on: a leaf (`common`, `conventions`, `alt_data`, `strategy`)
 on anything but `common`; research on the execution path or the lifecycle;
 anything on `lifecycle`, which composes the rest and is imported by nothing.
+
+`research` reads `core` and `instrument` directly since v4.3: the survivorship
+review reads a run's fills against a universe's dated membership (ADR-0059). Both
+were already within its reach through `factor_library`, so what it reaches is
+unchanged.
 
 ---
 

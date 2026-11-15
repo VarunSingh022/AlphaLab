@@ -431,6 +431,9 @@ def test_the_pipeline_overwrites_whatever_the_caller_supplied() -> None:
         def reopening(self, asset_id: str) -> Any:
             return None
 
+        def members(self, universe: str, at: float) -> frozenset[str]:
+            return frozenset({"fabricated"})
+
         def instrument(self, asset_id: str) -> Any:
             return None
 

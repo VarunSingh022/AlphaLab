@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `553b1501e2bb5745fa5caa90a3fe6bc71debfb2a` |
+| Remote head | `0649893ac6b7b7e2794cdeb3d20fdaddb30f6325` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M3: WS-13's dated membership, the survivorship review and the reference-pack format, then GR-5; the capture commit's hosted CI. |
+| Next | M3's hosted exit gate: the capture commit (0649893) and WS-13's membership commit on hosted CI; then the owner's review of PC-07 and M4. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -85,6 +85,8 @@ Never:
 | `1343f90` | CodeQL | 43608287961 | success |
 | `fe3c80b` | Continuous Integration | 43612751493 | success: all six quality-gate cells, carrying M2's mutation series and close |
 | `fe3c80b` | CodeQL | 43612751471 | success |
+| `553b150` | Continuous Integration | 43613647630 | success: all six quality-gate cells, carrying ADR-0055 (8df5fdd) and ADR-0059 |
+| `553b150` | CodeQL | 43613647545 | success |
 
 ## Continuation log
 
@@ -123,6 +125,7 @@ Never:
 - **2026-11-14** ADR-0059 accepted (TD-16): dated membership through the registry, a survivorship review, and the reference-pack format; FUT-050 records its limitation. M3's entry conditions (M0, ADR-0055, ADR-0059) are met.
 - **2026-11-14** M2's exit gate passed on hosted CI (fe3c80b, all six cells and CodeQL); GAP-10, GAP-33 and GAP-36 closed. GAP-09 stays open for M3's selection bridge. ADR-0055 and ADR-0059 pushed (553b150).
 - **2026-11-15** M3's capture (WS-04) and selection bridge (WS-06) implemented and locally validated: keep_equity, one private step loop, run_captured with its extractor and trace, and assess_captures, whose 16-variant PBO equals full history's exactly. TD-17 settles ADR-0055 at implementation: the trace starts from the configuration kept whole, after testing showed the run's configuration_id moves with retention. PC-07 records the trace's measured cost, 12.6 to 14.4 percent against the plan's 10.
+- **2026-11-15** Capture commit 0649893 passed the full local gate and was pushed. WS-13's M3 part implemented and locally validated: dated membership through the registry and the strategy's context, membership_review, and ReferencePack; GR-5 holds exactly. TD-18 settles ADR-0059 at implementation: a pack's format in data and its meaning in instrument, because the data package may not reach the execution path.
 
 ## Milestones
 
@@ -359,6 +362,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0055-streaming-research-capture-and-the-identity-of-an-economic-history.md (Settled at implementation); plan change PC-07; ledger LIM-013.
 - **Tests:** tests/integration/test_streaming_capture.py (20), tests/unit/backtesting/test_capture_types.py (38), tests/regression/test_capture_identities_are_pinned.py, tests/regression/test_retention_keep_equity.py (15), tests/integration/test_selection_over_captures.py (9).
 
+### TD-18: ADR-0059 at implementation: a pack's format in data, its meaning in instrument; bounded universes; what a view without a registry answers (WS-13, 2026-11-15)
+
+- **Problem:** ADR-0059 put typed MembershipChange entries in data.packs, but the data package may reach nothing on the execution path: tests/regression/test_import_graph_stays_acyclic.py pins its outward edges to common and options. And a universe built from a pack would lose the pack's range and knowledge, so its refusals would not hold inside a run.
+- **Alternatives:** The pack's types: (a) widen the data package's edges to instrument and persistence; (b) hold entries as records tagged with their type in data, typed by the instrument package; (c) move packs out of data. The pack's bounds: (i) checked on the pack only; (ii) carried by the universe built from it.
+- **Decision:** (b) and (ii). data.packs holds the format and the checks that need only the pack -- tagged records held to their type's shape, the digest over canonical JSON, the range, the announcement horizon, the missing universe. instrument.membership.universe_from_pack reads the entries into a HistoricalUniverse that takes optional coverage and known_until and refuses a query outside either. UniverseView.members and NoUniverse.members answer no members without a registry, as every universe answer does; a registry without the named universe refuses. register_universe refuses a member the registry does not hold.
+- **Rationale:** The boundary that keeps the package graph acyclic is a stated rule, not a convenience. Meaning belongs to the domain that has it. A refusal that held only on the pack would be lost the moment the pack's universe entered the registry.
+- **Compatibility:** Additive. A registry without universes snapshots and digests byte for byte as v4.2.1 wrote it (InstrumentRegistrySnapshot.universes is written only when one is carried); the frozen fixtures and pinned registry digests are unchanged.
+- **Recorded in:** docs/ADR/0059-historical-universes-and-reference-data-packs.md (Settled at implementation).
+- **Tests:** tests/unit/instrument/test_membership.py (21), tests/unit/data/test_reference_packs.py (17), tests/unit/research/test_membership_review.py (8), tests/integration/test_survivorship_is_caught.py (4).
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -481,11 +494,11 @@ Evidence:
 
 ### WS-04: Streaming research-result capture
 
-- [Pushed] M3: ADR-0055 accepted (TD-15), and settled at implementation (TD-17)
-- [Local validation passed] M3: RetentionPolicy.keep_equity: the equity curve kept whole under a results bound, recorded only when true
-- [Local validation passed] M3: One private step loop for BacktestEngine.run and run_captured; the schedule cursor's one loop, observable
-- [Local validation passed] M3: run_captured: the extractor (grid, costs, cash flows, currency, insolvency), the record, the trace from the configuration kept whole
-- [Local validation passed] M3: benchmarks/benchmark_capture.py at four trade densities (PC-07, LIM-013)
+- [Hosted CI passed] M3: ADR-0055 accepted (TD-15), and settled at implementation (TD-17)
+- [Pushed] M3: RetentionPolicy.keep_equity: the equity curve kept whole under a results bound, recorded only when true
+- [Pushed] M3: One private step loop for BacktestEngine.run and run_captured; the schedule cursor's one loop, observable
+- [Pushed] M3: run_captured: the extractor (grid, costs, cash flows, currency, insolvency), the record, the trace from the configuration kept whole
+- [Pushed] M3: benchmarks/benchmark_capture.py at four trade densities (PC-07, LIM-013)
 
 ### WS-06: Statistical research functions
 
@@ -494,7 +507,7 @@ Evidence:
 - [Hosted CI passed] M2: White's Reality Check and Hansen's SPA
 - [Hosted CI passed] M2: PBO by CSCV, with an exact-enumeration oracle
 - [Hosted CI passed] M2: MinTRL and the autocorrelation-adjusted PSR
-- [Local validation passed] M3: The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history
+- [Pushed] M3: The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history
 
 Evidence:
 
@@ -503,6 +516,10 @@ Evidence:
 ### WS-13: Global conventions, reference data and historical universes
 
 - [Hosted CI passed] M2: Global day counts (N21)
+- [Hosted CI passed] M3: ADR-0059 accepted (TD-16), and settled at implementation (TD-18)
+- [Local validation passed] M3: Dated membership: MembershipChange, HistoricalUniverse (coverage and knowledge bounds), carried by the registry and read through UniverseView.members
+- [Local validation passed] M3: research.bias.membership_review, and GR-5: the point-in-time run clean, the survivorship control named, the bias measured exactly
+- [Local validation passed] M3: data.packs.ReferencePack: source, coverage, licence, typed entries, content digest; universe_from_pack
 
 Evidence:
 
@@ -601,7 +618,7 @@ Evidence:
 | GAP-40 | (candidate) no history accessor | — | Discarded | — | — |
 | GAP-41 | (candidate) no fill or order hooks | — | Discarded | — | — |
 | GAP-42 | (candidate) no multi-currency trading | — | Discarded | — | — |
-| GAP-43 | No PIT universe membership | H/P1 | Open | WS-13 | M3 |
+| GAP-43 | No PIT universe membership | H/P1 | Delivered locally at M3 (WS-13, ADR-0059, TD-18): dated membership carried by the registry and read as known through the strategy's context, the survivorship review, and the reference-pack format; GR-5 holds exactly. Closes with M3's hosted exit gate. | WS-13 | M3 |
 | GAP-44 | Plan + queue mutually exclusive | M/P2 | Open | WS-11 | M8 |
 | GAP-45 | Child fills don't reach `on_fill` | L-M/P2 | Open | WS-10, WS-11 | M8 |
 | GAP-46 | RL environment invents limits | M/P2 | Open | WS-16 | M12 |

@@ -116,6 +116,15 @@ from alphalab.data.loader import create_dataset
 from alphalab.data.manager import DataManager, validate_dataset_ingestion
 from alphalab.data.metadata import DatasetMetadata
 from alphalab.data.normalization import normalize_prices
+from alphalab.data.packs import (
+    MEMBERSHIP_CHANGE,
+    MEMBERSHIP_KINDS,
+    REFERENCE_PACK_SCHEME,
+    PackCitation,
+    PackSource,
+    ReferencePack,
+    reference_pack_digest,
+)
 from alphalab.data.parser import parse_raw_rows
 from alphalab.data.protocol import DataExtractorProtocol
 from alphalab.data.provenance import (
@@ -189,6 +198,9 @@ __all__ = [
     "CONTINUOUS_SESSION",
     "DATASET_KEY_SCHEME",
     "DELIMITER_CANDIDATES",
+    "MEMBERSHIP_CHANGE",
+    "MEMBERSHIP_KINDS",
+    "REFERENCE_PACK_SCHEME",
     "REFUSE_EVERYTHING",
     "AdjustmentOutcome",
     "AdjustmentRecord",
@@ -248,6 +260,8 @@ __all__ = [
     "OrderBook",
     "OrderBookLevel",
     "OrderingPolicy",
+    "PackCitation",
+    "PackSource",
     "PriceBasis",
     "QualityReport",
     "QualityReportGenerated",
@@ -257,6 +271,7 @@ __all__ = [
     "RawSource",
     "RawTable",
     "RecordType",
+    "ReferencePack",
     "RowRejection",
     "SchemaDetection",
     "SessionWindow",
@@ -309,6 +324,7 @@ __all__ = [
     "raw_source_from_bytes",
     "raw_source_from_path",
     "read_delimited",
+    "reference_pack_digest",
     "remove_duplicates",
     "remove_invalid_ohlc",
     "resample_bars",

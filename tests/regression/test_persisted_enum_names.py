@@ -61,6 +61,8 @@ NAMED: dict[str, tuple[str, ...]] = {
     ),
     # v4.2.0 (ledger FUT-017): an instrument's margin terms, by their basis.
     "alphalab.instrument.margin.MarginBasis": ("VALUE_RATE", "PER_CONTRACT"),
+    # v4.3.0 (ADR-0059): a historical universe's changes, by their kind.
+    "alphalab.instrument.membership.MembershipKind": ("ADDITION", "REMOVAL", "DELISTING"),
     # v4.1.1 (ledger FUT-013), found by the v4.2.0 scanner, which reads
     # terms_from_primitives: an option's declared terms, by name.
     "alphalab.options.enums.ExerciseStyle": ("AMERICAN", "EUROPEAN", "BERMUDAN"),

@@ -35,7 +35,14 @@ apart.
 """
 
 from alphalab.research.adapter import ResearchAdapter
-from alphalab.research.bias import BiasReport, detect_bias
+from alphalab.research.bias import (
+    BiasReport,
+    MembershipFinding,
+    MembershipFindingKind,
+    MembershipReview,
+    detect_bias,
+    membership_review,
+)
 from alphalab.research.bootstrap import BootstrapReport, bootstrap_statistics
 from alphalab.research.capacity import CapacityReport, estimate_capacity
 from alphalab.research.cross_validation import WalkForwardReport, walk_forward_analysis
@@ -237,6 +244,9 @@ __all__ = [
     "ExcludedEvent",
     "FoldSelection",
     "InvalidResearchStateError",
+    "MembershipFinding",
+    "MembershipFindingKind",
+    "MembershipReview",
     "MinTRLResult",
     "MonteCarloReport",
     "MultipleTestingResult",
@@ -333,6 +343,7 @@ __all__ = [
     "generate_diagnostics",
     "initial_regime_state",
     "label_ends_from_horizon",
+    "membership_review",
     "minimum_track_record_length",
     "monte_carlo_orders",
     "monte_carlo_simulation",
