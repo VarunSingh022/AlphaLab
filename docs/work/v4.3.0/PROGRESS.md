@@ -41,14 +41,14 @@ Never:
 - Deleting Git history or force-pushing.
 - Disabling security controls or rulesets to bypass a failure.
 
-## Current state (2026-11-14)
+## Current state (2026-11-15)
 
 | | |
 | --- | --- |
-| Remote head | `08e2264545ff569c9936090c87bbc27adfadeb99` |
+| Remote head | `20ef953ff43ff60b25a32441fb311945986b5041` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M3's close on hosted CI; then ADR-0072 (the plan's 0054B), M4's entry condition, and M4 (WS-05 ledger and executors, WS-23 runner registry and worker isolation, WS-19). |
+| Next | 08e2264's (the trial ledger) and 20ef953's (SpawnExecutor) Continuous Integration; then M4's remaining part: the research assistant's candidates as an experiment's trials, the cloud sweep through the runner registry and the ledger's executors (GAP-05), one executor path over distributed and cluster_scheduler (GAP-31), the tracker linked by experiment_id (D-54-3), D-54-R3, M4's mutation series and its close. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -91,6 +91,11 @@ Never:
 | `0649893` | CodeQL | 43677456015 | success |
 | `acf4ce4` | Continuous Integration | 43678927629 | success: all six quality-gate cells; GR-5 and the pack's pinned digest held |
 | `acf4ce4` | CodeQL | 43678927717 | success |
+| `a7f867f` | Continuous Integration | 43697362374 | success: all six quality-gate cells, carrying M3's close (mutation series T and U, PC-07 approved) |
+| `a7f867f` | CodeQL | 43697362357 | success |
+| `60263cf` | Continuous Integration | 43697763583 | success: all six quality-gate cells, carrying ADR-0072 |
+| `60263cf` | CodeQL | 43697763585 | success |
+| `08e2264` | CodeQL | 43698744299 | success |
 
 ## Continuation log
 
@@ -135,6 +140,7 @@ Never:
 - **2026-11-15** ADR-0072 accepted (TD-19): experiments and the trial ledger, M4's entry condition, from the plan's K.3 and O; BDY-029 records the worker isolation boundary. M4's entry conditions (M1, M3, ADR-0072) are met once M3's close passes hosted CI.
 - **2026-11-15** M3's close (a7f867f) and ADR-0072 (60263cf) pushed. M4's first part implemented and locally validated: the trial ledger with its sequential executor, resume, nondeterminism refusal and lockbox; the 48-trial experiment counts every outcome exactly; the reference experiment's identities are pinned, identical under CPython 3.12, 3.13 and 3.14 (TD-20).
 - **2026-11-15** The trial ledger (08e2264) passed the full gate and was pushed. SpawnExecutor implemented and locally validated: a fresh interpreter per trial refusing the network before the researcher's code, spawned equal to sequential record for record, the spy-on-import refusal, interruptions recording nothing; SECURITY.md states BDY-029.
+- **2026-11-15** M3 closed on hosted CI: its close (a7f867f) passed all six cells and CodeQL, as did ADR-0072 (60263cf). SpawnExecutor (20ef953) passed the full gate (13,294 tests, build, twine, the installed distributions with the network refused) and was pushed.
 
 ## Milestones
 
@@ -144,7 +150,7 @@ Never:
 | M0 | Hosted CI passed | WS-01, WS-02, WS-23, WS-20, WS-29, WS-21 | v4.2.1 payloads resume to identical `result_id`s. DET-007 probes pass. `file://` refused. Certificate unchanged |
 | M1 | Hosted CI passed | WS-02 | S-11: cross-OS rerun REPRODUCED; a wrong schedule is refused at continuation; CR-53-1..9 |
 | M2 | Hosted CI passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
-| M3 | Local validation passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
+| M3 | Hosted CI passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | In progress | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Not started | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Not started | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
@@ -528,16 +534,16 @@ Evidence:
 - [Hosted CI passed] M3: One private step loop for BacktestEngine.run and run_captured; the schedule cursor's one loop, observable
 - [Hosted CI passed] M3: run_captured: the extractor (grid, costs, cash flows, currency, insolvency), the record, the trace from the configuration kept whole
 - [Hosted CI passed] M3: benchmarks/benchmark_capture.py at four trade densities (PC-07, LIM-013)
-- [Local validation passed] M3: The trace's writer made faster after PC-07's approval, output-identical (the pinned identities hold): series and trace 12.1 to 13.3 percent
-- [Local validation passed] M3: Mutation series T (16): the capture, its trace and series, keep_equity, the bridge -- 16 of 16 caught
+- [Hosted CI passed] M3: The trace's writer made faster after PC-07's approval, output-identical (the pinned identities hold): series and trace 12.1 to 13.3 percent
+- [Hosted CI passed] M3: Mutation series T (16): the capture, its trace and series, keep_equity, the bridge -- 16 of 16 caught
 
 ### WS-05: Experiment and trial ledger, executor, runner registry
 
-- [Local validation passed] M4: ADR-0072 accepted (TD-19): experiments and the trial ledger, the plan's 0054B
+- [Hosted CI passed] M4: ADR-0072 accepted (TD-19): experiments and the trial ledger, the plan's 0054B
 - [Pushed] M4: lifecycle.experiments: ExperimentSpec, TrialSpec, the five derived identities, TrialOutcome, TrialRecord, LedgerCount, ExperimentRecord
 - [Pushed] M4: RunnerRegistry and SequentialExecutor; inputs held to the specification; resume; nondeterminism refused; the lockbox read once
 - [Pushed] M4: The 48-trial experiment with failures and insolvency counted; the reference experiment's identities pinned across interpreters
-- [Local validation passed] M4: SpawnExecutor: a fresh interpreter per trial, the network refused before the researcher's code, records in submission order; spawned equals sequential record for record
+- [Pushed] M4: SpawnExecutor: a fresh interpreter per trial, the network refused before the researcher's code, records in submission order; spawned equals sequential record for record
 
 ### WS-06: Statistical research functions
 
@@ -559,7 +565,7 @@ Evidence:
 - [Hosted CI passed] M3: Dated membership: MembershipChange, HistoricalUniverse (coverage and knowledge bounds), carried by the registry and read through UniverseView.members
 - [Hosted CI passed] M3: research.bias.membership_review, and GR-5: the point-in-time run clean, the survivorship control named, the bias measured exactly
 - [Hosted CI passed] M3: data.packs.ReferencePack: source, coverage, licence, typed entries, content digest; universe_from_pack
-- [Local validation passed] M3: Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught
+- [Hosted CI passed] M3: Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught
 
 Evidence:
 
@@ -594,7 +600,7 @@ Evidence:
 ### WS-23: Security and trust boundaries
 
 - [Hosted CI passed] M0: SEC-002: HttpTransport opens http:// and https:// only, and follows a redirect only to one of them
-- [Local validation passed] M4: The spy-on-import refusal (N18), and BDY-029 stated in SECURITY.md and held by a test
+- [Pushed] M4: The spy-on-import refusal (N18), and BDY-029 stated in SECURITY.md and held by a test
 
 Evidence:
 

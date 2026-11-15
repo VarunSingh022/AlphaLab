@@ -668,7 +668,7 @@
       "deliverables": "Capture and trace identity; `keep_equity`; selection bridge; dated membership; pack format",
       "exit_gate": "16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5",
       "size": "M",
-      "status": "Local validation passed",
+      "status": "Hosted CI passed",
       "evidence": [
         "Exit gate, 16-variant PBO from captures = from full history: tests/integration/test_selection_over_captures.py. Sixteen variants are captured under RetentionPolicy(market_history=24, steps=10, audit_events=16, results=12). Their PBO equals their full histories' under both measures -- the same fraction, selections and logits, over 70 splits. Passed on hosted CI, all six cells, on 0649893 and acf4ce4.",
         "Exit gate, capture <= 10 %, as amended by PC-07 (approved by the owner, 2026-11-15): benchmarks/benchmark_capture.py at a trade on every record and on every second, fourth and eighth. The series costs 1.3 to 3.5 percent (limit 10); series and trace cost 12.1 to 13.3 percent (ceiling 15), where digest_run costs 76 to 105 percent. The figures are after output-identical changes to the trace's writer; 12.6 to 14.4 percent when PC-07 was proposed.",
@@ -679,7 +679,8 @@
         "Mutation series T (WS-04, WS-06), 16 of 16 caught on the first run, each by: T01 (keep_equity is ignored: the equity curve is trimmed with the results): test_retention_keep_equity::test_keep_equity_keeps_every_equity_point_and_bounds_everything_else; T02 (keep_equity is written into every snapshot, false included): test_provenance_end_to_end::test_the_run_and_its_provenance_are_the_pinned_ones_on_this_host; T03 (a stored keep_equity is read back as false): test_retention_keep_equity::test_a_kept_curve_round_trips_and_continues_where_it_stopped; T04 (keep_equity accepts any value): test_retention_keep_equity::test_keep_equity_is_a_boolean[1]; T05 (the trace starts from the run's own configuration, retention included): test_streaming_capture::test_the_trace_and_the_series_are_the_same_under_every_retention[bounded]; T06 (the trace leaves out the order events): test_streaming_capture::test_the_record_names_the_runs_configuration_and_counts_its_steps; T07 (entries retention dropped before they were read are traced as if present): test_streaming_capture::test_a_bound_smaller_than_one_operations_output_is_refused_not_traced_short; T08 (a return is taken over its end, not its start): test_selection_over_captures::test_pbo_from_sixteen_captures_is_pbo_from_their_full_histories[SelectionMeasure.MEAN]; T09 (every point is a grid instant, two at one instant included): test_streaming_capture::test_the_series_with_schedule_flows_is_still_analytics_value_for_value; T10 (a fixed grid instant reads the point before one exactly on it): test_streaming_capture::test_a_fixed_interval_on_the_records_own_instants_is_every_instant; T11 (GROSS adds back nothing): test_streaming_capture::test_gross_adds_back_exactly_the_commission_paid; T12 (EXCLUDED counts a withdrawal as cash coming in): test_streaming_capture::test_excluded_reads_deposits_withdrawals_and_flows_but_not_conversions; T13 (a truncated series does not say where it ended): test_streaming_capture::test_insolvency_ends_the_series_at_its_instant_under_truncate; T14 (the record's operation is not observed: its point is read a step late): test_streaming_capture::test_gross_places_a_child_fills_commission_in_the_next_point; T15 (the bridge compares captures under two extractors): test_selection_over_captures::test_captures_under_two_extractors_are_refused; T16 (the bridge's columns are not its labels' order): test_selection_over_captures::test_pbo_from_sixteen_captures_is_pbo_from_their_full_histories[SelectionMeasure.MEAN].",
         "Mutation series U (WS-13), 17 of 17 caught on the first run, each by: U01 (a change announced after it took effect is accepted): test_membership::test_a_change_announced_after_it_took_effect_is_refused; U02 (membership reads changes before they were announced): test_survivorship_is_caught::test_a_strategy_never_sees_a_change_before_it_is_announced; U03 (an asset is added while already a member): test_reference_packs::test_a_pack_whose_history_could_not_have_happened_is_refused_when_read; U04 (an asset changes membership twice at one instant): test_membership::test_a_history_that_could_not_have_happened_is_refused[changes3-twice at 5\\\\.0]; U05 (a bounded universe answers outside its coverage): test_reference_packs::test_a_universe_from_a_pack_carries_its_range_and_its_knowledge; U06 (a bounded universe answers as known after its horizon): test_reference_packs::test_a_universe_from_a_pack_carries_its_range_and_its_knowledge; U07 (a pack's universe loses the pack's bounds): test_reference_packs::test_a_universe_from_a_pack_carries_its_range_and_its_knowledge; U08 (a registry without universes writes an empty universes field): test_provenance_end_to_end::test_the_run_and_its_provenance_are_the_pinned_ones_on_this_host; U09 (a universe naming an unregistered asset is registered): test_membership::test_the_registry_carries_a_universe_whose_members_it_holds; U10 (a strategy reads membership as known at the instant it asks about): test_survivorship_is_caught::test_a_strategy_never_sees_a_change_before_it_is_announced; U11 (a missing universe is not refused): test_membership::test_a_strategy_reads_membership_as_known_at_its_own_instant; U12 (the review never names a trade before its announcement): test_survivorship_is_caught::test_the_survivorship_biased_control_is_named_by_its_trades; U13 (the review reports trades in members): test_survivorship_is_caught::test_the_point_in_time_run_trades_only_members_as_they_were_known; U14 (a pack's stated digest is not checked): test_reference_packs::test_a_pack_refuses_what_it_cannot_vouch_for[changed0-not the entries it states]; U15 (a pack's digest depends on its entries' order): test_reference_packs::test_the_digest_is_of_the_entries_canonical_text_whatever_their_order; U16 (a pack holds an entry announced after it was taken): test_reference_packs::test_a_pack_refuses_what_it_cannot_vouch_for[changed4-announced at 25.0, after it was taken]; U17 (a pack answers a missing universe as empty): test_reference_packs::test_a_missing_universe_is_refused_never_assumed_empty.",
         "Mutation baseline: 13,164 passed, 90 deselected (the tests that read a clock, and the certificate's source digest), docs/audit/scripts/mutation_v4_3.py over the working tree.",
-        "Hosted CI: 553b150 (ADR-0055 and ADR-0059), 0649893 (the capture) and acf4ce4 (the universes) each passed all six quality-gate cells -- Linux and macOS, CPython 3.12, 3.13 and 3.14 -- and CodeQL. Release Preflight is skipped by design and not counted."
+        "Hosted CI: 553b150 (ADR-0055 and ADR-0059), 0649893 (the capture) and acf4ce4 (the universes) each passed all six quality-gate cells -- Linux and macOS, CPython 3.12, 3.13 and 3.14 -- and CodeQL. Release Preflight is skipped by design and not counted.",
+        "M3's close (a7f867f: the mutation series, PC-07 approved, the register) passed hosted CI: Continuous Integration 43697362374, all six quality-gate cells; CodeQL 43697362357."
       ]
     },
     {
@@ -1055,12 +1056,12 @@
         {
           "milestone": "M3",
           "item": "The trace's writer made faster after PC-07's approval, output-identical (the pinned identities hold): series and trace 12.1 to 13.3 percent",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M3",
           "item": "Mutation series T (16): the capture, its trace and series, keep_equity, the bridge -- 16 of 16 caught",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -1076,7 +1077,7 @@
         {
           "milestone": "M4",
           "item": "ADR-0072 accepted (TD-19): experiments and the trial ledger, the plan's 0054B",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M4",
@@ -1096,7 +1097,7 @@
         {
           "milestone": "M4",
           "item": "SpawnExecutor: a fresh interpreter per trial, the network refused before the researcher's code, records in submission order; spawned equals sequential record for record",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": []
@@ -1245,7 +1246,7 @@
         {
           "milestone": "M3",
           "item": "Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": [
@@ -1392,7 +1393,7 @@
         {
           "milestone": "M4",
           "item": "The spy-on-import refusal (N18), and BDY-029 stated in SECURITY.md and held by a test",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": [
@@ -2304,8 +2305,8 @@
     ]
   },
   "state": {
-    "updated": "2026-11-14",
-    "remote_head": "08e2264545ff569c9936090c87bbc27adfadeb99",
+    "updated": "2026-11-15",
+    "remote_head": "20ef953ff43ff60b25a32441fb311945986b5041",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2541,10 +2542,40 @@
         "workflow": "CodeQL",
         "run": 43678927717,
         "result": "success"
+      },
+      {
+        "sha": "a7f867f",
+        "workflow": "Continuous Integration",
+        "run": 43697362374,
+        "result": "success: all six quality-gate cells, carrying M3's close (mutation series T and U, PC-07 approved)"
+      },
+      {
+        "sha": "a7f867f",
+        "workflow": "CodeQL",
+        "run": 43697362357,
+        "result": "success"
+      },
+      {
+        "sha": "60263cf",
+        "workflow": "Continuous Integration",
+        "run": 43697763583,
+        "result": "success: all six quality-gate cells, carrying ADR-0072"
+      },
+      {
+        "sha": "60263cf",
+        "workflow": "CodeQL",
+        "run": 43697763585,
+        "result": "success"
+      },
+      {
+        "sha": "08e2264",
+        "workflow": "CodeQL",
+        "run": 43698744299,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M3's close on hosted CI; then ADR-0072 (the plan's 0054B), M4's entry condition, and M4 (WS-05 ledger and executors, WS-23 runner registry and worker isolation, WS-19).",
+    "next": "08e2264's (the trial ledger) and 20ef953's (SpawnExecutor) Continuous Integration; then M4's remaining part: the research assistant's candidates as an experiment's trials, the cloud sweep through the runner registry and the ledger's executors (GAP-05), one executor path over distributed and cluster_scheduler (GAP-31), the tracker linked by experiment_id (D-54-3), D-54-R3, M4's mutation series and its close.",
     "open_questions": []
   },
   "log": [
@@ -2711,6 +2742,10 @@
     {
       "date": "2026-11-15",
       "entry": "The trial ledger (08e2264) passed the full gate and was pushed. SpawnExecutor implemented and locally validated: a fresh interpreter per trial refusing the network before the researcher's code, spawned equal to sequential record for record, the spy-on-import refusal, interruptions recording nothing; SECURITY.md states BDY-029."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "M3 closed on hosted CI: its close (a7f867f) passed all six cells and CodeQL, as did ADR-0072 (60263cf). SpawnExecutor (20ef953) passed the full gate (13,294 tests, build, twine, the installed distributions with the network refused) and was pushed."
     }
   ]
 }
