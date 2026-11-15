@@ -155,6 +155,33 @@ backtests in a ledger:
 A late revision changes no earlier decision, and the ledger counts every
 event-window variant.
 
+# Settled at implementation (2026-11-15)
+
+Building M5 settled these points, each held by a test
+(`tests/unit/lifecycle/test_validation_designs.py`,
+`tests/unit/research/test_combinatorial_cv.py`).
+
+1. **A dataset's identity carries its instants.** `DatasetIdentity` gains
+   `instants`, its records' distinct timestamps in order: what a design splits.
+   The digest already covers them, so they enter no identity, and a full-sample
+   experiment's `experiment_id` is unchanged.
+2. **The designs live in `lifecycle.designs`.** The module holds what a trial's
+   window is, apart from the ledger that runs it. The lockbox and the
+   full-sample design live there too, and `lifecycle.experiments` re-exports
+   them.
+3. **A window too near the sample's start takes its warm-up from itself.** A
+   blocked scheme's first block has nothing before it. A window short of its
+   warm-up runs its own first instants as warm-up and scores the rest. One
+   left with fewer than two instants to score, a return's minimum, is refused.
+4. **A CPCV split's groups are trials of their own.** A backtest over
+   non-contiguous groups would carry its positions across the gaps. So each
+   test group of each split is a trial: the fold is the split, and the phase
+   names the group (`test:3`). The trial's identity is ADR-0072's formula.
+5. **CPCV's split mathematics is research's.**
+   `research.combinatorial_purged_splits` derives the splits and their paths.
+   It requires a purge policy, as `CVMethod.PURGED` does, because the method's
+   name claims purging.
+
 # Compatibility
 
 - Additive.

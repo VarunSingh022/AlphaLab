@@ -512,6 +512,22 @@ entry below says otherwise.
     interpreter, a tracker run cites the experiment, and the lockbox is read
     once. `docs/EXPERIMENTS.md` is the guide.
 
+* **Validation designs** [plan WS-24, K.4, GAP-02, ADR-0073]. An experiment
+  states how its search is validated. `ExperimentSpec.validation` takes
+  `FullSample` (ADR-0072's), `WalkForward`, `CrossValidated` or
+  `CombinatorialPurged`, every choice stated -- sizes, the selection measure,
+  the `PurgeSpec`, a declared `warm_up` and the lockbox.
+  * **The folds are research's.** They come from `walk_forward_splits`,
+    `cross_validation_splits` and the new `combinatorial_purged_splits` (CPCV,
+    with its paths), over the dataset's instants before the lockbox.
+  * **A trial's window.** A `TrialSpec` carries a `TrialWindow`: what its
+    runner may fit on, what it is scored on, and where its run starts. The
+    declared warm-up before a scored window is run and never scored. A CPCV
+    split's test groups are trials of their own (`TEST`, the phase naming the
+    group).
+  * **Unchanged identities.** A full-sample experiment's identities are
+    ADR-0072's: the reference experiment's pins hold.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

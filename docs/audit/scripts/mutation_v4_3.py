@@ -995,8 +995,8 @@ V43_M4: tuple[Any, ...] = (
         "EX02",
         "a trial's seed ignores its candidate",
         _EXPERIMENTS,
-        "                trial_seed=_seed(self.seed, 0, SEARCH, _render(candidate)),\n",
-        '                trial_seed=_seed(self.seed, 0, SEARCH, ""),\n',
+        "                trial_seed=_seed(self.seed, fold, phase, _render(candidate)),\n",
+        '                trial_seed=_seed(self.seed, fold, phase, ""),\n',
     ),
     Mutation(
         "EX03",

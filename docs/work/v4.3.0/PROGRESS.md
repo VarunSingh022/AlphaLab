@@ -698,6 +698,7 @@ Evidence:
 ### WS-24: Validation over actual backtests
 
 - [Implemented locally] M5: ADR-0073 accepted (TD-26): validation over backtests, M5's entry condition
+- [Local validation passed] M5: Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 

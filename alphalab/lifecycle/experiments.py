@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import itertools
 import json
 import math
 import queue
@@ -90,7 +91,18 @@ from alphalab.common.registry import RunnerRegistry
 from alphalab.distributed.job import JobType
 from alphalab.experiment_tracking.tracker import ExperimentRun, ExperimentTracker
 from alphalab.instrument.snapshot import registry_digest
-from alphalab.lifecycle.exceptions import LifecycleInputError
+from alphalab.lifecycle.designs import (
+    DESIGNS,
+    SEARCH,
+    ExperimentError,
+    FullSample,
+    Lockbox,
+    TrialWindow,
+    ValidationDesign,
+    _require_text,
+    design_key,
+    windows,
+)
 from alphalab.lifecycle.reproducibility import digest_run
 from alphalab.lifecycle.selection import trial_matrix_from_captures
 from alphalab.model_registry.evidence import EvidenceStore
@@ -156,18 +168,12 @@ TRIAL_MATRIX_SCHEME: Final = "alphalab.trial_matrix.v1"
 #: The scheme an experiment record's canonical text is written under.
 EXPERIMENT_RECORD_SCHEME: Final = "alphalab.experiment_record.v1"
 
-#: The phase of a trial in a search over the whole sample.
-SEARCH: Final = "search"
 
 #: What a trial's runner draws identifiers under: the trial's own formula, in a
 #: phase no trial has, so its stream is the trial's and not its run's.
 _RUNNER_PHASE: Final = "runner"
 
 _HEX = frozenset("0123456789abcdef")
-
-
-class ExperimentError(LifecycleInputError):
-    """An experiment refused: a specification that is not one, or a ledger it cannot keep."""
 
 
 class NondeterministicTrialError(ExperimentError):
@@ -199,76 +205,43 @@ def _require_hex(value: object, where: str) -> str:
     return value
 
 
-def _require_text(value: object, where: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ExperimentError(f"{where} must be stated, got {value!r}.")
-    return value
-
-
 # --- what an experiment states ------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class DatasetIdentity:
-    """Which data an experiment's trials run over: its id, and the digest of its records.
+    """Which data an experiment's trials run over: its id, its records' digest, its instants.
 
     Attributes:
         dataset_id: The dataset's ``dataset_id``.
         digest: :func:`~alphalab.backtesting.replay_snapshot.dataset_digest`
             of its records: the fingerprint a paused replay holds its input to.
+        instants: Its records' distinct timestamps, ascending: what a
+            validation design splits (ADR-0073). The digest covers them, so
+            they enter no identity of their own.
     """
 
     dataset_id: str
     digest: str
+    instants: tuple[float, ...]
 
     def __post_init__(self) -> None:
         _require_text(self.dataset_id, "DatasetIdentity.dataset_id")
         _require_hex(self.digest, "DatasetIdentity.digest")
+        held = self.instants
+        if not isinstance(held, tuple) or any(
+            isinstance(t, bool) or not isinstance(t, float) or not math.isfinite(t) for t in held
+        ):
+            raise ExperimentError("DatasetIdentity.instants must be a tuple of finite instants.")
+        if any(later <= earlier for earlier, later in itertools.pairwise(held)):
+            raise ExperimentError("DatasetIdentity.instants must be distinct and ascending.")
 
 
 def dataset_identity(dataset: MarketDataset) -> DatasetIdentity:
-    """``dataset``'s identity: its id, and the digest of its records in their canonical form."""
+    """``dataset``'s identity: its id, the digest of its records, and its instants."""
 
-    return DatasetIdentity(dataset.dataset_id, dataset_digest(dataset))
-
-
-@dataclass(frozen=True, slots=True)
-class Lockbox:
-    """The records an experiment holds back from every trial, read once (R54-10).
-
-    Attributes:
-        start: Every record at or after this instant is held back.
-        reread: ``None`` for an experiment's own lockbox. A child experiment
-            that reads a lockbox its parent already read states why here, and
-            the read is counted.
-    """
-
-    start: float
-    reread: str | None
-
-    def __post_init__(self) -> None:
-        if isinstance(self.start, bool) or not isinstance(self.start, int | float):
-            raise ExperimentError(f"Lockbox.start must be an instant, got {self.start!r}.")
-        if not math.isfinite(self.start):
-            raise ExperimentError(f"Lockbox.start must be finite, got {self.start!r}.")
-        object.__setattr__(self, "start", float(self.start))
-        if self.reread is not None:
-            _require_text(self.reread, "Lockbox.reread")
-
-
-@dataclass(frozen=True, slots=True)
-class FullSample:
-    """Every trial runs over the whole dataset, but for a lockbox when one is declared.
-
-    The validation design of v4.3's M4; walk-forward, purged CV and CPCV are
-    M5's (WS-24).
-    """
-
-    lockbox: Lockbox | None
-
-    def __post_init__(self) -> None:
-        if self.lockbox is not None and not isinstance(self.lockbox, Lockbox):
-            raise ExperimentError(f"FullSample.lockbox must be a Lockbox, got {self.lockbox!r}.")
+    instants = tuple(sorted({float(record.timestamp) for record in dataset.records}))
+    return DatasetIdentity(dataset.dataset_id, dataset_digest(dataset), instants)
 
 
 @dataclass(frozen=True, slots=True)
@@ -340,7 +313,7 @@ class ExperimentSpec:
     execution: ExecutionAssumptions
     capture: CaptureSpec
     retention: RetentionPolicy
-    validation: FullSample
+    validation: ValidationDesign
     seed: int
     parent_id: str | None
     limits: TrialLimits
@@ -371,7 +344,6 @@ class ExperimentSpec:
             ("execution", ExecutionAssumptions),
             ("capture", CaptureSpec),
             ("retention", RetentionPolicy),
-            ("validation", FullSample),
             ("limits", TrialLimits),
         ):
             if not isinstance(getattr(self, name_), kind):
@@ -379,6 +351,11 @@ class ExperimentSpec:
                     f"ExperimentSpec.{name_} must be a {kind.__name__}, got "
                     f"{getattr(self, name_)!r}."
                 )
+        if not isinstance(self.validation, DESIGNS):
+            raise ExperimentError(
+                "ExperimentSpec.validation must be a FullSample, WalkForward, CrossValidated or "
+                f"CombinatorialPurged design, got {self.validation!r}."
+            )
         if self.instruments is not None:
             _require_hex(self.instruments, "ExperimentSpec.instruments")
         if isinstance(self.seed, bool) or not isinstance(self.seed, int):
@@ -410,16 +387,22 @@ class ExperimentSpec:
         """Every trial the experiment runs, in the order they are submitted."""
 
         experiment_id = self.experiment_id
+        typed = [
+            (candidate, _typed(candidate, self.configuration_type))
+            for candidate in self.space.candidates
+        ]
         return tuple(
             TrialSpec(
                 experiment_id=experiment_id,
                 candidate=candidate,
-                configuration=_typed(candidate, self.configuration_type),
-                fold=0,
-                phase=SEARCH,
-                trial_seed=_seed(self.seed, 0, SEARCH, _render(candidate)),
+                configuration=configuration,
+                fold=fold,
+                phase=phase,
+                trial_seed=_seed(self.seed, fold, phase, _render(candidate)),
+                window=window,
             )
-            for candidate in self.space.candidates
+            for fold, phase, window in windows(self.validation, self.dataset.instants)
+            for candidate, configuration in typed
         )
 
 
@@ -435,7 +418,6 @@ def _typed(candidate: Mapping[str, Any], declared: type) -> Any:
 def canonical_experiment_key(spec: ExperimentSpec) -> str:
     """The canonical text of ``spec``, under :data:`EXPERIMENT_SCHEME`."""
 
-    lockbox = spec.validation.lockbox
     return serialize(
         {
             "capture": {
@@ -456,12 +438,7 @@ def canonical_experiment_key(spec: ExperimentSpec) -> str:
             "seed": spec.seed,
             "space": [_render(candidate) for candidate in spec.space.candidates],
             "strategy": spec.strategy,
-            "validation": {
-                "design": "FULL_SAMPLE",
-                "lockbox": None
-                if lockbox is None
-                else {"reread": lockbox.reread, "start": lockbox.start},
-            },
+            "validation": design_key(spec.validation),
         }
     )
 
@@ -479,6 +456,9 @@ class TrialSpec:
         phase: Its phase; :data:`SEARCH` in a full-sample search.
         trial_seed: Its seed: the walk-forward search's formula over the
             experiment's seed, the fold, the phase and the rendered candidate.
+        window: What it may be fitted on and is scored on, for a design that
+            splits the sample; ``None`` for the whole sample. It follows from
+            the experiment, so it enters no identity of its own.
     """
 
     experiment_id: str
@@ -487,6 +467,7 @@ class TrialSpec:
     fold: int
     phase: str
     trial_seed: int
+    window: TrialWindow | None = None
 
     @property
     def label(self) -> str:

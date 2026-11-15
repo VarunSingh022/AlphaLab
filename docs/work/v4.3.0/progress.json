@@ -1557,6 +1557,11 @@
           "milestone": "M5",
           "item": "ADR-0073 accepted (TD-26): validation over backtests, M5's entry condition",
           "status": "Implemented locally"
+        },
+        {
+          "milestone": "M5",
+          "item": "Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []

@@ -45,6 +45,11 @@ from alphalab.research.bias import (
 )
 from alphalab.research.bootstrap import BootstrapReport, bootstrap_statistics
 from alphalab.research.capacity import CapacityReport, estimate_capacity
+from alphalab.research.combinatorial_cv import (
+    CombinatorialSplit,
+    CombinatorialSplitReport,
+    combinatorial_purged_splits,
+)
 from alphalab.research.cross_validation import WalkForwardReport, walk_forward_analysis
 from alphalab.research.data_snooping import (
     RealityCheckResult,
@@ -231,6 +236,8 @@ __all__ = [
     "BootstrapReport",
     "CVMethod",
     "CapacityReport",
+    "CombinatorialSplit",
+    "CombinatorialSplitReport",
     "CompositeRule",
     "Correction",
     "DeflatedSharpe",
@@ -326,6 +333,7 @@ __all__ = [
     "canonical_study_key",
     "capacity_report",
     "classify_regimes",
+    "combinatorial_purged_splits",
     "conditional_diagnostics",
     "correct_p_values",
     "cross_validation_splits",
