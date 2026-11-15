@@ -269,3 +269,22 @@ def test_no_benchmark_or_example_banner_names_another_release() -> None:
                     if found and not DOCUMENTED.startswith(found.group(1)):
                         breaches.append(f"{folder}/{path.name}:{node.lineno}: {node.value[:80]}")
     assert not breaches, "\n".join(breaches)
+
+
+def test_the_security_policy_states_that_a_spawned_worker_is_not_a_sandbox() -> None:
+    """SECURITY.md and the worker it describes state the trial-isolation boundary (BDY-029).
+
+    A spawned trial's worker refuses the network before it imports the
+    researcher's code, and that is all it does: a process is not a sandbox
+    (ADR-0056 principle 3). Only the statement keeps a host from reading more
+    into it, so it is held here, in the policy and in the worker's docstring.
+    """
+
+    from alphalab.lifecycle import _trial_worker
+
+    policy = " ".join((ROOT / "SECURITY.md").read_text(encoding="utf-8").split())
+    assert "A spawned trial's worker refuses the network, and is not a sandbox" in policy
+    assert "A separate process is not a secure sandbox" in policy
+    worker = " ".join((_trial_worker.__doc__ or "").split())
+    assert "A separate process is not a secure sandbox" in worker
+    assert "BDY-029" in worker

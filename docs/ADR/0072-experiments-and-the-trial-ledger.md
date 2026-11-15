@@ -186,8 +186,8 @@ Nothing is removed before 5.0.
 
 # Settled at implementation (2026-11-15)
 
-Building M4's first part settled seven points, each held by a test
-(`tests/integration/test_trial_ledger.py`).
+Building M4 settled eight points, each held by a test
+(`tests/integration/test_trial_ledger.py`, `tests/integration/test_spawned_trials.py`).
 
 1. **A dataset's identity is what every trial can be held to.**
    `dataset_identity` is the dataset's id and `dataset_digest`, SHA-256 over its
@@ -218,6 +218,23 @@ Building M4's first part settled seven points, each held by a test
    digest and the lockbox's start. Its reads are counted under that identity
    whichever experiment made them, and a second read needs a child experiment
    stating `Lockbox.reread`.
+8. **A spawned worker is a fresh interpreter AlphaLab starts, not a
+   `multiprocessing` child.** A `multiprocessing` spawn imports the parent's
+   main module before any of the worker's code runs, so a spy there would run
+   before the hook. The worker is `python -m alphalab.lifecycle._trial_worker`:
+   AlphaLab's own module runs first, refuses the network, and only then imports
+   the experiment's definition.
+   * **The definition.** An `ExperimentDefinition` of spec and registry, named
+     in the executor's own configuration as `"module:NAME"`; a request carries
+     identities only.
+   * **When the definition does not load.** That is the researcher's code
+     failing, and each trial is recorded `FAILED`, saying why.
+   * **Interruptions.** A time limit or a dead worker interrupts the trial.
+   * **Another experiment.** A definition that is not the submitted experiment
+     is refused outright.
+
+   Spawned and sequential runs of one experiment are equal record for record
+   (`tests/integration/test_spawned_trials.py`).
 
 # Departures from the plan's text, and why
 

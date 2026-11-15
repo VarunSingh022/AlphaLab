@@ -106,6 +106,25 @@ host's privileges. A task's return value reaches the caller through the
 executor the caller supplies -- a process pool pickles it -- so a worker is
 inside the caller's trust boundary as well.
 
+**A spawned trial's worker refuses the network, and is not a sandbox** (ledger
+BDY-029, ADR-0072). `alphalab.lifecycle.experiments.SpawnExecutor` runs each
+trial in a fresh interpreter started as AlphaLab's own worker module.
+* **The order.** Before the worker imports anything of the researcher's, it
+  installs an audit hook that refuses the network: `socket`, `ssl`,
+  `http.client` and `urllib` events raise. A definition that reaches for the
+  network as it is imported fails as surely as a runner that does so while it
+  runs.
+* **The request.** It carries identities only. The worker loads the experiment
+  from where the executor was told, in code, it is defined, and finds a runner
+  by name in that registry, never by resolving a path.
+* **The boundary.** A separate process is not a secure sandbox. The hook
+  guards against accidents and records intent. Code that escapes Python's
+  audit events, such as a C extension or a process the host lets it start, is
+  not contained by it, and isolating untrusted research code is the host's or
+  the deployment's.
+* **In process.** `SequentialExecutor` runs trials in the caller's process,
+  with no hook.
+
 ---
 
 # Third-Party Dependencies

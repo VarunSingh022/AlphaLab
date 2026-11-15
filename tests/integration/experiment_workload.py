@@ -25,6 +25,7 @@ from alphalab.backtesting.capture import (
 )
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE
 from alphalab.lifecycle.experiments import (
+    ExperimentDefinition,
     ExperimentRecord,
     ExperimentSpec,
     FullSample,
@@ -122,11 +123,57 @@ CANDIDATES = [
     *({"window": 7, "size": 1, "mode": mode} for mode in ("raise", "crash", "foreign", "squeeze")),
 ]
 
-REGISTRY = RunnerRegistry().register("reference", build)
+
+def phone(trial: TrialSpec) -> TrialInputs:
+    """A runner that reaches for the network while it runs. Only ever run spawned."""
+
+    import socket
+
+    socket.getaddrinfo("localhost", 80)
+    return build(trial)
 
 
-def spec() -> ExperimentSpec:
-    """The reference experiment's specification."""
+def sleepy(trial: TrialSpec) -> TrialInputs:
+    """A runner whose third trial outlasts the slow experiment's time limit."""
+
+    import time
+
+    if trial.candidate == CANDIDATES[2]:
+        time.sleep(30)
+    return build(trial)
+
+
+def stagger(trial: TrialSpec) -> TrialInputs:
+    """A runner whose earlier trials take longer, so they finish after later ones."""
+
+    import time
+
+    time.sleep(0.4 * (len(CANDIDATES) - CANDIDATES.index(dict(trial.candidate))) / len(CANDIDATES))
+    return build(trial)
+
+
+def dies(trial: TrialSpec) -> TrialInputs:
+    """A runner whose worker dies on the second trial. Only ever run spawned."""
+
+    import os
+
+    if trial.candidate == CANDIDATES[1]:
+        os._exit(3)
+    return build(trial)
+
+
+REGISTRY = (
+    RunnerRegistry()
+    .register("reference", build)
+    .register("phone", phone)
+    .register("sleepy", sleepy)
+    .register("stagger", stagger)
+    .register("dies", dies)
+)
+
+
+def spec(limits: TrialLimits | None = None) -> ExperimentSpec:
+    """The reference experiment's specification; ``limits`` for the slow one."""
 
     config = backtest_config(STRATEGY_ID)
     return ExperimentSpec(
@@ -149,7 +196,7 @@ def spec() -> ExperimentSpec:
         validation=FullSample(None),
         seed=20261115,
         parent_id=None,
-        limits=TrialLimits(None),
+        limits=TrialLimits(None) if limits is None else limits,
     )
 
 
@@ -159,3 +206,10 @@ def run() -> tuple[ExperimentSpec, ExperimentRecord]:
     reference = spec()
     ledger = TrialLedger(EvidenceStore(MemoryArtifactStore(), MemoryEvidenceIndex()))
     return reference, run_experiment(reference, REGISTRY, "reference", ledger, SequentialExecutor())
+
+
+#: The reference experiment, where a spawned worker loads it.
+DEFINITION = ExperimentDefinition(spec(), REGISTRY)
+
+#: The same experiment with a two-second limit a trial may take.
+SLOW_DEFINITION = ExperimentDefinition(spec(TrialLimits(2.0)), REGISTRY)

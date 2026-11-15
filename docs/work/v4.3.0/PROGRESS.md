@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `a7f867f6127e196ccd18598ba417d8f5b96a9a6f` |
+| Remote head | `08e2264545ff569c9936090c87bbc27adfadeb99` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M3's close on hosted CI; then ADR-0072 (the plan's 0054B), M4's entry condition, and M4 (WS-05 ledger and executors, WS-23 runner registry and worker isolation, WS-19). |
@@ -134,6 +134,7 @@ Never:
 - **2026-11-15** M3's exit gate met locally and its code commits on hosted CI: 16-variant PBO from captures equals full history's, GR-5 holds exactly, and the capture is within PC-07's approved limits (series 1.3 to 3.5 percent, series and trace 12.1 to 13.3). Mutation series T and U caught 33 of 33 on the first run. GAP-08, GAP-09 and GAP-43 closed.
 - **2026-11-15** ADR-0072 accepted (TD-19): experiments and the trial ledger, M4's entry condition, from the plan's K.3 and O; BDY-029 records the worker isolation boundary. M4's entry conditions (M1, M3, ADR-0072) are met once M3's close passes hosted CI.
 - **2026-11-15** M3's close (a7f867f) and ADR-0072 (60263cf) pushed. M4's first part implemented and locally validated: the trial ledger with its sequential executor, resume, nondeterminism refusal and lockbox; the 48-trial experiment counts every outcome exactly; the reference experiment's identities are pinned, identical under CPython 3.12, 3.13 and 3.14 (TD-20).
+- **2026-11-15** The trial ledger (08e2264) passed the full gate and was pushed. SpawnExecutor implemented and locally validated: a fresh interpreter per trial refusing the network before the researcher's code, spawned equal to sequential record for record, the spy-on-import refusal, interruptions recording nothing; SECURITY.md states BDY-029.
 
 ## Milestones
 
@@ -533,9 +534,10 @@ Evidence:
 ### WS-05: Experiment and trial ledger, executor, runner registry
 
 - [Local validation passed] M4: ADR-0072 accepted (TD-19): experiments and the trial ledger, the plan's 0054B
-- [Local validation passed] M4: lifecycle.experiments: ExperimentSpec, TrialSpec, the five derived identities, TrialOutcome, TrialRecord, LedgerCount, ExperimentRecord
-- [Local validation passed] M4: RunnerRegistry and SequentialExecutor; inputs held to the specification; resume; nondeterminism refused; the lockbox read once
-- [Local validation passed] M4: The 48-trial experiment with failures and insolvency counted; the reference experiment's identities pinned across interpreters
+- [Pushed] M4: lifecycle.experiments: ExperimentSpec, TrialSpec, the five derived identities, TrialOutcome, TrialRecord, LedgerCount, ExperimentRecord
+- [Pushed] M4: RunnerRegistry and SequentialExecutor; inputs held to the specification; resume; nondeterminism refused; the lockbox read once
+- [Pushed] M4: The 48-trial experiment with failures and insolvency counted; the reference experiment's identities pinned across interpreters
+- [Local validation passed] M4: SpawnExecutor: a fresh interpreter per trial, the network refused before the researcher's code, records in submission order; spawned equals sequential record for record
 
 ### WS-06: Statistical research functions
 
@@ -565,7 +567,7 @@ Evidence:
 
 ### WS-19: Researcher entry points, composition, reproducibility APIs
 
-- [Local validation passed] M4: lifecycle.experiments documented as a public module (R54-6): exported from alphalab.lifecycle and described in docs/COMPOSING_STRATEGIES.md
+- [Pushed] M4: lifecycle.experiments documented as a public module (R54-6): exported from alphalab.lifecycle and described in docs/COMPOSING_STRATEGIES.md
 
 ### WS-20: Documentation, guides and examples
 
@@ -592,6 +594,7 @@ Evidence:
 ### WS-23: Security and trust boundaries
 
 - [Hosted CI passed] M0: SEC-002: HttpTransport opens http:// and https:// only, and follows a redirect only to one of them
+- [Local validation passed] M4: The spy-on-import refusal (N18), and BDY-029 stated in SECURITY.md and held by a test
 
 Evidence:
 
@@ -622,7 +625,7 @@ Evidence:
 | GAP-02 | Validation not over backtests | C/P0 | Open | WS-24 | M5 |
 | GAP-03 | DET-007 ambient ids | H/P0 | Open: scopes isolated and registry ids derived; awaiting hosted CI | WS-02 | M0 |
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |
-| GAP-05 | SEC-001 dotted-path resolution | H/P0 | Open | WS-23, WS-05 | M4 |
+| GAP-05 | SEC-001 dotted-path resolution | H/P0 | In progress at M4 (WS-23, ADR-0072): the runner registry replaces dotted-path resolution for the ledger's executors, and a spawned worker refuses a definition that reaches for the network as it is imported (the spy-on-import refusal). cloud_research's sweep moving onto the registry is M4's next part. | WS-23, WS-05 | M4 |
 | GAP-06 | SEC-002 `HttpTransport` any scheme | M/P0 | Open: refused in code and documented; closes when M0 is accepted | WS-23 | M0 |
 | GAP-07 | v4.2.x formats not frozen | H/P0 | Open: acceptance met (REP-3 reads v4.2.1; hosted CI passed on dc61a75); closes when M0 is accepted | WS-01 | M0 |
 | GAP-08 | Return extraction; → retention trims equity | H/P0 | Closed at M3 (WS-04, ADR-0055, plan K.1): run_captured reads every trial's return series as the run records its equity, whatever it keeps, and keep_equity keeps a bounded run's whole curve; 16-variant PBO from bounded captures equals full history's exactly, on hosted CI (0649893, acf4ce4). | WS-04 | M3 |

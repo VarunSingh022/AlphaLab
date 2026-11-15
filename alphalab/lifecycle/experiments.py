@@ -52,8 +52,12 @@ experiment has the same record on every host.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
+import subprocess
+import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from enum import Enum, unique
 from types import MappingProxyType
@@ -64,6 +68,7 @@ from alphalab.backtesting.capture import (
     CaptureRecord,
     CaptureSpec,
     InsolventCaptureError,
+    TraceCounts,
     canonical_extractor_key,
     run_captured,
 )
@@ -95,6 +100,7 @@ __all__ = [
     "TRIAL_RECORD_SCHEME",
     "TRIAL_SCHEME",
     "DatasetIdentity",
+    "ExperimentDefinition",
     "ExperimentError",
     "ExperimentRecord",
     "ExperimentSpec",
@@ -106,6 +112,7 @@ __all__ = [
     "Runner",
     "RunnerRegistry",
     "SequentialExecutor",
+    "SpawnExecutor",
     "TrialExecutor",
     "TrialInputs",
     "TrialLedger",
@@ -722,14 +729,44 @@ def _held_back(dataset: MarketDataset, lockbox: Lockbox | None) -> MarketDataset
     return replace(dataset, records=kept)
 
 
+def _trial_left(
+    spec: ExperimentSpec,
+    trial: TrialSpec,
+    outcome: TrialOutcome,
+    diagnostics: str = "",
+    *,
+    captured: CaptureRecord | None = None,
+    result_id: str | None = None,
+    provenance_id: str | None = None,
+) -> _Ran:
+    return _Ran(
+        TrialRecord(
+            trial_id=trial.trial_id,
+            experiment_id=trial.experiment_id,
+            label=trial.label,
+            fold=trial.fold,
+            phase=trial.phase,
+            trial_seed=trial.trial_seed,
+            outcome=outcome,
+            result_id=result_id,
+            configuration_id=None if captured is None else captured.configuration_id,
+            trace_id=None if captured is None else captured.trace_id,
+            provenance_id=provenance_id,
+            extractor_id=spec.capture.extractor.extractor_id,
+            series_id=None if captured is None else captured.series_id,
+            insolvent_at=None if captured is None else captured.insolvent_at,
+            diagnostics=diagnostics,
+        ),
+        captured,
+    )
+
+
 def run_trial(spec: ExperimentSpec, runner: Runner, trial: TrialSpec) -> _Ran:
     """Run ``trial`` of ``spec`` through ``runner``, and return what it left.
 
     A ``KeyboardInterrupt`` or ``SystemExit`` propagates: an interruption
     leaves nothing.
     """
-
-    extractor_id = spec.capture.extractor.extractor_id
 
     def record(
         outcome: TrialOutcome,
@@ -739,25 +776,14 @@ def run_trial(spec: ExperimentSpec, runner: Runner, trial: TrialSpec) -> _Ran:
         result_id: str | None = None,
         provenance_id: str | None = None,
     ) -> _Ran:
-        return _Ran(
-            TrialRecord(
-                trial_id=trial.trial_id,
-                experiment_id=trial.experiment_id,
-                label=trial.label,
-                fold=trial.fold,
-                phase=trial.phase,
-                trial_seed=trial.trial_seed,
-                outcome=outcome,
-                result_id=result_id,
-                configuration_id=None if captured is None else captured.configuration_id,
-                trace_id=None if captured is None else captured.trace_id,
-                provenance_id=provenance_id,
-                extractor_id=extractor_id,
-                series_id=None if captured is None else captured.series_id,
-                insolvent_at=None if captured is None else captured.insolvent_at,
-                diagnostics=diagnostics,
-            ),
-            captured,
+        return _trial_left(
+            spec,
+            trial,
+            outcome,
+            diagnostics,
+            captured=captured,
+            result_id=result_id,
+            provenance_id=provenance_id,
         )
 
     try:
@@ -851,6 +877,186 @@ class SequentialExecutor:
         build = registry.runner(runner)
         for trial in trials:
             yield run_trial(spec, build, trial)
+
+
+@dataclass(frozen=True, slots=True)
+class ExperimentDefinition:
+    """An experiment and the runners its trials name, defined where a worker can load them.
+
+    A :class:`SpawnExecutor`'s worker imports the module that defines one, after
+    it has refused the network, and holds it to the experiment the parent
+    submitted. Define it at a module's top level.
+    """
+
+    spec: ExperimentSpec
+    registry: RunnerRegistry
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.spec, ExperimentSpec):
+            raise ExperimentError(
+                f"ExperimentDefinition.spec must be an ExperimentSpec, got {self.spec!r}."
+            )
+        if not isinstance(self.registry, RunnerRegistry):
+            raise ExperimentError(
+                f"ExperimentDefinition.registry must be a RunnerRegistry, got {self.registry!r}."
+            )
+
+
+def _ran_to_payload(ran: _Ran) -> dict[str, Any]:
+    capture = ran.capture
+    return {
+        "capture": None
+        if capture is None
+        else {
+            "configuration_id": capture.configuration_id,
+            "extractor_id": capture.extractor_id,
+            "insolvent_at": capture.insolvent_at,
+            "instants": list(capture.instants),
+            "returns": list(capture.returns),
+            "series_id": capture.series_id,
+            "steps": capture.steps,
+            "trace_id": capture.trace_id,
+            "traced": None
+            if capture.traced is None
+            else [
+                capture.traced.fills,
+                capture.traced.transactions,
+                capture.traced.order_events,
+                capture.traced.equity_points,
+            ],
+        },
+        "record": _record_payload(ran.record),
+    }
+
+
+def _ran_from_payload(payload: Mapping[str, Any]) -> _Ran:
+    held = payload["capture"]
+    capture = None
+    if held is not None:
+        traced = held["traced"]
+        capture = CaptureRecord(
+            extractor_id=held["extractor_id"],
+            instants=tuple(held["instants"]),
+            returns=tuple(held["returns"]),
+            series_id=held["series_id"],
+            insolvent_at=held["insolvent_at"],
+            steps=held["steps"],
+            configuration_id=held["configuration_id"],
+            trace_id=held["trace_id"],
+            traced=None if traced is None else TraceCounts(*traced),
+        )
+    return _Ran(_record_from_payload(payload["record"]), capture)
+
+
+#: The module a spawned trial runs as: AlphaLab's own, whatever the trial is.
+_WORKER: Final = "alphalab.lifecycle._trial_worker"
+
+
+@dataclass(frozen=True, slots=True)
+class SpawnExecutor:
+    """Runs each trial in a fresh interpreter that refuses the network (ADR-0072 section 6).
+
+    Each worker is a new Python process started as AlphaLab's own worker module.
+    Before it imports anything of the researcher's it installs an audit hook
+    that refuses the network; it then imports ``definition`` -- an
+    :class:`ExperimentDefinition`, named here in code as ``"module:attribute"``
+    -- holds it to the submitted experiment, and runs the one trial its request
+    names by identity. A request carries identities only, never code.
+
+    Up to ``workers`` trials run at once, and what they left is yielded in the
+    order they were submitted, whatever order they finish in. A trial past the
+    experiment's time limit, or a worker that dies, is interrupted: it leaves
+    nothing, and a resume runs it again. A definition that does not load is the
+    researcher's code failing, and each trial is recorded ``FAILED``.
+
+    Attributes:
+        definition: Where the experiment is defined, ``"package.module:NAME"``.
+        workers: How many trials run at once.
+    """
+
+    definition: str
+    workers: int
+
+    def __post_init__(self) -> None:
+        module, colon, attribute = (
+            self.definition.partition(":") if isinstance(self.definition, str) else ("", "", "")
+        )
+        if not module or not colon or not attribute.isidentifier():
+            raise ExperimentError(
+                "SpawnExecutor.definition names where the experiment is defined, "
+                f"'package.module:NAME'; got {self.definition!r}."
+            )
+        if isinstance(self.workers, bool) or not isinstance(self.workers, int) or self.workers < 1:
+            raise ExperimentError(f"SpawnExecutor.workers must be positive, got {self.workers!r}.")
+
+    def execute(
+        self,
+        spec: ExperimentSpec,
+        registry: RunnerRegistry,
+        runner: str,
+        trials: Sequence[TrialSpec],
+    ) -> Iterator[_Ran]:
+        registry.runner(runner)
+        experiment_id = spec.experiment_id
+        path = [entry for entry in sys.path if entry]
+        with ThreadPoolExecutor(max_workers=self.workers) as pool:
+            running = [
+                pool.submit(self._spawn, spec, experiment_id, runner, trial, path)
+                for trial in trials
+            ]
+            for future in running:
+                ran = future.result()
+                if ran is not None:
+                    yield ran
+
+    def _spawn(
+        self,
+        spec: ExperimentSpec,
+        experiment_id: str,
+        runner: str,
+        trial: TrialSpec,
+        path: list[str],
+    ) -> _Ran | None:
+        request = json.dumps(
+            {
+                "definition": self.definition,
+                "experiment_id": experiment_id,
+                "path": path,
+                "runner": runner,
+                "trial_id": trial.trial_id,
+            }
+        )
+        # AlphaLab's own worker module, with fixed arguments: nothing in the
+        # command comes from a request.
+        process = subprocess.Popen(
+            [sys.executable, "-m", _WORKER],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            out, _ = process.communicate(request, timeout=spec.limits.seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
+            return None
+        lines = [line for line in out.splitlines() if line.strip()]
+        if process.returncode != 0 or not lines:
+            return None
+        answer = json.loads(lines[-1])
+        if "mismatch" in answer:
+            raise ExperimentError(
+                f"The spawned worker loaded another experiment: {answer['mismatch']}."
+            )
+        if "failed" in answer:
+            return _trial_left(
+                spec,
+                trial,
+                TrialOutcome.FAILED,
+                f"the experiment's definition did not load: {answer['failed']}",
+            )
+        return _ran_from_payload(answer)
 
 
 #: The evidence kinds a ledger files under.

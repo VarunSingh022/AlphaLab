@@ -1081,16 +1081,21 @@
         {
           "milestone": "M4",
           "item": "lifecycle.experiments: ExperimentSpec, TrialSpec, the five derived identities, TrialOutcome, TrialRecord, LedgerCount, ExperimentRecord",
-          "status": "Local validation passed"
+          "status": "Pushed"
         },
         {
           "milestone": "M4",
           "item": "RunnerRegistry and SequentialExecutor; inputs held to the specification; resume; nondeterminism refused; the lockbox read once",
-          "status": "Local validation passed"
+          "status": "Pushed"
         },
         {
           "milestone": "M4",
           "item": "The 48-trial experiment with failures and insolvency counted; the reference experiment's identities pinned across interpreters",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M4",
+          "item": "SpawnExecutor: a fresh interpreter per trial, the network refused before the researcher's code, records in submission order; spawned equals sequential record for record",
           "status": "Local validation passed"
         }
       ],
@@ -1309,7 +1314,7 @@
         {
           "milestone": "M4",
           "item": "lifecycle.experiments documented as a public module (R54-6): exported from alphalab.lifecycle and described in docs/COMPOSING_STRATEGIES.md",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": []
@@ -1383,6 +1388,11 @@
           "milestone": "M0",
           "item": "SEC-002: HttpTransport opens http:// and https:// only, and follows a redirect only to one of them",
           "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M4",
+          "item": "The spy-on-import refusal (N18), and BDY-029 stated in SECURITY.md and held by a test",
+          "status": "Local validation passed"
         }
       ],
       "evidence": [
@@ -1525,7 +1535,7 @@
       "problem": "SEC-001 dotted-path resolution",
       "severity": "H/P0",
       "status": "Open",
-      "status_note": "",
+      "status_note": "In progress at M4 (WS-23, ADR-0072): the runner registry replaces dotted-path resolution for the ledger's executors, and a spawned worker refuses a definition that reaches for the network as it is imported (the spy-on-import refusal). cloud_research's sweep moving onto the registry is M4's next part.",
       "workstreams": [
         "WS-23",
         "WS-05"
@@ -2295,7 +2305,7 @@
   },
   "state": {
     "updated": "2026-11-14",
-    "remote_head": "a7f867f6127e196ccd18598ba417d8f5b96a9a6f",
+    "remote_head": "08e2264545ff569c9936090c87bbc27adfadeb99",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -2697,6 +2707,10 @@
     {
       "date": "2026-11-15",
       "entry": "M3's close (a7f867f) and ADR-0072 (60263cf) pushed. M4's first part implemented and locally validated: the trial ledger with its sequential executor, resume, nondeterminism refusal and lockbox; the 48-trial experiment counts every outcome exactly; the reference experiment's identities are pinned, identical under CPython 3.12, 3.13 and 3.14 (TD-20)."
+    },
+    {
+      "date": "2026-11-15",
+      "entry": "The trial ledger (08e2264) passed the full gate and was pushed. SpawnExecutor implemented and locally validated: a fresh interpreter per trial refusing the network before the researcher's code, spawned equal to sequential record for record, the spy-on-import refusal, interruptions recording nothing; SECURITY.md states BDY-029."
     }
   ]
 }

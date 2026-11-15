@@ -446,8 +446,23 @@ entry below says otherwise.
   (`tests/integration/test_trial_ledger.py`). A reference experiment's
   `experiment_id` and `experiment_record_id` are pinned, computed identically
   under CPython 3.12, 3.13 and 3.14
-  (`tests/regression/test_experiment_identities_are_pinned.py`). The spawning
-  executor is M4's next part.
+  (`tests/regression/test_experiment_identities_are_pinned.py`).
+  * **`SpawnExecutor`** runs each trial in a fresh interpreter: AlphaLab's own
+    worker module, which refuses the network before it imports anything of the
+    researcher's.
+    * **The worker.** It loads the experiment from an `ExperimentDefinition`
+      named in code as `"module:NAME"`, holds it to the submitted experiment,
+      and runs the one trial its request names by identity.
+    * **Order.** Records are kept in submission order whatever order trials
+      finish in, so a spawned experiment equals the sequential one record for
+      record.
+    * **Interruptions.** A trial past its time limit, or a worker that dies,
+      records nothing, and a resume runs it.
+
+    A definition that reaches for the network as it is imported is refused
+    before it reaches it (`tests/integration/test_spawned_trials.py`).
+    SECURITY.md states the boundary: the hook is a guard, and a process is not
+    a sandbox (ledger BDY-029).
 
 ## Changed
 
