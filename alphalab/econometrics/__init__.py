@@ -30,6 +30,8 @@ Delivered so far
   the half-life it implies, each with its standard error (OFE-007 reopened).
 * :mod:`~alphalab.econometrics.var`: vector autoregressions by least squares,
   equation by equation, the lags fixed or chosen by AIC or BIC.
+* :mod:`~alphalab.econometrics.volatility`: GARCH, GJR-GARCH and EGARCH by
+  Gaussian likelihood, admissible by their parameterisation.
 
 Every choice is stated
 ----------------------
@@ -107,6 +109,14 @@ from alphalab.econometrics.unit_root import (
     phillips_perron,
 )
 from alphalab.econometrics.var import MINIMUM_VAR_OBSERVATIONS, VAR_METHOD, VarFit, fit_var
+from alphalab.econometrics.volatility import (
+    MINIMUM_VOLATILITY_OBSERVATIONS,
+    VOLATILITY_METHOD,
+    VolatilityFit,
+    VolatilityModel,
+    VolatilityStart,
+    fit_volatility,
+)
 
 __all__ = [
     "ADF_METHOD",
@@ -124,6 +134,7 @@ __all__ = [
     "MINIMUM_JOHANSEN_OBSERVATIONS",
     "MINIMUM_ORNSTEIN_UHLENBECK_OBSERVATIONS",
     "MINIMUM_VAR_OBSERVATIONS",
+    "MINIMUM_VOLATILITY_OBSERVATIONS",
     "ORNSTEIN_UHLENBECK_METHOD",
     "ORNSTEIN_UHLENBECK_REGRESSION_METHOD",
     "PHILLIPS_PERRON_METHOD",
@@ -131,6 +142,7 @@ __all__ = [
     "SYSTEM_SCHEME",
     "VAR_METHOD",
     "VECM_METHOD",
+    "VOLATILITY_METHOD",
     "Bandwidth",
     "CointegrationTest",
     "CriticalValues",
@@ -154,11 +166,15 @@ __all__ = [
     "UnitRootTest",
     "VarFit",
     "VecmFit",
+    "VolatilityFit",
+    "VolatilityModel",
+    "VolatilityStart",
     "augmented_dickey_fuller",
     "engle_granger",
     "fit_ornstein_uhlenbeck",
     "fit_var",
     "fit_vecm",
+    "fit_volatility",
     "johansen",
     "johansen_critical_values",
     "johansen_p_value",

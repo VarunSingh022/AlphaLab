@@ -217,6 +217,7 @@ Never:
 - **2026-11-16** The VECM validated locally: one reduction now serves Johansen's test and the fit, with the test's pinned values unchanged. A pair's hedge ratio and constant are recovered; the deviating series corrects (t below -5) and the walk it is tied to does not. The second step matches exact rational least squares, and every value is pinned across CPython 3.12, 3.13 and 3.14.
 - **2026-11-16** The owner decided where PC-07 is judged (TD-39). Hosted Linux under CPython 3.12, 3.13 and 3.14 is authoritative, by the paired median on unrounded figures, with the limits unchanged. A fixed, documented reference machine monitors regressions, and hosted macOS timing is diagnostic, with macOS kept in functional CI. PC-07 PASSED under that policy (run 43821336553, 3a95cef): series and trace 7.41 to 9.92 percent, the series 1.29 to 4.55. M5's remaining closure record is complete: WS-06's PBO budget on hosted CPython 3.12, 1.43 to 7.34 CPU s against 60. 4ccc130 (the OU fit) and 11f4ee7 (Johansen) passed all six cells and CodeQL; 185b118 (the VECM) was pushed.
 - **2026-11-16** Vector autoregressions validated locally: coefficients recovered within their standard errors; each equation exact against rational least squares; BIC finds a VAR(2)'s order with every candidate fitted on one sample; every refusal held; values pinned across CPython 3.12, 3.13 and 3.14.
+- **2026-11-16** 6f49b99 (PC-07 judged on hosted Linux, passed, TD-39) and 9c36575 (the VAR) each passed the full gate and were pushed; the benchmarks workflow was dispatched on 6f49b99 (run 43827592090) to confirm the roles. The GARCH family validated locally (TD-40): each model's parameters recovered, the likelihood against a hand recursion, cross-host agreement within 1e-4, 2,520 returns in 0.081 CPU s against 5.
 
 ## Milestones
 
@@ -673,6 +674,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** PR #22; plan change PC-07; ADR-0055 (departures); ledger LIM-013; ROADMAP; CHANGELOG; benchmarks/benchmark_capture.py (with the reference machine) and .github/workflows/benchmarks.yml.
 - **Tests:** tests/regression/test_release_gates_are_wired.py::test_pc07_is_judged_on_hosted_linux_and_hosted_macos_timing_is_diagnostic holds the roles, the environment variable, the default and the limits. The benchmark refuses an unknown role.
 
+### TD-40: The GARCH family: likelihood in coordinates admissible by construction, every choice stated (WS-07, 2026-11-16)
+
+- **Problem:** ADR-0074 asks that GARCH's persistence be below one by the parameterisation, that every iterative fit state its optimiser, tolerance, limit and start, and that a fit that cannot be computed be refused.
+- **Alternatives:** (a) Bounded optimisation (L-BFGS-B) on the natural parameters, with the persistence constraint added as a penalty: a constraint that is not a bound. (b) BFGS in unconstrained coordinates that map onto the admissible region only. The initial variance: the sample variance, or a backcast; standard errors by the curvature, or by the outer product of gradients.
+- **Decision:** (b). GARCH: a logistic persistence and share. GJR: a logistic persistence shared among alpha, gamma/2 and beta by a softmax. EGARCH: beta by tanh. h_0 is the sample variance, recorded as a setting. The start is explicit, validated inside the region, or the named rule MOMENTS. Standard errors invert the central-difference curvature in the natural parameters by M2's Cholesky, and a curvature that is not positive definite is refused. The estimate is class 3, with BFGS's convergence report.
+- **Rationale:** A fit that can only land inside the region needs no penalty that might bind, and the optimiser's report states how it stopped. The curvature is the standard error ADR-0074 names. The boundary caveat (GJR's gamma at zero) is stated rather than hidden.
+- **Compatibility:** Additive.
+- **Recorded in:** docs/ADR/0074 (settled point 18); CHANGELOG; benchmarks/benchmark_econometrics.py.
+- **Tests:** tests/unit/econometrics/test_volatility.py: each model's known parameters recovered within their standard errors; the likelihood against a hand recursion; every choice in the estimate with the convergence report; every refusal. tests/regression/test_econometrics_values_are_pinned.py: GARCH and EGARCH agree across hosts within 1e-4. 2,520 returns in 0.081 CPU s against 5.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -852,7 +863,8 @@ Evidence:
 - [Local validation passed] M6: Johansen's trace and maximum-eigenvalue tests under Osterwald-Lenum's five cases, with MacKinnon, Haug and Michelis (1996)'s tables decoded from the paper and verified three ways (TD-37); every value class 2; exact arithmetic for every case; the null's rate per case; five series of 2,520 points in 0.049 CPU s against the plan's 2 s (benchmarks/benchmark_econometrics.py), the rank-two system found
 - [Local validation passed] M6: The Ornstein-Uhlenbeck fit and its half-life (OFE-007 reopened and delivered, TD-38): the exact discretisation by least squares, theta, mu, sigma and the half-life with delta-method standard errors, every value class 2, a coefficient outside (0, 1) refused
 - [Local validation passed] M6: The VECM of a stated rank by Johansen's two steps: the relations from the eigenvectors, normalized on the first series exactly; each equation's alpha, Gamma and unrestricted terms by least squares with standard errors; the residual covariance; a pair's relation and error correction recovered, the second step exact against rational least squares, every value class 2 and pinned
-- [Local validation passed] M6: Vector autoregressions: least squares by equation with standard errors, the residual covariance over T, the lags fixed or chosen by AIC or BIC on the maximum's sample through Decimal logarithms of the residual determinant; known coefficients recovered, each equation exact against rational least squares, a VAR(2)'s order found by BIC, every value class 2 and pinned
+- [Pushed] M6: Vector autoregressions: least squares by equation with standard errors, the residual covariance over T, the lags fixed or chosen by AIC or BIC on the maximum's sample through Decimal logarithms of the residual determinant; known coefficients recovered, each equation exact against rational least squares, a VAR(2)'s order found by BIC, every value class 2 and pinned
+- [Local validation passed] M6: GARCH, GJR-GARCH and EGARCH by Gaussian likelihood in admissible coordinates (TD-40): every choice stated, standard errors from the curvature, class 3 with the convergence report; known parameters recovered for each model; hosts agreeing within 1e-4; 2,520 returns in 0.081 CPU s against the plan's 5 s
 
 ### WS-13: Global conventions, reference data and historical universes
 

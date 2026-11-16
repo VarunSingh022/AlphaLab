@@ -682,6 +682,12 @@ entry below says otherwise.
     choosing among candidates fitted on one sample, through `Decimal`
     logarithms of the residual determinant. It returns a `VarFit`, every value
     class 2.
+  * **GARCH, GJR-GARCH and EGARCH.** `fit_volatility` fits each (1, 1) by
+    Gaussian likelihood, BFGS moving in coordinates admissible by
+    construction: persistence below one, or `|β| < 1`. The start, tolerance,
+    limit and step are stated, and the standard errors invert the curvature.
+    It returns a `VolatilityFit` with the conditional variances and the
+    persistence. The estimate is class 3, with BFGS's convergence report.
   * **Johansen's tables, verified.** `johansen_critical_values` and
     `johansen_p_value` read MacKinnon, Haug and Michelis (1996)'s Tables 1 to
     5, decoded from the paper's own text. They are held three ways: by their

@@ -16,6 +16,8 @@ to an estimator -- never a host's rounding -- and needs its own record.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from alphalab.econometrics import (
@@ -26,10 +28,13 @@ from alphalab.econometrics import (
     PBound,
     SchwertBandwidth,
     SelectedLags,
+    VolatilityModel,
+    VolatilityStart,
     augmented_dickey_fuller,
     fit_ornstein_uhlenbeck,
     fit_var,
     fit_vecm,
+    fit_volatility,
     johansen,
     kpss,
     phillips_perron,
@@ -251,3 +256,66 @@ def test_the_vars_chosen_order_coefficients_and_identities_are_pinned() -> None:
         "7f166064ae68647a865a1744cd3e3ad670dce33b2af65e93654c2f145a5239fe",
         "b2128dec23ff5fbf1336f289803e7db4d31ab3689d93ba4bc000904d0fd5bf3f",
     ]
+
+
+def _garch_returns(count: int) -> list[float]:
+    """A GARCH(1, 1) path from Irwin-Hall shocks: integers, exact scaling, a correct sqrt."""
+
+    state, variance, last, values = 99, 0.25, 0.0, []
+    for _ in range(count + 200):
+        shock = 0.0
+        for _ in range(12):
+            state = (1103515245 * state + 12345) % 2**31
+            shock += (state >> 8) / 2**23
+        shock -= 6.0
+        variance = 0.05 + 0.08 * last * last + 0.9 * variance
+        last = math.sqrt(variance) * shock
+        values.append(last)
+    return values[-count:]
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        (
+            VolatilityModel.GARCH,
+            {
+                "alpha": 0.07053981635047683,
+                "beta": 0.9099659429355309,
+                "mu": 0.026355451774899546,
+                "omega": 0.04581125895397727,
+            },
+        ),
+        (
+            VolatilityModel.EGARCH,
+            {
+                "alpha": 0.15061474972823405,
+                "beta": 0.9789354682831377,
+                "gamma": 0.006080560045845804,
+                "mu": 0.0406039059642397,
+                "omega": 0.015100096254914817,
+            },
+        ),
+    ],
+)
+def test_a_volatility_fit_agrees_across_hosts_within_its_stated_tolerance(
+    model: VolatilityModel, expected: dict[str, float]
+) -> None:
+    """Class 3: the likelihood is the host's log and exp, so hosts agree to a tolerance.
+
+    The returns are the same bits everywhere. A host's last-bit logarithm can
+    move the optimiser's path, and the optimum it reaches moves by far less than
+    the gradient tolerance allows: 1e-4, relatively, is the stated agreement.
+    """
+
+    fit = fit_volatility(
+        _garch_returns(800),
+        model=model,
+        start=VolatilityStart.MOMENTS,
+        tolerance=1e-6,
+        max_iterations=200,
+        step=1e-5,
+    )
+
+    assert fit.estimate.parameters == pytest.approx(expected, rel=1e-4, abs=1e-7)
+    assert not fit.estimate.numerical_class.identity_bearing

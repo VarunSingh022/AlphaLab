@@ -361,6 +361,25 @@ Building M6 settled these points, each held by a test
     * **The criterion.** `T ln det Σ + penalty`, with `ln det Σ` the sum of
       `Decimal`'s logarithms of `Σ`'s Cholesky pivots, so every host chooses
       alike. The residual covariance is over `T`.
+18. **The GARCH family is likelihood, admissible by its coordinates.**
+    `volatility.fit_volatility(returns, model=..., start=..., tolerance=...,
+    max_iterations=..., step=...)` fits GARCH, GJR-GARCH or EGARCH, each
+    (1, 1), with a constant mean and Gaussian errors.
+    * **Coordinates.** BFGS moves in unconstrained coordinates that map onto
+      the admissible region only. GARCH's `α, β > 0` share a persistence
+      below one through a logistic. GJR's `α`, `γ/2` and `β` share one through
+      a softmax. EGARCH's `β` is a hyperbolic tangent.
+    * **Choices stated.** The start is explicit or the named rule `MOMENTS`.
+      `h_0` is the sample variance, recorded. The tolerance, the limit and the
+      differences' step are required.
+    * **Standard errors.** They invert the central-difference curvature of the
+      log-likelihood in the natural parameters, by M2's Cholesky. A curvature
+      that is not positive definite is refused. At a boundary, such as GJR's
+      `γ` at zero, a standard error is the curvature's alone.
+    * **Class 3.** The estimate is class 3 (`log`, `exp`), beside its
+      identity, with BFGS's convergence report. Hosts agree to a stated 1e-4,
+      relatively, on returns built bit for bit alike.
+    * **Budget.** 2,520 returns take 0.081 CPU s against the plan's 5 s.
 
 # Compatibility
 
