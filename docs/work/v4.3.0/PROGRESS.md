@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `1c55995` |
+| Remote head | `5513213` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M6: the VAR (validated locally next), the GARCH family, the Kalman filter and RTS smoother, regime models (ADR-0075), Fama-MacBeth and PCA (WS-25), S-02's pairs screen, the econometrics guide and M6's mutation series; then M6's close on hosted CI. The benchmarks workflow is dispatched at each checkpoint, PC-07 read on its Linux cells. |
@@ -230,6 +230,7 @@ Never:
 - **2026-11-16** Hosted CI: 185b118 (the VECM), 6f49b99 (PC-07's policy), 9c36575 (vector autoregressions) and a815c5e (the GARCH family) each passed all six quality-gate cells and CodeQL. Benchmarks run 43827592090 on 6f49b99 confirmed PC-07 on hosted Linux: series and trace 6.17 to 9.39 percent, the series 1.37 to 4.89; macOS printed, diagnostic, one figure flagged unreliable. WS-07's Engle-Granger, Johansen, Ornstein-Uhlenbeck, VECM, VAR and GARCH items are Hosted CI passed.
 - **2026-11-16** State space validated locally (TD-41): the Kalman filter in Joseph's form and the RTS smoother back to the initial state; the local level and the time-varying beta fitted from an exact diffuse start. The filter is held to the joint density, to Bayesian least squares and to the exact posterior in rationals, and the start to a 10^30 prior's limit; known variances are recovered; every refusal holds; the values are pinned across CPython 3.12, 3.13 and 3.14.
 - **2026-11-16** 1c55995 (state space) passed the full local gate and was pushed. Regime models validated locally (TD-42, ADR-0075, OFE-010 delivered): the Gaussian HMM and the Markov-switching regression by EM, held to exact fractions at their parameters, recovering simulated chains within their standard errors, every refusal held, pinned across CPython 3.12, 3.13 and 3.14.
+- **2026-11-16** 5513213 (regime models) passed the full local gate and was pushed. WS-25's M6 part validated locally (TD-43): Fama-MacBeth's two passes in factor_library and principal-component factors in analytics, each class 2 and pinned across CPython 3.12, 3.13 and 3.14.
 
 ## Milestones
 
@@ -716,6 +717,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0075 (settled at implementation); ledger OFE-010; ROADMAP; CHANGELOG.
 - **Tests:** tests/unit/econometrics/test_regimes.py: at a fit's parameters the filtered and smoothed probabilities, the likelihood and the Viterbi path agree with exact fractions; a two-state and a three-state chain, a Markov-switching regression and a switching autoregression recover their parameters within three standard errors, the path agreeing at 90 to 95 percent of instants; a start listing its states the other way reaches the same states and path; a structural zero is kept with no standard error; a flat transition, a collapsing state (CollapsedStateError, a ConvergenceError) and a fit short of its criterion are refused; every malformed choice is refused. tests/regression/test_econometrics_values_are_pinned.py: both fits agree within 1e-4 and their identities exactly, computed identically under CPython 3.12, 3.13 and 3.14.
 
+### TD-43: Factor research at M6: Fama-MacBeth's two passes in factor_library, principal-component factors in analytics (WS-25, 2026-11-16)
+
+- **Problem:** WS-25's M6 part is Fama-MacBeth and PCA factors, ordinary additions to factor_library and analytics (ADR-0074). Each needs its choices stated, its skips counted, its values host-independent, and a result the rest of the library already reads.
+- **Alternatives:** Fama-MacBeth's standard error: the classic time-series standard deviation over the square root of T, or Newey and West's at a stated lag, which overlapping forward returns need. A cross-section that cannot be regressed: refuse the whole estimate, or skip it and count it. PCA's output: a new factor-model type, or the existing FactorStructure. Its input when singular: regularize quietly, or refuse and let the caller derive a recorded regularization. Its specific variances: the covariance's diagonal less the kept components (which rounding can make negative), or the left-out components' sum (non-negative term by term).
+- **Decision:** Fama-MacBeth regresses each cross-section by M2's least squares over the assets every panel and the returns share, skips and counts a cross-section below minimum_assets or above maximum_condition, and reports each premium's mean with Newey and West's standard error at a stated lag (0 is the classic estimator with the population variance) and its t-statistic. The estimate is class 2; its parameters are named by feature id, and its data identity covers every value read. principal_component_factors requires a positive definite covariance, decomposes it by M2's eigensystem, and returns a FactorStructure: eigenvector loadings named pc_1 to pc_k, zero-padded, a diagonal factor covariance of eigenvalues, and specific variances summed from the left-out components; with the eigenvalues, the explained shares and the eigensystem's report.
+- **Rationale:** Newey-West at a stated lag is the information coefficient's own convention for overlapping returns. Counting skips by reason is the IC's rule: a large count is the finding. A FactorStructure is what construction, the Euler decomposition and factor risk already read, so statistical factors need no new path. Refusing a singular covariance keeps every regularization recorded, as CovarianceMatrix requires.
+- **Compatibility:** Additive: 6 new public names, four in alphalab.factor_library and two in alphalab.analytics (API manifest 3,018 exports). No existing figure or identity moves.
+- **Recorded in:** CHANGELOG; ADR-0074 names these as ordinary additions needing no record of their own.
+- **Tests:** tests/unit/factor_library/test_fama_macbeth.py: each cross-section and the standard error held to rationals; known premiums recovered within three standard errors; skips counted by reason; the data identity moving with one value; every refusal. tests/unit/analytics/test_statistical_factors.py: a closed-form two-asset case; the eigen-equation and orthonormality; every asset's variance kept; isotropic noise in every left-out component; ten factors sorting in order; a singular covariance and counts out of range refused. tests/regression/test_factor_research_values_are_pinned.py: both pinned bit for bit across CPython 3.12, 3.13 and 3.14.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -757,7 +768,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-22 | Live venue controls (FUT-044) | M13 | Not started |
 | WS-23 | Security and trust boundaries | M0, M4 | In progress |
 | WS-24 | Validation over actual backtests | M5 | In progress |
-| WS-25 | Factor and feature research | M6, M11 | Not started |
+| WS-25 | Factor and feature research | M6, M11 | In progress |
 | WS-26 | Per-venue execution (FUT-045) | M8 | Not started |
 | WS-27 | FX and multi-currency correctness | M10 | Not started |
 | WS-28 | Options and futures depth | M10 | Not started |
@@ -961,6 +972,11 @@ Evidence:
 - [Hosted CI passed] M5: The leak tests: a design's purge and embargo in every trial's fit window, a designed experiment's lockbox kept from every trial and read once, ties to the first candidate at every level, a trial that failed mid-window never selected, a candidate incomplete on a fold never selected, a CPCV family read on the path named
 - [Hosted CI passed] M5: S-13: an event-driven alternative-data strategy validated walk-forward over backtests in a ledger, assessed with PBO, SPA and the deflated Sharpe ratio, promoted only on selection-aware evidence; a late revision changes no earlier decision; every event-window variant counted (ADR-0073 settled 17)
 - [Hosted CI passed] M5: The validation guide: docs/EXPERIMENTS.md sections 8 to 11 (designs, windows, purge and embargo, selection, the leaks ruled out, the assessment, the evidence, alternative data)
+
+### WS-25: Factor and feature research
+
+- [Local validation passed] M6: Fama-MacBeth's two passes (TD-43): cross-sectional least squares at each instant over the assets every panel and the returns share, the premiums' means with Newey-West standard errors at a stated lag; too-small and ill-conditioned cross-sections skipped and counted; class 2 with a data identity over every value read; each cross-section and the standard error held to rationals, known premiums recovered, pinned across CPython 3.12, 3.13 and 3.14
+- [Local validation passed] M6: Principal-component factors (TD-43): a positive definite covariance's k largest components as a FactorStructure, eigenvector loadings, eigenvalue variances and the left-out components as specific variances; a singular covariance refused; the eigen-equation, orthonormality, each asset's variance kept and isotropic noise held; class 2, pinned across CPython 3.12, 3.13 and 3.14
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 

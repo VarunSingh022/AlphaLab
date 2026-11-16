@@ -714,6 +714,20 @@ entry below says otherwise.
     The states are ordered by mean, the regression's by variance. The start
     is explicit or `QuantileStart`. A collapsing state is refused with
     `CollapsedStateError`, which names it. Every value is class 3.
+  * **Fama-MacBeth's two passes** [WS-25]. `factor_library.fama_macbeth`
+    regresses the forward returns across assets on several factor panels at
+    each instant, and averages the coefficients over time. Each factor's
+    premium comes with Newey and West's standard error at a stated lag and
+    its t-statistic. A cross-section too small, or one whose design is
+    ill-conditioned, is skipped and counted by its reason. The estimate is
+    class 2, and its data identity covers every value the regressions read.
+  * **Principal-component factors** [WS-25].
+    `analytics.principal_component_factors` keeps a positive definite
+    covariance's `k` largest principal components as a `FactorStructure`:
+    eigenvector loadings, eigenvalue variances, and the left-out components'
+    share of each asset's variance as its specific variance. A singular
+    covariance is refused, for the caller to regularize with a recorded
+    derivation. Every value is class 2.
   * **Johansen's tables, verified.** `johansen_critical_values` and
     `johansen_p_value` read MacKinnon, Haug and Michelis (1996)'s Tables 1 to
     5, decoded from the paper's own text. They are held three ways: by their
