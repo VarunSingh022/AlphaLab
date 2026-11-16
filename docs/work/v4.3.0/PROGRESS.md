@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `a2903ae` |
+| Remote head | `c02a6f5` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M5's close: the VD series' final results recorded, the catchers checked, then M5's hosted CI read; then M6 (WS-07, WS-08). |
+| Next | M6: the econometrics scaffold and unit roots (series identity, MacKinnon's tables, ADF, KPSS, Phillips-Perron); then cointegration, ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screening stage. M5's close closes on hosted CI at the next read. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -119,6 +119,10 @@ Never:
 | `46c947c` | CodeQL | 43730021887 | success |
 | `a2903ae` | CodeQL | 43730879436 | success |
 | `a2903ae` | Continuous Integration | 43730879454 | in progress when read at this boundary: not yet a pass |
+| `a2903ae` | Continuous Integration | 43730879454 | success: all six quality-gate cells, carrying selection-aware promotion evidence |
+| `c02a6f5` | CodeQL | 43777204939 | success |
+| `c02a6f5` | Continuous Integration | 43777204917 | in progress when read at the ADR-0074 boundary: not yet a pass |
+| `c02a6f5` | Benchmarks | 43777238870 | dispatched at M5's checkpoint (plan U.4); in progress when read. M1 to M4's checkpoints did not dispatch it, an omission found at M5 |
 
 ## Continuation log
 
@@ -176,6 +180,7 @@ Never:
 - **2026-11-15** M5b, walk-forward over backtests (f55e4a5), passed the full gate (13,408 tests). M5b and M5c, cross-validation and CPCV over backtests (cc52b7c), passed all six hosted cells and CodeQL; Release Preflight skipped, as on every pull-request push. M5d, the statistics over a ledgered experiment (TD-27), validated locally. Its walk-forward probe found that SPA refuses a candidate that never trades, measured against cash. The assessment now leaves such a member out of each statistic that divides by its dispersion, and names it.
 - **2026-11-15** M5d (46c947c) passed the full gate (13,432 tests) and was pushed. M5e, selection-aware promotion evidence (TD-28), validated locally. A promotion on EXPERIMENT evidence passes a policy over its statistics. Hand-built EXPERIMENT evidence without a whole-number family count is refused under every policy, its thresholds met or not: M5's exit-gate refusal.
 - **2026-11-15** M5e (a2903ae) passed the full gate (13,446 tests) and was pushed; M5d (46c947c) passed hosted CI on all six cells and CodeQL. M5's close: S-13, the leak tests, the VD mutation series, the stated N (ADR-0073 section 7), PBO's budget and the validation and selection-bias guides. The VD series caught 35 of 36 on the tree as it stood. VD21 needed a test, now added, and was caught when run again (test_cv_and_cpcv_over_backtests::test_a_candidate_best_on_every_fold_it_completed_is_still_never_selected). The assessment's mutations were re-run on the final tree: 8 of 8. The assessment's pins were re-made once, before any release, when the stated N joined its identity.
+- **2026-11-16** M5's close (c02a6f5) passed the full gate (13,462 tests) and was pushed. M5e (a2903ae) passed all six hosted cells. The benchmarks workflow was dispatched on the branch at M5's checkpoint, as the plan's U.4 asks; M1 to M4's checkpoints never dispatched it. M6 begins: ADR-0074 (econometrics, OFE-007 reopened) and ADR-0075 (regime models, OFE-010 reopened) accepted under D-V3's delegation (TD-30, TD-31).
 
 ## Milestones
 
@@ -187,8 +192,8 @@ Never:
 | M2 | Hosted CI passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Hosted CI passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Hosted CI passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
-| M5 | Local validation passed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
-| M6 | Not started | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
+| M5 | Pushed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
+| M6 | In progress | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Not started | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Not started | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
 | M9 | Not started | WS-12 | A rebalancing backtest with CVaR, certified |
@@ -209,7 +214,7 @@ Never:
 | 1 | Plan | The master development plan as the implementation blueprint | Approved | G0 | Approved on 2026-11-09 with its 30 workstreams and M0-M13 milestones. Every existing identifier, dependency and acceptance criterion is preserved. The plan may evolve on verified implementation findings; each change is recorded under plan_changes with its reason. |
 | 2 | D-V1 | Universal quantitative-engine charter revision | Approved | G0; its documents in M0 | Reconcile the five documents that state the product's direction -- ROADMAP.md, docs/VISION.md, nowandfuture.md, docs/ARCHITECTURE.md and docs/SYSTEM_DESIGN.md -- around one authoritative product vision, preserving the no-single-runtime architectural boundary. The charter ADR's number waits for item 16. Delivered as ADR-0056 (accepted 2026-11-10). |
 | 3 | D-V2 | Optional, separately installable research and computational dependencies | Approved | M7 | The AlphaLab core stays free of mandatory runtime dependencies; optional packages integrate through stable core interfaces (AC-38). |
-| 4 | D-V3 | Boundary reopenings (plan section P.2) | Delegated (2026-11-10): decided at its milestone | Each before its milestone (M2-M10) | Each reopening gets its own ADR before its milestone. Not to be assumed. |
+| 4 | D-V3 | Boundary reopenings (plan section P.2) | Delegated (2026-11-10): decided at its milestone | Each before its milestone (M2-M10) | Each reopening gets its own ADR before its milestone. Not to be assumed. Decided so far: OFE-007 (a fitted half-life) reopened by ADR-0074, and OFE-010 (statistical regime models) reopened by ADR-0075, both 2026-11-16 (TD-30, TD-31). |
 | 5 | D-V4 | Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0 | Delegated (2026-11-10): decided at its milestone | Before M8 | — |
 | 6 | ADR-0053 | ADR-0053 revised (R53-1..8, CR-53-1..9) | Decided under delegation (2026-11-10) | Before M1 | ADR-0053 revision 3 accepted: the draft's option C-e with R53-1 to R53-8 applied and CR-53-1 to CR-53-9 held, departing from R53-1's letter where TD-06 records. Implemented in M1. |
 | 7 | ADR-0054 | ADR-0054 split into 0054A and 0054B; D-54-5 revised | Delegated (2026-11-10): decided at its milestone | 0054A before M2; 0054B before M4 | 0054A accepted as ADR-0054 on 2026-11-14 (TD-10), applying R54-8, D-54-2, D-54-4 and D-54-12; 0054B, the experiment and trial ledger, is ADR-0072, before M4. |
@@ -532,6 +537,26 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0073-validation-over-backtests.md, settled 15 and its known limitation; ledger FUT-051.
 - **Tests:** tests/integration/test_selection_aware_promotion.py: the evidence carries no deflated Sharpe ratio. S-13 reads the ratio from the assessment, and gates the promotion on the exact statistics. test_every_adr_deferral_is_classified holds ADR-0073's limitation to FUT-051.
 
+### TD-30: ADR-0074 accepted: econometrics, its estimates, and the fitted half-life (OFE-007) reopened (WS-07, 2026-11-16)
+
+- **Problem:** GAP-11: no unit roots, cointegration, ARMA, VAR, GARCH or state space. The plan (H.3, WS-07, N6) asks for a pure econometrics package returning Estimates. It assigns no ADR number. D-V3 asks that each boundary reopening get its own ADR before its milestone, and OFE-007's boundary (a half-life is a model choice quoted as a measurement) waited for ADR-0058's estimation identity.
+- **Alternatives:** Methods inside research, or a package of their own beside common. A data identity the caller types, or one derived from the values. Defaults for lags, deterministic terms and bandwidths, or every choice stated. OFE-007 kept, or reopened as an estimate of a named model.
+- **Decision:** A pure alphalab.econometrics importing only common. Every fit is an Estimate; every test returns its statistic, the critical values with their source, the p-value with how it was computed, and its regression's Estimate. The data's identity is derived from the values. Every choice is stated. Results are classed by ADR-0058: least-squares statistics, response-surface critical values and Johansen's eigenvalues are class 2 and in identities; likelihood fits, Johansen's statistics and normal-based p-values are class 3, beside them. MacKinnon's 2010 response surfaces and 1994 p-value approximations, and KPSS's table, are published constants held to their tables. OFE-007 is reopened as the Ornstein-Uhlenbeck fit: a class-2 AR(1) estimate and a class-3 continuous-time estimate with the half-life and its standard error; a coefficient outside (0, 1) is refused. S-02's screen counts every pair, states its correction, and feeds a ledgered experiment whose runner fits on its own window.
+- **Rationale:** A model's choices change its answer, so they are stated, as ADR-0054 states the selection statistics'. A typed identity is only as true as the typing (ADR-0017). A half-life is reportable once it says what model it estimates and how precisely.
+- **Compatibility:** Additive: a new package and a research function. factor_library.decay and every identity are unchanged.
+- **Recorded in:** docs/ADR/0074-econometrics-time-series-estimation-with-an-identity.md.
+- **Tests:** M6's: known-DGP recovery for every model, MacKinnon's published critical values reproduced to three decimals, the refusals, the GARCH and Johansen budgets, and S-02's screening stage.
+
+### TD-31: ADR-0075 accepted: statistical regime models (OFE-010) reopened (WS-07, 2026-11-16)
+
+- **Problem:** OFE-010 kept hidden Markov and Markov-switching models out because an estimation model with a fitting window had no identity. ADR-0058 supplied one. D-V3 asks for an ADR per reopening.
+- **Alternatives:** Keep the boundary; reopen in research beside the declared rules; or reopen in econometrics as estimators returning Estimates, with the declared rules unchanged. Automatic restarts from several points, or one start per fit. A variance floor for a collapsing state, or a refusal.
+- **Decision:** Reopen in econometrics.regimes: a univariate GaussianHMM by Baum-Welch (scaled forward-backward), and a MarkovSwitchingRegression by Hamilton's filter and Kim's smoother. K, the start (explicit or a named rule), the tolerance and the limit are stated. One start per fit, with no hidden search. A collapsing state, too little data and non-convergence are refused. States are labelled by ascending mean (ascending variance for the regression). Everything passes through exp and log, class 3, beside the identity, which covers the problem. Multivariate emissions are deferred as FUT-052.
+- **Rationale:** The boundary's reason is met. The declared rules remain the engine's regime layer, and a decoded path is labels a caller may hand to research. A restart loop hidden inside an estimator would be an uncounted search.
+- **Compatibility:** Additive. research.regimes and every identity are unchanged.
+- **Recorded in:** docs/ADR/0075-statistical-regime-models-with-an-identity.md; ledger FUT-052.
+- **Tests:** Simulated regime recovery, and forward-backward probabilities checked against exact hand computation on small chains.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -555,7 +580,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-04 | Streaming research-result capture | M3 | In progress |
 | WS-05 | Experiment and trial ledger, executor, runner registry | M4 | In progress |
 | WS-06 | Statistical research functions | M2, M3, M5 | In progress |
-| WS-07 | Econometrics and time series | M6 | Not started |
+| WS-07 | Econometrics and time series | M6 | In progress |
 | WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | Not started |
 | WS-09 | Optional distributions and backends | M7, M11 | Not started |
 | WS-10 | Strategy authoring and safe extensibility | M8 | Not started |
@@ -688,13 +713,18 @@ Evidence:
 - [Hosted CI passed] M2: MinTRL and the autocorrelation-adjusted PSR
 - [Hosted CI passed] M3: The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history
 - [Pushed] M5: The statistics over a ledgered experiment: trial_matrix_of and assess_experiment -- PBO, the deflated Sharpe ratio, the Reality Check and SPA over each design's family, members without a dispersion left out and named (TD-27, ADR-0073 settled 11-14)
-- [Local validation passed] M5: PBO's budget: benchmarks/benchmark_selection_statistics.py, S = 16 over 100 trials x 2,520 periods, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio against 60 s (ADR-0073 settled 18)
-- [Local validation passed] M5: The selection-bias guide: docs/SELECTION_BIAS.md -- what PBO, the deflated Sharpe ratio, the Reality Check, SPA and MinTRL each measure, assume and do not say; none is a probability of loss (RK-08)
+- [Pushed] M5: PBO's budget: benchmarks/benchmark_selection_statistics.py, S = 16 over 100 trials x 2,520 periods, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio against 60 s (ADR-0073 settled 18)
+- [Pushed] M5: The selection-bias guide: docs/SELECTION_BIAS.md -- what PBO, the deflated Sharpe ratio, the Reality Check, SPA and MinTRL each measure, assume and do not say; none is a probability of loss (RK-08)
 
 Evidence:
 
 - research.selection (TrialMatrix, probability_of_backtest_overfitting, minimum_track_record_length, autocorrelation_adjusted_probabilistic_sharpe_ratio), research.data_snooping (reality_check, superior_predictive_ability) and research.perturbation.stationary_bootstrap_indices, pure over common. tests/unit/research/test_selection_statistics.py (50) and test_data_snooping.py (30): PBO equal to an exact-enumeration oracle (every split, means and Sharpe ratios compared in Fraction over integer data) for both measures and four shapes, trimming from either end held to the oracle on the trimmed data, a dominant trial at 0, identical trials at 1 (the lambda <= 0 convention); the Reality Check equal to its exact recomputation from the same positions; SPA's p_lower <= p_consistent <= p_upper over six seeds, and a hopeless model leaving p_lower and p_consistent unchanged while p_upper rises (Hansen's point); MinTRL's identity PSR = 1 - alpha at MinTRL observations; the adjusted PSR equal to the independent one at no lags and moving the standard error the way AR(1) dependence must; the bootstrap's continuation rate, uniform starts at q = 1, replication independence and its first draw recomputed from the stated scheme; pins identical under CPython 3.12.4, 3.13.18 and 3.14.10. Found while testing: comparing means after a division by the block length let rounding break exact ties the oracle kept; the mean is now compared by its exactly rounded sum.
 - lifecycle.assessment (M5): trial_matrix_of reads an experiment's family from the ledger, and assess_experiment returns PBO, the deflated Sharpe ratio, the Reality Check and SPA over it, with the family count. tests/integration/test_experiment_assessment.py (15) and tests/unit/lifecycle/test_assessment_members.py (5). Each statistic equals research's own called by hand. A full-sample family's identity is the record's matrix_id (3d8b86b2...). The walk-forward reference experiment's squeeze candidate never trades in a window: it is left out of the deflation and of SPA against cash, and named in both. The reference assessments' identities are identical under CPython 3.12.4, 3.13.18 and 3.14.10, and so are their exact PBO, Reality Check and SPA fractions.
+
+### WS-07: Econometrics and time series
+
+- [Local validation passed] M6: ADR-0074 accepted (TD-30): the econometrics package, its estimates and stated choices, the numerical classes of its results, MacKinnon's tables, OFE-007 reopened as the Ornstein-Uhlenbeck fit, and S-02's screen
+- [Local validation passed] M6: ADR-0075 accepted (TD-31): statistical regime models, OFE-010 reopened (GaussianHMM, MarkovSwitchingRegression); multivariate emissions FUT-052
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -754,9 +784,9 @@ Evidence:
 - [Hosted CI passed] M5: Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)
 - [Hosted CI passed] M5: CV and CPCV over backtests: every candidate on every fold or test group, CPCV's paths joined per candidate, the experiment's selection by the mean score over every fold or path (ADR-0073 settled 10)
 - [Pushed] M5: Promotion's selection-aware evidence: ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, every policy refusing EXPERIMENT evidence without it (TD-28, ADR-0073 settled 15)
-- [Local validation passed] M5: The leak tests: a design's purge and embargo in every trial's fit window, a designed experiment's lockbox kept from every trial and read once, ties to the first candidate at every level, a trial that failed mid-window never selected, a candidate incomplete on a fold never selected, a CPCV family read on the path named
-- [Local validation passed] M5: S-13: an event-driven alternative-data strategy validated walk-forward over backtests in a ledger, assessed with PBO, SPA and the deflated Sharpe ratio, promoted only on selection-aware evidence; a late revision changes no earlier decision; every event-window variant counted (ADR-0073 settled 17)
-- [Local validation passed] M5: The validation guide: docs/EXPERIMENTS.md sections 8 to 11 (designs, windows, purge and embargo, selection, the leaks ruled out, the assessment, the evidence, alternative data)
+- [Pushed] M5: The leak tests: a design's purge and embargo in every trial's fit window, a designed experiment's lockbox kept from every trial and read once, ties to the first candidate at every level, a trial that failed mid-window never selected, a candidate incomplete on a fold never selected, a CPCV family read on the path named
+- [Pushed] M5: S-13: an event-driven alternative-data strategy validated walk-forward over backtests in a ledger, assessed with PBO, SPA and the deflated Sharpe ratio, promoted only on selection-aware evidence; a late revision changes no earlier decision; every event-window variant counted (ADR-0073 settled 17)
+- [Pushed] M5: The validation guide: docs/EXPERIMENTS.md sections 8 to 11 (designs, windows, purge and embargo, selection, the leaks ruled out, the assessment, the evidence, alternative data)
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
@@ -859,3 +889,5 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | ADR-0070 | Depth protocol and microstructure (reopens BDY-003; ns time stays 5.0) | WS-17 | After M13 | Not drafted in the repository |
 | ADR-0071 | Release integrity and guarded publication | WS-29 | G0 | Not drafted in the repository |
 | ADR-0073 | Validation over backtests: designs, folds, a declared warm-up and selection-aware evidence | WS-24 | Before M5 | Accepted (2026-11-15) |
+| ADR-0074 | Econometrics: time-series estimation with an identity, and the fitted half-life (OFE-007 reopened) | WS-07 | Before M6 | Accepted (2026-11-16) |
+| ADR-0075 | Statistical regime models: hidden Markov and Markov-switching estimation with an identity (OFE-010 reopened) | WS-07 | Before M6 | Accepted (2026-11-16) |
