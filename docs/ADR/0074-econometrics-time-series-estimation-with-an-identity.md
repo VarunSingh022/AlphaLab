@@ -244,6 +244,34 @@ Building M6 settled these points, each held by a test
 8. **The largest condition number is an argument.** Every regression takes it,
    as M2's least squares does. Classical standard errors come from `X'X`,
    summed exactly and inverted through its Cholesky factor (class 2).
+9. **Engle and Granger's test has a constant at least.**
+   * **Two regressions.** The cointegrating regression puts the dependent
+     series on its deterministic terms and one to eleven other series. The
+     residuals' Dickey-Fuller regression has no deterministic terms, because
+     the first regression already removed them.
+   * **The tables.** MacKinnon tabulates the residual test by the number of
+     series in the first regression and by its deterministic terms. He
+     publishes the no-constant case for one series only, so a cointegrating
+     regression without a constant is refused.
+   * **The p-value.** MacKinnon (1994)'s approximation covers up to six
+     series. From seven to twelve, the critical values stand alone and the
+     p-value is `None`.
+   * **Identities.** The cointegrating regression's identity is the series',
+     in order: y on x is not x on y. The residual regression's identity is the
+     residuals'.
+   * **A dependent regressor is refused as ill-conditioned.** Building this
+     test found that M2's least squares raised a non-convergence for a
+     regressor beside a multiple of itself, where its contract promises
+     `IllConditionedError`. That was fixed in M2's one-sided Jacobi, with every
+     converging input unchanged (ledger NUM-018).
+10. **The same bits on every host.** Every statistic above is class 2, and the
+    tests pin the statistics, hedge ratios, critical values and estimate
+    identities, computed identically under CPython 3.12, 3.13 and 3.14. The
+    pinned series are built by integer arithmetic and correctly rounded
+    operations, never by a seeded `gauss`, whose logarithm and cosine are the
+    host's (`tests/regression/test_econometrics_values_are_pinned.py`).
+    MacKinnon's p-values pass through the normal distribution (class 3), so
+    they are held by a tolerance instead.
 
 # Compatibility
 

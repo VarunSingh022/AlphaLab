@@ -1459,16 +1459,21 @@
         {
           "milestone": "M6",
           "item": "ADR-0074 accepted (TD-30): the econometrics package, its estimates and stated choices, the numerical classes of its results, MacKinnon's tables, OFE-007 reopened as the Ornstein-Uhlenbeck fit, and S-02's screen",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M6",
           "item": "ADR-0075 accepted (TD-31): statistical regime models, OFE-010 reopened (GaussianHMM, MarkovSwitchingRegression); multivariate emissions FUT-052",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M6",
           "item": "The econometrics package and its unit-root tests: series identities; MacKinnon's 2010 response surfaces generated from the paper and MacKinnon's 1994 p-values and KPSS's table held to their published values; augmented Dickey-Fuller, Phillips-Perron and KPSS with every choice stated (ADR-0074 settled 1-8)",
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M6",
+          "item": "Engle and Granger's test: the cointegrating regression (a constant at least, one to eleven regressors, the series' identity in order) and the residuals' Dickey-Fuller test with MacKinnon (2010)'s critical values and (1994)'s p-value up to six series; a pair recovered, independent walks at their nominal size, both steps held to exact arithmetic; the econometrics statistics and identities pinned across hosts",
           "status": "Local validation passed"
         }
       ],
@@ -3444,6 +3449,10 @@
     {
       "date": "2026-11-16",
       "entry": "61b4793 passed all six hosted cells and CodeQL. Its benchmarks run (43794814136, six cells) passed PC-07 on Linux under every interpreter, at 7.0 to 10.5 percent, where ce20731 had read up to 16.8 on 3.12. On macOS, measured for the first time, two cells exceeded the ceiling on figures that cannot all be true: a failed gate on each, recorded as such. The same runners failed an order book's scaling and a reused worker's budget, never judged there before, on readings of the same kind. The capture benchmark now keeps the fastest of nine samples, and macOS runs only that benchmark (TD-35); limits and coverage unchanged."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "Engle and Granger's test validated locally: a cointegrated pair found and its hedge ratio recovered, 150 pairs of independent walks rejected at the nominal 5 percent within three deviations, both regressions held to exact rational arithmetic, every refusal held (a dependent regressor now refused as ill-conditioned, NUM-018). The econometrics statistics, hedge ratios, critical values and estimate identities are pinned, computed identically under CPython 3.12, 3.13 and 3.14."
     }
   ]
 }

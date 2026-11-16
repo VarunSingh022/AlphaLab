@@ -20,6 +20,9 @@ Delivered so far
   held to its published values.
 * :mod:`~alphalab.econometrics.unit_root`: the augmented Dickey-Fuller,
   Phillips-Perron and KPSS tests.
+* :mod:`~alphalab.econometrics.cointegration`: Engle and Granger's two-step
+  test. Its cointegrating regression is the combination tested: for a pair,
+  the hedge ratio.
 
 Every choice is stated
 ----------------------
@@ -29,6 +32,12 @@ are arguments, never defaults. What an estimator cannot take is refused before
 it runs: a non-finite value, a sample too short, an ill-conditioned design.
 """
 
+from alphalab.econometrics.cointegration import (
+    ENGLE_GRANGER_METHOD,
+    ENGLE_GRANGER_RESIDUAL_METHOD,
+    CointegrationTest,
+    engle_granger,
+)
 from alphalab.econometrics.critical_values import (
     KPSS_1992,
     LEVELS,
@@ -72,6 +81,8 @@ from alphalab.econometrics.unit_root import (
 
 __all__ = [
     "ADF_METHOD",
+    "ENGLE_GRANGER_METHOD",
+    "ENGLE_GRANGER_RESIDUAL_METHOD",
     "KPSS_1992",
     "KPSS_METHOD",
     "LEVELS",
@@ -82,6 +93,7 @@ __all__ = [
     "SERIES_SCHEME",
     "SYSTEM_SCHEME",
     "Bandwidth",
+    "CointegrationTest",
     "CriticalValues",
     "Deterministic",
     "EconometricsError",
@@ -97,6 +109,7 @@ __all__ = [
     "SelectedLags",
     "UnitRootTest",
     "augmented_dickey_fuller",
+    "engle_granger",
     "kpss",
     "kpss_critical_values",
     "kpss_p_value",

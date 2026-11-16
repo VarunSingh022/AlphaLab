@@ -7003,7 +7003,7 @@ findings:
     rationale: "Zeroing such a column moves the matrix by less than the error bound the sweeps already carry, so the singular values reported are those of a matrix the computation cannot tell from the input; the dependent design is then refused as rank deficient, which is what the contract states."
     release: "v4.3.0"
     implementation_status: "implemented (v4.3.0)"
-    test_status: "tests/unit/common/test_linalg.py (the captured factor's singular values held to their closed form within the bound; 200 dependent designs each refused as ill-conditioned)"
+    test_status: "tests/unit/common/test_linalg.py (the captured factor's singular values held to their closed form within the bound; 200 dependent designs each refused as ill-conditioned); tests/unit/econometrics/test_cointegration.py (Engle-Granger refuses collinear regressors)"
     benchmark_status: "n/a"
     documentation_status: "CHANGELOG [4.3.0] (Fixed)"
     api_impact: "none"

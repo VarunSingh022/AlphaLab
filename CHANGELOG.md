@@ -623,9 +623,9 @@ entry below says otherwise.
   `docs/SELECTION_BIAS.md` says what PBO, the deflated Sharpe ratio, the
   Reality Check, SPA and MinTRL each measure, assume and do not say. None is a
   probability of loss.
-* **Econometrics: unit-root tests and their published tables** [plan WS-07,
-  N6, GAP-11, ADR-0074]. A new package, `alphalab.econometrics`, imports only
-  `alphalab.common`.
+* **Econometrics: unit-root and cointegration tests and their published
+  tables** [plan WS-07, N6, GAP-11, ADR-0074]. A new package,
+  `alphalab.econometrics`, imports only `alphalab.common`.
   * **A series' identity.** `series_identity` and `system_identity` derive the
     data's identity from its values, never from a name.
   * **Published tables.** `critical_values` holds MacKinnon (2010)'s response
@@ -640,6 +640,20 @@ entry below says otherwise.
   * **A transcription's errors, found.** The 2010 tables were generated from
     the paper itself. A widely used transcription differs from it in four
     rows, and the tests pin each to the paper.
+  * **Engle and Granger's test.** `engle_granger` regresses one series on one
+    to eleven others, with a constant at least, and tests the residuals for a
+    unit root with no deterministic terms. Its `CointegrationTest` returns:
+    * the t-statistic;
+    * MacKinnon (2010)'s critical values for the number of series;
+    * MacKinnon (1994)'s p-value, up to six series (beyond that, only the
+      critical values are published and the p-value is `None`);
+    * both regressions' `Estimate`s. The cointegrating regression's
+      `beta_1` is a pair's hedge ratio, and its identity is the series' in
+      order: y on x is not x on y.
+  * **The same bits on every host.** The tests' statistics, hedge ratios,
+    critical values and estimate identities are pinned, computed identically
+    under CPython 3.12, 3.13 and 3.14
+    (`tests/regression/test_econometrics_values_are_pinned.py`).
 
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
