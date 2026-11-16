@@ -622,6 +622,23 @@ entry below says otherwise.
   `docs/SELECTION_BIAS.md` says what PBO, the deflated Sharpe ratio, the
   Reality Check, SPA and MinTRL each measure, assume and do not say. None is a
   probability of loss.
+* **Econometrics: unit-root tests and their published tables** [plan WS-07,
+  N6, GAP-11, ADR-0074]. A new package, `alphalab.econometrics`, imports only
+  `alphalab.common`.
+  * **A series' identity.** `series_identity` and `system_identity` derive the
+    data's identity from its values, never from a name.
+  * **Published tables.** `critical_values` holds MacKinnon (2010)'s response
+    surfaces, MacKinnon (1994)'s p-value approximations and KPSS (1992)'s table,
+    each held to its published values. Beyond a table, a p-value is a bound
+    (`PBound`), never extrapolated.
+  * **The tests.** `augmented_dickey_fuller`, `phillips_perron` and `kpss` take
+    every choice stated: the deterministic terms, the lags or the criterion
+    choosing them, the bandwidth (fixed, or Schwert's exactly) and the largest
+    condition number. Each returns its statistic, critical values, p-value,
+    and its regression's `Estimate`.
+  * **A transcription's errors, found.** The 2010 tables were generated from
+    the paper itself. A widely used transcription differs from it in four
+    rows, and the tests pin each to the paper.
 
 ## Changed
 

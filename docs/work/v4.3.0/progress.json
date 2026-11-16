@@ -862,7 +862,7 @@
       "deliverables": "WF, CV and CPCV over backtests; promotion `ValidationMethod`; ledger DSR, SPA, PBO",
       "exit_gate": "S-13; leak mutants caught; promotion refusal",
       "size": "L",
-      "status": "Pushed",
+      "status": "Hosted CI passed",
       "evidence": [
         "Exit gate, S-13: tests/integration/test_event_driven_alt_data.py over tests/integration/event_workload.py. An event-driven strategy trades surprises delivered at the instant each was published. Its eight event-window variants run walk-forward over backtests in a ledger, three folds, 27 trials counted: every variant in every fold, and each fold's selection on its test window. Each vintage reached the strategy when published and never before, and what was published before a run began was never traded. The search is assessed with PBO (1/10), SPA (p_consistent 0) and the deflated Sharpe ratio (N = 6, the two window-1 variants flat and named). It is promoted on EXPERIMENT evidence, and the same statistics without the family count are refused.",
         "Exit gate, a late revision changes no earlier decision: the experiment run twice, the surprise at 24's second vintage (published at 47.5) flipping its sign or confirming it. The information set enters the experiment's identity, so the runs are two experiments, matched by candidate, fold and phase. Every decision, every period's return and every selection made before 47.5 is equal in both. Only the selection of fold 2, whose window holds 47.5, differs, with its test-window trial (ADR-0073 settled 17).",
@@ -873,7 +873,9 @@
         "WS-06 item 15, PBO with S = 16 over 100 trials of 2,520 periods at most 60 s: benchmarks/benchmark_selection_statistics.py, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio (fastest of three, collector paused). The Reality Check and SPA at B = 500 take 6.8 s each, printed, not judged.",
         "Guides: docs/EXPERIMENTS.md sections 8 to 11 (WS-24's validation guide), and docs/SELECTION_BIAS.md (WS-06's selection-bias guide), which reads each statistic without a probability of loss (RK-08).",
         "Mutation series VD (WS-24, WS-06), 36 mutations, each caught -- the history below says on which tree -- by: VD01 (the lockbox reused: a design splits the lockbox's instants into folds): test_walk_forward_over_backtests::test_a_designed_experiments_lockbox_is_held_back_from_every_trial_and_read_once (added for it); VD02 (the embargo off: a design's purge policy embargoes nothing): test_validation_designs::test_a_designs_purge_and_embargo_reach_every_trials_fit_window (added for it); VD03 (the warm-up scored: a window short of its warm-up scores what it warmed up on): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean; VD04 (a trial's warm-up starts an instant late): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean; VD05 (a window left one instant to score is accepted): test_validation_designs::test_a_design_that_cannot_split_the_sample_says_why; VD06 (a refit on train and validation fits the selection on train alone): test_walk_forward_over_backtests::test_refitting_on_train_and_validation_fits_the_selection_on_both; VD07 (a walk-forward fold selects on its test window): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean (the window line is shared by walk-forward and cross-validated designs); VD08 (a CPCV split's test groups are one trial): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample; VD09 (the warm-up leaves a walk-forward experiment's identity): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice (the walk-forward experiment's identity no longer moves with its warm-up, so its pin moves); VD10 (a purge boundary off by one: a CPCV test group's span begins at its second instant): test_experiment_assessment::test_a_cpcv_family_reads_the_named_path_when_paths_differ (a fitting runner's paths move with the purged fit windows); test_validation_designs' purge test, added for it, holds the boundary directly; VD11 (a CPCV split trains on its own test groups): test_experiment_assessment::test_a_cpcv_family_reads_the_named_path_when_paths_differ; VD12 (a CPCV path takes every group from the same split): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample; VD13 (CPCV's last group drops the remainder): test_combinatorial_cv::test_every_group_is_tested_c_n_minus_1_k_minus_1_times_and_every_path_covers_all[6-2]; VD14 (the warm-up scored: a trial's series keeps the periods of its warm-up): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample (the groups' series overlap, so no path joins); VD15 (a trial runs past its window's end): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean; VD16 (a fold selects a candidate whose trial did not complete, but left a series): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice (a fold selected a strategy failure scoring as the squeeze candidate, first of equals); test_walk_forward_over_backtests::test_a_trial_that_failed_mid_window_is_never_selected_on_its_partial_series was added for it; VD17 (a fold's tie goes to the last candidate): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (added for it); VD18 (the mean selection's tie goes to the last candidate): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (added for it); VD19 (series that do not tile the sample are joined over the gap): test_experiment_assessment::test_windows_that_do_not_tile_the_sample_have_no_family[gaps]; VD20 (the out-of-sample series joins the folds' test windows in reverse): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice (no out-of-sample series joins, so the record's identity moves); VD21 (a candidate that did not complete in every fold is eligible): test_cv_and_cpcv_over_backtests::test_a_candidate_best_on_every_fold_it_completed_is_still_never_selected (added for it: the first run's test could not see it, the incomplete candidate's reduced mean falling below the selection's); VD22 (a CPCV path joins its groups out of order): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample; VD23 (a full-sample record writes the selections it does not have): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice; VD24 (a spawned worker holds no test-window trial): test_walk_forward_over_backtests::test_a_spawned_walk_forward_experiment_is_the_sequential_one; VD25 (a member without a dispersion is given a Sharpe ratio): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (research refuses the flat member's Sharpe ratio); VD26 (SPA tests a member whose relative performance is constant): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (research refuses the constant member); VD27 (the deflation's N is one short of the members with a Sharpe ratio): test_event_driven_alt_data::test_the_search_is_assessed_and_promoted_only_on_selection_aware_evidence on the final tree (its N of 6), test_experiment_assessment::test_the_statistics_are_researchs_own_over_the_family on the first; VD28 (the assessment's identity leaves out the bootstrap's seed): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice; VD29 (the benchmark is not subtracted from the family): test_experiment_assessment::test_a_benchmark_that_is_a_candidates_own_leaves_that_candidate_out_of_spa; VD30 (a walk-forward family joins a candidate that failed in a fold): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (the joined history of a failed fold is refused); VD31 (a CPCV family reads the first path, whichever is named): test_experiment_assessment::test_a_cpcv_family_reads_the_named_path_when_paths_differ (added for it); VD32 (the assessment selects the last of equals): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (added for it); VD33 (EXPERIMENT evidence without its family count passes a policy): test_selection_aware_promotion::test_experiment_evidence_without_its_family_count_is_never_promoted[absent]; VD34 (a fractional family count passes): test_selection_aware_promotion::test_experiment_evidence_without_its_family_count_is_never_promoted[fraction]; VD35 (the family count leaves out the trials that did not complete): test_selection_aware_promotion::test_experiment_evidence_states_the_search_beside_its_statistics; VD36 (evidence is made from the assessment of another record): test_selection_aware_promotion::test_evidence_is_of_its_own_experiment_and_record.",
-        "Mutation history: the first run caught 35 of 36 on the tree as it stood. VD21 survived: under it, the cross-validation test's incomplete candidate scored a reduced mean below the selection's, so the selection did not change. A candidate strongest on every fold it completed is now never selected, and VD21 and VD16 were run again: both caught. VD16 had been caught through the pinned walk-forward identity -- a fold selected a strategy failure tied with the squeeze candidate, first of equals -- and its direct test, a trial failing mid-window with the best partial series, was added beside it. The stated N then changed the assessment, so VD27 was retargeted and VD25 to VD32 were run on the final tree (8 of 8 caught, by the same tests as on the first run, except VD27's, now S-13's own). The other mutations target code unchanged since their run. Baselines: 13,360 and 13,367 passed, 90 deselected (the tests that read a clock, and the certificate's source digest)."
+        "Mutation history: the first run caught 35 of 36 on the tree as it stood. VD21 survived: under it, the cross-validation test's incomplete candidate scored a reduced mean below the selection's, so the selection did not change. A candidate strongest on every fold it completed is now never selected, and VD21 and VD16 were run again: both caught. VD16 had been caught through the pinned walk-forward identity -- a fold selected a strategy failure tied with the squeeze candidate, first of equals -- and its direct test, a trial failing mid-window with the best partial series, was added beside it. The stated N then changed the assessment, so VD27 was retargeted and VD25 to VD32 were run on the final tree (8 of 8 caught, by the same tests as on the first run, except VD27's, now S-13's own). The other mutations target code unchanged since their run. Baselines: 13,360 and 13,367 passed, 90 deselected (the tests that read a clock, and the certificate's source digest).",
+        "Hosted CI: d2e4359 (designs), f55e4a5 (walk-forward), cc52b7c (CV and CPCV), 46c947c (the assessment; its pins held on Linux and macOS), a2903ae (selection-aware evidence) and c02a6f5 (M5's close: S-13, the VD series, the stated N) each passed all six quality-gate cells -- Linux and macOS, CPython 3.12, 3.13 and 3.14 -- and CodeQL. Release Preflight is skipped by design and not counted.",
+        "WS-06 item 15 on hosted runners (the benchmarks workflow, dispatched at M5's checkpoint, run 43777238870): PBO with S = 16 over 100 trials of 2,520 periods took 1.85 and 6.41 CPU s on CPython 3.13 and 2.84 and 9.86 on 3.14, within 60. On 3.12 the job stopped at an earlier benchmark (capture, PC-07's ceiling: the log's open question), so it did not run there; that is not a pass."
       ]
     },
     {
@@ -1356,17 +1358,17 @@
         {
           "milestone": "M5",
           "item": "The statistics over a ledgered experiment: trial_matrix_of and assess_experiment -- PBO, the deflated Sharpe ratio, the Reality Check and SPA over each design's family, members without a dispersion left out and named (TD-27, ADR-0073 settled 11-14)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M5",
           "item": "PBO's budget: benchmarks/benchmark_selection_statistics.py, S = 16 over 100 trials x 2,520 periods, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio against 60 s (ADR-0073 settled 18)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M5",
           "item": "The selection-bias guide: docs/SELECTION_BIAS.md -- what PBO, the deflated Sharpe ratio, the Reality Check, SPA and MinTRL each measure, assume and do not say; none is a probability of loss (RK-08)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": [
@@ -1390,6 +1392,11 @@
         {
           "milestone": "M6",
           "item": "ADR-0075 accepted (TD-31): statistical regime models, OFE-010 reopened (GaussianHMM, MarkovSwitchingRegression); multivariate emissions FUT-052",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M6",
+          "item": "The econometrics package and its unit-root tests: series identities; MacKinnon's 2010 response surfaces generated from the paper and MacKinnon's 1994 p-values and KPSS's table held to their published values; augmented Dickey-Fuller, Phillips-Perron and KPSS with every choice stated (ADR-0074 settled 1-8)",
           "status": "Local validation passed"
         }
       ],
@@ -1680,22 +1687,22 @@
         {
           "milestone": "M5",
           "item": "Promotion's selection-aware evidence: ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, every policy refusing EXPERIMENT evidence without it (TD-28, ADR-0073 settled 15)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M5",
           "item": "The leak tests: a design's purge and embargo in every trial's fit window, a designed experiment's lockbox kept from every trial and read once, ties to the first candidate at every level, a trial that failed mid-window never selected, a candidate incomplete on a fold never selected, a CPCV family read on the path named",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M5",
           "item": "S-13: an event-driven alternative-data strategy validated walk-forward over backtests in a ledger, assessed with PBO, SPA and the deflated Sharpe ratio, promoted only on selection-aware evidence; a late revision changes no earlier decision; every event-window variant counted (ADR-0073 settled 17)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M5",
           "item": "The validation guide: docs/EXPERIMENTS.md sections 8 to 11 (designs, windows, purge and embargo, selection, the leaks ruled out, the assessment, the evidence, alternative data)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -1788,8 +1795,8 @@
       "id": "GAP-02",
       "problem": "Validation not over backtests",
       "severity": "C/P0",
-      "status": "Open",
-      "status_note": "",
+      "status": "Closed",
+      "status_note": "Closed at M5 (WS-24, ADR-0073): walk-forward, purged and embargoed cross-validation and CPCV run over backtests in the ledger, each trial restricted to its warm-up and window and the warm-up never scored; the selections recorded, every trial counted; the search's statistics read from the ledger; promotion refuses EXPERIMENT evidence without its family count. S-13 and the leak mutants hold it. Passed on hosted CI, all six cells, on c02a6f5.",
       "workstreams": [
         "WS-24"
       ],
@@ -2619,7 +2626,7 @@
   },
   "state": {
     "updated": "2026-11-15",
-    "remote_head": "c02a6f5",
+    "remote_head": "e2e710d",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3047,11 +3054,37 @@
         "workflow": "Benchmarks",
         "run": 43777238870,
         "result": "dispatched at M5's checkpoint (plan U.4); in progress when read. M1 to M4's checkpoints did not dispatch it, an omission found at M5"
+      },
+      {
+        "sha": "c02a6f5",
+        "workflow": "Continuous Integration",
+        "run": 43777204917,
+        "result": "success: all six quality-gate cells, carrying M5's close"
+      },
+      {
+        "sha": "c02a6f5",
+        "workflow": "Benchmarks",
+        "run": 43777238870,
+        "result": "failure: on CPython 3.12, benchmark_capture measured series and trace at +15.0% at a trade every 4 records (12.9 to 14.8 at the other densities), over PC-07's 15% ceiling, a failed performance gate for the owner; the job stopped there, so the later benchmarks did not run on 3.12. CPython 3.13 (13.4 to 13.9%) and 3.14 (10.7 to 14.4%) passed every benchmark"
+      },
+      {
+        "sha": "e2e710d",
+        "workflow": "Continuous Integration",
+        "run": 43778559356,
+        "result": "success: all six quality-gate cells, carrying ADR-0074 and ADR-0075"
+      },
+      {
+        "sha": "e2e710d",
+        "workflow": "CodeQL",
+        "run": 43778559386,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M6: the econometrics scaffold and unit roots (series identity, MacKinnon's tables, ADF, KPSS, Phillips-Perron); then cointegration, ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screening stage. M5's close closes on hosted CI at the next read.",
-    "open_questions": []
+    "next": "M6: cointegration (Engle-Granger, Johansen, VECM), ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screening stage. In parallel: output-identical speedups of the capture trace's writer for PC-07's ceiling on hosted runners.",
+    "open_questions": [
+      "PC-07's ceiling on hosted runners (2026-11-16): the benchmarks workflow measured a capture's series and trace at +15.0% of the run on CPython 3.12 (Ubuntu) at one trade density, over the 15% ceiling, and 10.7 to 14.8% elsewhere; locally 12.1 to 13.3%. Under PC-07 this is a failed gate brought to the owner. Meanwhile, output-identical speedups of the trace's writer, the remedy PC-07 allows, are being sought; nothing in the trace's coverage or the limit is changed."
+    ]
   },
   "log": [
     {
@@ -3273,6 +3306,10 @@
     {
       "date": "2026-11-16",
       "entry": "M5's close (c02a6f5) passed the full gate (13,462 tests) and was pushed. M5e (a2903ae) passed all six hosted cells. The benchmarks workflow was dispatched on the branch at M5's checkpoint, as the plan's U.4 asks; M1 to M4's checkpoints never dispatched it. M6 begins: ADR-0074 (econometrics, OFE-007 reopened) and ADR-0075 (regime models, OFE-010 reopened) accepted under D-V3's delegation (TD-30, TD-31)."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "M5 closed on hosted CI: its close (c02a6f5) passed all six cells and CodeQL, as did ADR-0074 and ADR-0075 (e2e710d); GAP-02 closed. The benchmarks workflow, dispatched at M5's checkpoint, failed on CPython 3.12: the capture benchmark measured series and trace at +15.0% of a run at one density, over PC-07's 15% ceiling, a failed gate for the owner (the open question); 3.13 and 3.14 passed every benchmark. M6's first part validated locally: the econometrics package, MacKinnon's and KPSS's tables and the ADF, Phillips-Perron and KPSS tests. MacKinnon (2010)'s tables were generated from the paper itself; a widely used transcription of them differs from the paper in four rows, which the tests pin to the paper."
     }
   ]
 }

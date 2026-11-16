@@ -202,6 +202,49 @@ with a family correction. It holds as follows.
   Johansen with five series at most 2, in pure Python (plan WS-07 item 15),
   each judged by a benchmark.
 
+# Settled at implementation (2026-11-16)
+
+Building M6 settled these points, each held by a test
+(`tests/unit/econometrics/`).
+
+1. **MacKinnon (2010)'s tables are the paper's.**
+   * **Generated, not typed.** The response surfaces were extracted from the
+     paper's text and generated into the module, never typed by hand.
+   * **Checked twice.** They were checked row by row against an independent,
+     widely used transcription. That transcription differs from the paper in
+     four rows of the constant case: a β2 printed -33.527 for -22.527 (N = 2,
+     1 percent); β1 a digit off twice (N = 3 and 5, 5 percent); and N = 7's
+     10 percent row repeating N = 6's β2 and β3.
+   * **Pinned.** The tests pin those rows to the paper, the paper's worked
+     example (-4.89111) and the textbook asymptotic values.
+2. **MacKinnon (1994)'s coefficients are held by their own consistency.** The
+   paper is not freely available. At the 2010 asymptotic critical values, its
+   approximations give 0.01, 0.05 and 0.10 within 0.6 percent, for every case
+   and every `N` from 1 to 6. Its two branches meet at `τ*` within 0.004. In
+   the extreme right tail (p within 3e-6 of 1) the quadratic-trend
+   approximation for `N = 5` is not monotone; it is applied as published.
+3. **`T` is the test regression's observations.** A Dickey-Fuller regression of
+   fewer than 20 is refused: MacKinnon's surfaces were fitted from samples of 20
+   or more, and a smaller sample would read them where they were never estimated.
+4. **The trend is `t / T`.** Rescaling a deterministic term changes only its own
+   coefficient, never a statistic, and keeps the design well conditioned.
+5. **Lags are selected on one sample, the same on every host.**
+   * **One sample.** Every candidate is fitted on the sample the maximum lag
+     leaves, so their criteria compare. The chosen lag is then fitted on all
+     the data it leaves.
+   * **Comparisons.** AIC and BIC compare by `Decimal`'s correctly rounded
+     logarithm.
+   * **The t-statistic rule's threshold** is stated, with no conventional
+     default.
+6. **The Schwert bandwidth is exact.** `⌊c (T / 100)^{1/4}⌋` is the largest `m`
+   with `100 m⁴ <= c⁴ T`, by integer arithmetic.
+7. **A p-value beyond its table is a bound.** It is reported at the table's or
+   approximation's end, with `PBound` saying on which side the true value lies,
+   and is never extrapolated.
+8. **The largest condition number is an argument.** Every regression takes it,
+   as M2's least squares does. Classical standard errors come from `X'X`,
+   summed exactly and inverted through its Cholesky factor (class 2).
+
 # Compatibility
 
 - Additive: a new package, and in `research`, a new function.

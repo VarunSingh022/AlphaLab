@@ -1072,6 +1072,13 @@ reached from a run, and its edge set is asserted: `alphalab.common` and nothing
 else in `alphalab`. That constraint is what makes it usable from both sides of
 the `data → options → portfolio` chain at once (ADR-0039 decision 1).
 
+**`econometrics` (v4.3, ADR-0074) is a leaf library too.** It imports
+`alphalab.common` and nothing else in AlphaLab: it returns estimates and test
+results over a caller's series, and is reached from neither path.
+`tests/regression/test_documented_dependencies_are_measured.py` holds its edge.
+`research` may import it, as it imports `factor_library`, and nothing in it
+imports `research`.
+
 **`scenario` joined this list in v3.3**, and its being there is the design
 rather than an omission. A `Scenario` applies to a `ScenarioState` — a flat
 projection any holder of positions can produce — rather than to a portfolio
@@ -2306,7 +2313,7 @@ the execution path (runtime, backtesting) over the domain engines
 (allocation, risk, oms, execution, portfolio, analytics, market, instrument)
       │
       ▼
-leaves and foundation (core, conventions, alt_data, persistence, common)
+leaves and foundation (core, conventions, alt_data, econometrics, persistence, common)
 ```
 
 Dependencies in the opposite direction are prohibited, and the package graph has
@@ -2330,6 +2337,7 @@ Replay", none of which was true).
 | `common` | none |
 | `conventions` | `common` |
 | `alt_data` | `common` |
+| `econometrics` | `common` |
 | `strategy` | `common` |
 | `replay` | `common` |
 | `data` | `common`, `options` |
@@ -2340,8 +2348,8 @@ Replay", none of which was true).
 | `factor_library` | `alt_data`, `analytics`, `common`, `data`, `market` |
 | `portfolio_optimizer` | `analytics`, `common`, `conventions` |
 
-Must not depend on: a leaf (`common`, `conventions`, `alt_data`, `strategy`)
-on anything but `common`; research on the execution path or the lifecycle;
+Must not depend on: a leaf (`common`, `conventions`, `alt_data`, `econometrics`,
+`strategy`) on anything but `common`; research on the execution path or the lifecycle;
 anything on `lifecycle`, which composes the rest and is imported by nothing.
 
 `research` reads `core` and `instrument` directly since v4.3: the survivorship

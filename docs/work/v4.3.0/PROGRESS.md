@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `c02a6f5` |
+| Remote head | `e2e710d` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M6: the econometrics scaffold and unit roots (series identity, MacKinnon's tables, ADF, KPSS, Phillips-Perron); then cointegration, ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screening stage. M5's close closes on hosted CI at the next read. |
+| Next | M6: cointegration (Engle-Granger, Johansen, VECM), ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screening stage. In parallel: output-identical speedups of the capture trace's writer for PC-07's ceiling on hosted runners. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -123,6 +123,14 @@ Never:
 | `c02a6f5` | CodeQL | 43777204939 | success |
 | `c02a6f5` | Continuous Integration | 43777204917 | in progress when read at the ADR-0074 boundary: not yet a pass |
 | `c02a6f5` | Benchmarks | 43777238870 | dispatched at M5's checkpoint (plan U.4); in progress when read. M1 to M4's checkpoints did not dispatch it, an omission found at M5 |
+| `c02a6f5` | Continuous Integration | 43777204917 | success: all six quality-gate cells, carrying M5's close |
+| `c02a6f5` | Benchmarks | 43777238870 | failure: on CPython 3.12, benchmark_capture measured series and trace at +15.0% at a trade every 4 records (12.9 to 14.8 at the other densities), over PC-07's 15% ceiling, a failed performance gate for the owner; the job stopped there, so the later benchmarks did not run on 3.12. CPython 3.13 (13.4 to 13.9%) and 3.14 (10.7 to 14.4%) passed every benchmark |
+| `e2e710d` | Continuous Integration | 43778559356 | success: all six quality-gate cells, carrying ADR-0074 and ADR-0075 |
+| `e2e710d` | CodeQL | 43778559386 | success |
+
+Open questions:
+
+- PC-07's ceiling on hosted runners (2026-11-16): the benchmarks workflow measured a capture's series and trace at +15.0% of the run on CPython 3.12 (Ubuntu) at one trade density, over the 15% ceiling, and 10.7 to 14.8% elsewhere; locally 12.1 to 13.3%. Under PC-07 this is a failed gate brought to the owner. Meanwhile, output-identical speedups of the trace's writer, the remedy PC-07 allows, are being sought; nothing in the trace's coverage or the limit is changed.
 
 ## Continuation log
 
@@ -181,6 +189,7 @@ Never:
 - **2026-11-15** M5d (46c947c) passed the full gate (13,432 tests) and was pushed. M5e, selection-aware promotion evidence (TD-28), validated locally. A promotion on EXPERIMENT evidence passes a policy over its statistics. Hand-built EXPERIMENT evidence without a whole-number family count is refused under every policy, its thresholds met or not: M5's exit-gate refusal.
 - **2026-11-15** M5e (a2903ae) passed the full gate (13,446 tests) and was pushed; M5d (46c947c) passed hosted CI on all six cells and CodeQL. M5's close: S-13, the leak tests, the VD mutation series, the stated N (ADR-0073 section 7), PBO's budget and the validation and selection-bias guides. The VD series caught 35 of 36 on the tree as it stood. VD21 needed a test, now added, and was caught when run again (test_cv_and_cpcv_over_backtests::test_a_candidate_best_on_every_fold_it_completed_is_still_never_selected). The assessment's mutations were re-run on the final tree: 8 of 8. The assessment's pins were re-made once, before any release, when the stated N joined its identity.
 - **2026-11-16** M5's close (c02a6f5) passed the full gate (13,462 tests) and was pushed. M5e (a2903ae) passed all six hosted cells. The benchmarks workflow was dispatched on the branch at M5's checkpoint, as the plan's U.4 asks; M1 to M4's checkpoints never dispatched it. M6 begins: ADR-0074 (econometrics, OFE-007 reopened) and ADR-0075 (regime models, OFE-010 reopened) accepted under D-V3's delegation (TD-30, TD-31).
+- **2026-11-16** M5 closed on hosted CI: its close (c02a6f5) passed all six cells and CodeQL, as did ADR-0074 and ADR-0075 (e2e710d); GAP-02 closed. The benchmarks workflow, dispatched at M5's checkpoint, failed on CPython 3.12: the capture benchmark measured series and trace at +15.0% of a run at one density, over PC-07's 15% ceiling, a failed gate for the owner (the open question); 3.13 and 3.14 passed every benchmark. M6's first part validated locally: the econometrics package, MacKinnon's and KPSS's tables and the ADF, Phillips-Perron and KPSS tests. MacKinnon (2010)'s tables were generated from the paper itself; a widely used transcription of them differs from the paper in four rows, which the tests pin to the paper.
 
 ## Milestones
 
@@ -192,7 +201,7 @@ Never:
 | M2 | Hosted CI passed | WS-03, WS-13, WS-06 | Published-table tests; GR-2; oracle suite; cross-host identity equality |
 | M3 | Hosted CI passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Hosted CI passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
-| M5 | Pushed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
+| M5 | Hosted CI passed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | In progress | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Not started | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Not started | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
@@ -712,9 +721,9 @@ Evidence:
 - [Hosted CI passed] M2: PBO by CSCV, with an exact-enumeration oracle
 - [Hosted CI passed] M2: MinTRL and the autocorrelation-adjusted PSR
 - [Hosted CI passed] M3: The selection bridge: trial_matrix_from_captures and assess_captures; 16-variant PBO from captures equals PBO from full history
-- [Pushed] M5: The statistics over a ledgered experiment: trial_matrix_of and assess_experiment -- PBO, the deflated Sharpe ratio, the Reality Check and SPA over each design's family, members without a dispersion left out and named (TD-27, ADR-0073 settled 11-14)
-- [Pushed] M5: PBO's budget: benchmarks/benchmark_selection_statistics.py, S = 16 over 100 trials x 2,520 periods, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio against 60 s (ADR-0073 settled 18)
-- [Pushed] M5: The selection-bias guide: docs/SELECTION_BIAS.md -- what PBO, the deflated Sharpe ratio, the Reality Check, SPA and MinTRL each measure, assume and do not say; none is a probability of loss (RK-08)
+- [Hosted CI passed] M5: The statistics over a ledgered experiment: trial_matrix_of and assess_experiment -- PBO, the deflated Sharpe ratio, the Reality Check and SPA over each design's family, members without a dispersion left out and named (TD-27, ADR-0073 settled 11-14)
+- [Hosted CI passed] M5: PBO's budget: benchmarks/benchmark_selection_statistics.py, S = 16 over 100 trials x 2,520 periods, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio against 60 s (ADR-0073 settled 18)
+- [Hosted CI passed] M5: The selection-bias guide: docs/SELECTION_BIAS.md -- what PBO, the deflated Sharpe ratio, the Reality Check, SPA and MinTRL each measure, assume and do not say; none is a probability of loss (RK-08)
 
 Evidence:
 
@@ -725,6 +734,7 @@ Evidence:
 
 - [Local validation passed] M6: ADR-0074 accepted (TD-30): the econometrics package, its estimates and stated choices, the numerical classes of its results, MacKinnon's tables, OFE-007 reopened as the Ornstein-Uhlenbeck fit, and S-02's screen
 - [Local validation passed] M6: ADR-0075 accepted (TD-31): statistical regime models, OFE-010 reopened (GaussianHMM, MarkovSwitchingRegression); multivariate emissions FUT-052
+- [Local validation passed] M6: The econometrics package and its unit-root tests: series identities; MacKinnon's 2010 response surfaces generated from the paper and MacKinnon's 1994 p-values and KPSS's table held to their published values; augmented Dickey-Fuller, Phillips-Perron and KPSS with every choice stated (ADR-0074 settled 1-8)
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -783,10 +793,10 @@ Evidence:
 - [Hosted CI passed] M5: Validation designs (lifecycle.designs): FullSample, WalkForward, CrossValidated, CombinatorialPurged; research's combinatorial_purged_splits with its paths; a trial's window and its warm-up; the dataset's instants (ADR-0073 settled 1-5)
 - [Hosted CI passed] M5: Walk-forward over backtests: runs restricted to a trial's warm-up and window, the warm-up never scored, the ledger's selection per fold and its test-window trials, the joined out-of-sample series, resume; spawned equals sequential (ADR-0073 settled 6-9)
 - [Hosted CI passed] M5: CV and CPCV over backtests: every candidate on every fold or test group, CPCV's paths joined per candidate, the experiment's selection by the mean score over every fold or path (ADR-0073 settled 10)
-- [Pushed] M5: Promotion's selection-aware evidence: ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, every policy refusing EXPERIMENT evidence without it (TD-28, ADR-0073 settled 15)
-- [Pushed] M5: The leak tests: a design's purge and embargo in every trial's fit window, a designed experiment's lockbox kept from every trial and read once, ties to the first candidate at every level, a trial that failed mid-window never selected, a candidate incomplete on a fold never selected, a CPCV family read on the path named
-- [Pushed] M5: S-13: an event-driven alternative-data strategy validated walk-forward over backtests in a ledger, assessed with PBO, SPA and the deflated Sharpe ratio, promoted only on selection-aware evidence; a late revision changes no earlier decision; every event-window variant counted (ADR-0073 settled 17)
-- [Pushed] M5: The validation guide: docs/EXPERIMENTS.md sections 8 to 11 (designs, windows, purge and embargo, selection, the leaks ruled out, the assessment, the evidence, alternative data)
+- [Hosted CI passed] M5: Promotion's selection-aware evidence: ValidationMethod.EXPERIMENT appended, evidence_from_experiment carrying the family count, every policy refusing EXPERIMENT evidence without it (TD-28, ADR-0073 settled 15)
+- [Hosted CI passed] M5: The leak tests: a design's purge and embargo in every trial's fit window, a designed experiment's lockbox kept from every trial and read once, ties to the first candidate at every level, a trial that failed mid-window never selected, a candidate incomplete on a fold never selected, a CPCV family read on the path named
+- [Hosted CI passed] M5: S-13: an event-driven alternative-data strategy validated walk-forward over backtests in a ledger, assessed with PBO, SPA and the deflated Sharpe ratio, promoted only on selection-aware evidence; a late revision changes no earlier decision; every event-window variant counted (ADR-0073 settled 17)
+- [Hosted CI passed] M5: The validation guide: docs/EXPERIMENTS.md sections 8 to 11 (designs, windows, purge and embargo, selection, the leaks ruled out, the assessment, the evidence, alternative data)
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
@@ -804,12 +814,12 @@ Evidence:
 
 ## Gaps
 
-38 open, 11 closed, 4 discarded.
+37 open, 12 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
 | GAP-01 | No experiment or trial ledger | C/P0 | Closed at M4 (WS-05, ADR-0072): the ledger, its five identities, its outcomes with INSOLVENT, its records, resume, nondeterminism refused and the lockbox read once, under sequential, spawned and cluster executors, with the research assistant and the tracker as consumers; rerun_trial reproduces trial_record_id in a fresh interpreter (GAP-01's acceptance), on hosted CI on 6267194 with the rest on 08e2264, 20ef953 and 98174f1. | WS-05 | M4 |
-| GAP-02 | Validation not over backtests | C/P0 | Open | WS-24 | M5 |
+| GAP-02 | Validation not over backtests | C/P0 | Closed at M5 (WS-24, ADR-0073): walk-forward, purged and embargoed cross-validation and CPCV run over backtests in the ledger, each trial restricted to its warm-up and window and the warm-up never scored; the selections recorded, every trial counted; the search's statistics read from the ledger; promotion refuses EXPERIMENT evidence without its family count. S-13 and the leak mutants hold it. Passed on hosted CI, all six cells, on c02a6f5. | WS-24 | M5 |
 | GAP-03 | DET-007 ambient ids | H/P0 | Open: scopes isolated and registry ids derived; awaiting hosted CI | WS-02 | M0 |
 | GAP-04 | FUT-046 schedule provenance (P1, P2) | H/P0 | Open | WS-02 | M1 |
 | GAP-05 | SEC-001 dotted-path resolution | H/P0 | Closed at M4 (WS-23, ADR-0072, TD-21): the ledger's executors and cloud_research's cycle look a name up in one registry and resolve nothing, so an unregistered name, a dotted path to a real task included, fails before anything is imported; a spawned worker refuses a definition that reaches for the network as it is imported (the spy-on-import refusal). resolve_task stays, superseded, until 5.0 (D-54-6). Passed on hosted CI, all six cells: 20ef953 (the spawned worker) and 98174f1 (the registry path). | WS-23, WS-05 | M4 |
