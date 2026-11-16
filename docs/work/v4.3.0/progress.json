@@ -665,6 +665,32 @@
       "compatibility": "Additive. research.regimes and every identity are unchanged.",
       "record": "docs/ADR/0075-statistical-regime-models-with-an-identity.md; ledger FUT-052.",
       "tests": "Simulated regime recovery, and forward-backward probabilities checked against exact hand computation on small chains."
+    },
+    {
+      "id": "TD-32",
+      "date": "2026-11-16",
+      "workstream": "WS-04",
+      "title": "PC-07 on hosted runners: the trace's chain computed in batches, byte for byte",
+      "problem": "The M6 writer change, approved by the owner, measured 10.9 to 12.8 percent on the reference machine. Hosted runners read series and trace at 11.9 to 16.8 percent on CPython 3.12 (benchmarks run 43788977726, ce20731, Ubuntu). That is 16.8 at a trade on every eighth record: a failed PC-07 gate. They read up to 13.1 percent on 3.13 and 14.7 on 3.14. Measured layer by layer in the run's own loop, most of the trace's cost was its serialization, at about twice what the same work cost measured alone: it ran between two of the run's steps, on code and data the step had pushed out of the processor's caches.",
+      "alternatives": "(a) Narrow the trace, or raise the ceiling: excluded by PC-07 and the owner. (b) Judge the benchmark on more samples: a change to the measurement, not to the code; not taken. (c) More per-value work saved: skipping a log the run left as it was and reading a grown one in one call cut the capture's cost 6 to 11 percent; a plan of field writers per type signature measured no faster and was dropped. (d) Compute the chain in batches of steps: the same links, in the same order, computed with warm caches.",
+      "decision": "(c)'s skips and one-call reads, and (d). The trace takes each step's entries as the step ends, and chains 64 steps at a time. finish chains what remains. When the run fails, run_captured chains what the trace took before re-raising, so a step the trace cannot write fails the capture before anything the run did after it. Batches of 16 gave about half the gain; 256 no more than 64.",
+      "rationale": "Measured in the run's own loop against ce20731, interleaved, fastest of 7: the capture's cost fell 20 to 37 percent at the four densities. The benchmark itself, run twice, read series and trace at 7.6 to 8.9 percent on the reference machine, from 10.9 to 12.8. The bytes are unchanged. Every payload of 1,608 steps was compared with ce20731's writer and with serialize, and 11,736 steps of the capture tests with serialize. The pinned trace identities hold.",
+      "compatibility": "No identity, format or public name moves. A run holds at most 64 steps' entries until they are chained; retention bounds its memory as before. A step the trace cannot write still fails run_captured with the same SerializationError: at the end of its batch, at finish, or when the run fails, before the run's own failure.",
+      "record": "docs/ADR/0055 (settled point 6, departures, known limitation); ledger LIM-013; ROADMAP; CHANGELOG; benchmarks/benchmark_capture.py.",
+      "tests": "tests/unit/backtesting/test_capture_writer.py holds the writer to serialize for every kind of value, a batched chain to the step-by-step chain across batch boundaries, a step's failure before a later failure of the run, and a failed batch to one failure. tests/unit/common/test_append_log.py covers _since. The pinned trace identities hold. Seven deliberate faults were each caught by the test written for them."
+    },
+    {
+      "id": "TD-33",
+      "date": "2026-11-16",
+      "workstream": "WS-04",
+      "title": "The benchmarks run on Linux and macOS, and every benchmark runs after one fails",
+      "problem": "PC-07's verdict is read from the benchmarks workflow, which ran on Ubuntu alone: three cells, where the quality gates hold six. Its first failing benchmark stopped its job. On CPython 3.12 the capture benchmark's failure hid every benchmark after it twice: at M5's checkpoint, and again on ce20731.",
+      "alternatives": "Keep Linux alone; add macOS. Stop at the first failure; run every benchmark and fail the job at the end. Bound each benchmark with GNU timeout, which macOS lacks; or with Python's subprocess.",
+      "decision": "Run on ubuntu-latest and macos-latest under CPython 3.12, 3.13 and 3.14: six cells. Run every benchmark, record each failure, and fail the job after the last. Bound each benchmark at 900 seconds through subprocess.run, warnings still errors.",
+      "rationale": "A benchmark's verdict, PC-07's among them, is read on both systems the quality gates hold. A failure should hide nothing measured after it, as one failing cell hides no other.",
+      "compatibility": "No code changes. The release preflight, which calls this workflow, runs the benchmarks on six cells too. The job fails exactly when a benchmark fails, raises or warns.",
+      "record": ".github/workflows/benchmarks.yml.",
+      "tests": "tests/regression/test_release_preflight.py and test_release_gates_are_wired.py (the called workflow's checkout, its interpreters, no failure allowed). The step was run under bash 3.2 with a passing, a failing, a warning and a later benchmark: each ran, and the job failed naming the two."
     }
   ],
   "plan_changes": [
@@ -713,7 +739,7 @@
     {
       "id": "PC-07",
       "date": "2026-11-15",
-      "decision": "Owner approved, 2026-11-15 (proposed under delegated authority, TD-17)",
+      "decision": "Owner approved, 2026-11-15 (proposed under delegated authority, TD-17). On 2026-11-16 the owner approved the M6 output-identical change to the trace's writer (466d350, amended as ce20731 with its certificate corrected), the limits unchanged: the approval is of the change, and the gate passes only by a hosted measurement within the limits. A result above 15 percent stays a failed gate; the remedy is further output-identical optimisation, and a decision beyond the approved limits goes to the owner (TD-32).",
       "change": "Plan K.1 budgets the capture at 10 percent of the run's time; that target stays the plan's record. Approved limits: the return series alone at most 10 percent, and the series with its complete economic-history trace at most 15 percent, measured at several trade densities, sparse and dense. 15 percent is a ceiling, not a target: optimisation continues wherever it costs nothing in correctness or research integrity, and trace coverage, canonical form and reproducibility are never weakened to meet a budget. A combined result above 15 percent is a failed performance gate, brought to the owner for a new decision; the limit is never raised silently. benchmarks/benchmark_capture.py enforces both limits.",
       "reason": "Measured on a strategy that does no work of its own, the case where every ratio is largest: the series costs 1 to 4 percent of the run, and series and trace together 12.6 to 14.4 percent at a trade on every record and on every second, fourth and eighth, where digest_run costs 76 to 105 percent. Unlike PC-06, no design met 10 percent. The canonical serialization was made 2.7 times faster, byte for byte. Narrowing the trace would still miss: with a trade on every eighth record it costs 12.2 percent without the order events and 11.4 percent without the equity points, because most of its cost is the work it does every step. Covering less would make the trace identify less of the history. The cost is a fixed amount per step, so it is a smaller share of a run whose strategy computes anything (LIM-013)."
     }
@@ -1233,7 +1259,12 @@
         },
         {
           "milestone": "M3",
-          "item": "Made at M6, for PC-07's ceiling read on a hosted runner at M5's checkpoint: PC-07's ceiling on hosted runners: the trace's writer made faster again, output-identical (one lookup by exact type, one template per record; 2,479 entries compared byte for byte, the pinned trace identities hold): series and trace 10.9 to 12.8 percent on the reference machine, from 12.1 to 13.3",
+          "item": "Made at M6, for PC-07's ceiling as a hosted runner read it at M5's checkpoint: the trace's writer made faster again, output-identical (one lookup by exact type, one template per record; 2,479 entries compared byte for byte, the pinned trace identities hold): series and trace 10.9 to 12.8 percent on the reference machine, from 12.1 to 13.3. Approved by the owner 2026-11-16. Hosted CI passed (ce20731); its hosted benchmark failed PC-07 on CPython 3.12 at 16.8 percent",
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M3",
+          "item": "Made at M6, for that failed hosted gate: the trace's chain computed 64 steps at a time, a log the run left as it was not read, a grown one read in one call; output-identical, the pinned identities hold (TD-32): series and trace 7.6 to 8.9 percent on the reference machine. The benchmarks run on Linux and macOS (TD-33)",
           "status": "Local validation passed"
         }
       ],
@@ -2630,8 +2661,8 @@
     ]
   },
   "state": {
-    "updated": "2026-11-15",
-    "remote_head": "e2e710d",
+    "updated": "2026-11-16",
+    "remote_head": "ce20731",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3083,13 +3114,41 @@
         "workflow": "CodeQL",
         "run": 43778559386,
         "result": "success"
+      },
+      {
+        "sha": "a9f350d",
+        "workflow": "Continuous Integration",
+        "run": 43786833148,
+        "result": "success: all six quality-gate cells, carrying the econometrics package's first commit"
+      },
+      {
+        "sha": "a9f350d",
+        "workflow": "CodeQL",
+        "run": 43786833232,
+        "result": "success"
+      },
+      {
+        "sha": "ce20731",
+        "workflow": "Continuous Integration",
+        "run": 43788973866,
+        "result": "success: all six quality-gate cells, carrying the M6 trace writer"
+      },
+      {
+        "sha": "ce20731",
+        "workflow": "CodeQL",
+        "run": 43788973734,
+        "result": "success"
+      },
+      {
+        "sha": "ce20731",
+        "workflow": "Benchmarks",
+        "run": 43788977726,
+        "result": "failure: PC-07 failed on CPython 3.12 (Ubuntu): series and trace +11.9, +14.2, +14.7 and +16.8% at a trade every 1, 2, 4 and 8 records, over the 15% ceiling at 8; the job stopped there. CPython 3.13 read +10.8, +12.5, +12.2, +13.1% and 3.14 +10.7, +12.2, +13.5, +14.7%, passing every benchmark. The workflow ran on Linux only: three cells"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M6: cointegration (Engle-Granger, Johansen, VECM), ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screening stage. In parallel: output-identical speedups of the capture trace's writer for PC-07's ceiling on hosted runners.",
-    "open_questions": [
-      "PC-07's ceiling on hosted runners (2026-11-16): the benchmarks workflow measured a capture's series and trace at +15.0% of the run on CPython 3.12 (Ubuntu) at one trade density, over the 15% ceiling, and 10.7 to 14.8% elsewhere; locally 12.1 to 13.3%. Under PC-07 this is a failed gate brought to the owner. An output-identical speedup of the trace's writer, the remedy PC-07 allows, brought series and trace to 10.9 to 12.8% on the reference machine (from 12.1 to 13.3); the benchmarks are re-dispatched to measure it on hosted runners. Nothing in the trace's coverage or the limit is changed; whether the ceiling's margin on shared runners is acceptable stays the owner's decision."
-    ]
+    "next": "PC-07: the batched chain (TD-32) pushed, and the benchmarks workflow dispatched on that exact commit, on Linux and macOS (TD-33); its verdict is read cell by cell, unrounded. M6: Engle-Granger with MacKinnon's tables (with M2's least squares refusing a dependent design as ill-conditioned); Johansen's critical values verified before they ship, or simulated as documented, or deferred; VECM, ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screen.",
+    "open_questions": []
   },
   "log": [
     {
@@ -3319,6 +3378,10 @@
     {
       "date": "2026-11-16",
       "entry": "The econometrics package's first commit (a9f350d) passed the full gate (13,582 tests) and was pushed. For PC-07's failed gate on a hosted runner, the trace's writer was made faster without changing a byte: each value's writer is found in one lookup by its exact type, and each record is written from one template. Compared entry by entry over two runs (2,479 entries), and with the pinned trace identities unchanged, series and trace measured 10.9 to 12.8 percent on the reference machine, alternating old and new twice, from 12.1 to 13.7. The benchmarks workflow is to be re-dispatched to measure it on hosted runners."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "The owner approved the M6 trace-writer change (466d350, amended as ce20731 with its certificate corrected). Its output is byte-identical and PC-07's limits are unchanged; the approval is of the change, not of the hosted gate. ce20731 passed the full gate (13,582 tests; the earlier cascade of missing working directories did not recur with nothing else touching the clone) and was pushed. a9f350d and ce20731 each passed all six hosted cells and CodeQL. The benchmarks workflow on ce20731 failed PC-07 on CPython 3.12 at 16.8 percent (a trade every eighth record) and passed on 3.13 and 3.14, up to 14.7 percent. It runs on Linux only, so three cells were read, not six. Under the owner's instruction the trace was optimised further, byte for byte: its chain is computed 64 steps at a time (TD-32), 7.6 to 8.9 percent on the reference machine, and the benchmarks now run on Linux and macOS, every benchmark after a failure too (TD-33)."
     }
   ]
 }

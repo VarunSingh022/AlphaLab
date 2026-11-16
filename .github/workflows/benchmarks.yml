@@ -7,7 +7,11 @@ name: Benchmarks
 # gated, because shared runners are too noisy to gate on. The complexity guards
 # in tests/regression gate scaling on every push instead.
 #
-# Run on every supported interpreter (v4.1, ledger LIM-007). The job installs
+# Run on every supported interpreter (v4.1, ledger LIM-007), on Linux and macOS
+# (v4.3 M6, TD-33): a benchmark's verdict, PC-07's ceiling among them, is read
+# on both systems the quality gates hold. Every benchmark runs even after one
+# fails, so a failure hides nothing measured after it; the job then fails. Each
+# is bounded by Python itself, since macOS has no GNU `timeout`. The job installs
 # the development extra because a benchmark may share a helper with the tests;
 # tests/regression/test_workflow_environments.py holds every benchmark's
 # imports to what this job installs, so a job that installs too little fails
@@ -32,12 +36,15 @@ permissions:
 
 jobs:
   benchmarks:
-    name: Benchmarks (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Benchmarks (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
         python-version:
           - "3.12"
           - "3.13"
@@ -63,8 +70,16 @@ jobs:
       - name: Run every benchmark
         run: |
           set -euo pipefail
+          failed=()
           for benchmark in benchmarks/benchmark_*.py; do
             echo "::group::${benchmark}"
-            timeout 900 python -W error "${benchmark}"
+            if ! python -c 'import subprocess, sys; sys.exit(subprocess.run([sys.executable, "-W", "error", sys.argv[1]], timeout=900).returncode)' "${benchmark}"; then
+              failed+=("${benchmark}")
+              echo "::error::${benchmark} failed"
+            fi
             echo "::endgroup::"
           done
+          if [ "${#failed[@]}" -ne 0 ]; then
+            echo "Failed: ${failed[*]}"
+            exit 1
+          fi

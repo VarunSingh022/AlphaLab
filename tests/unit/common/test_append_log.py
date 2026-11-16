@@ -2,7 +2,7 @@
 
 import pytest
 
-from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.append_log import AppendOnlyLog, _since
 
 
 def test_empty_log_behaves_like_an_empty_sequence() -> None:
@@ -176,3 +176,31 @@ def test_a_restored_log_says_what_it_dropped() -> None:
         AppendOnlyLog.restored((), -1)
     with pytest.raises(ValueError, match="keep -2"):
         AppendOnlyLog(()).retain_last(-2)
+
+
+def test_a_reader_following_a_log_gets_what_was_appended_since_and_the_counts() -> None:
+    """``_since`` is the length, the dropped count and a slice, in one call (ADR-0055)."""
+
+    log = AppendOnlyLog(range(10))
+    assert _since(log, 10) == ((), 10, 10)
+    assert _since(log, 7) == ((7, 8, 9), 10, 10)
+    assert _since(log, 0) == (tuple(range(10)), 10, 10)
+    grown = log.append(10)
+    assert _since(grown, 10) == ((10,), 11, 11)
+    assert _since(log, 10) == ((), 10, 10), "the older view never sees the newer entry"
+    # A count beyond the history reads nothing.
+    assert _since(log, 12) == ((), 10, 10)
+
+
+def test_a_reader_can_tell_a_trimmed_history_from_a_short_one() -> None:
+    log = AppendOnlyLog(range(10)).retain_last(3)  # keeps 7, 8, 9; dropped 7
+    # Three appended since the reader read seven: all still kept.
+    assert _since(log, 7) == ((7, 8, 9), 10, 3)
+    # Five appended since it read five: two were dropped before it read them,
+    # which it tells by total - read > kept, and it is given only the kept.
+    entries, total, kept = _since(log, 5)
+    assert (entries, total, kept) == ((7, 8, 9), 10, 3)
+    assert total - 5 > kept
+    for read in range(11):
+        entries, total, kept = _since(log, read)
+        assert entries == tuple(range(max(read, 7), 10))

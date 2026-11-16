@@ -194,6 +194,21 @@ None moves an identity made before; each is held by a test
 5. **The trace reads each step once**, from the state the step ended in, so a
    bound smaller than one step's output is what is refused (section 4). The
    series reads after every operation.
+6. **The links are computed in batches** (2026-11-16, PC-07). The trace takes
+   each step's entries when the step ends, and computes their links 64 steps at
+   a time: one link per step, in step order, the same bytes as before.
+   * **Why batches.** A link computed between two of the run's steps ran on
+     code and data the step had just pushed out of the processor's caches.
+     Batched, the trace costs about a third less, and more than 64 steps gain
+     nothing measurable.
+   * **Bounded memory.** A batch holds references to entries its steps already
+     read, so retention bounds a run as before.
+   * **Errors keep their order.** A step the trace cannot write still fails the
+     capture before anything the run did after it: when the run fails,
+     `run_captured` chains what the trace took before re-raising.
+   * **Held by tests.** `tests/unit/backtesting/test_capture_writer.py` holds a
+     batched chain to the chain computed step by step, across batch boundaries,
+     and the writer to `serialize` for every kind of value.
 
 # Departures from the plan's text, and why
 
@@ -227,6 +242,18 @@ None moves an identity made before; each is held by a test
   change at M6 -- one lookup by a value's exact type, one template per record --
   brought series and trace to 10.9 to 12.8 percent on the reference machine,
   the pinned identities unchanged.
+  * **The owner approved that third change** on 2026-11-16 (`466d350`, amended
+    as `ce20731` with its certificate corrected). The approval left both limits
+    unchanged. It approved the change, not the gate: only a hosted measurement
+    within the limits passes the gate.
+  * **Hosted runners failed it.** In benchmarks run 43788977726 (Ubuntu,
+    `ce20731`), series and trace read 11.9 to 16.8 percent on CPython 3.12.
+    That is 16.8 at a trade on every eighth record: over the ceiling, a failed
+    gate. They read 10.8 to 13.1 percent on 3.13 and 10.7 to 14.7 on 3.14.
+  * **A fourth change followed.** Under the approval's instruction to optimise
+    further without changing a byte, the chain is now computed in batches
+    (settled point 6). On the reference machine series and trace cost 7.6 to
+    8.9 percent.
 - **The grid's third member, a declared calendar's sessions, waits for the
   calendars.** Sessions come from ADR-0059's reference packs, which M3 begins.
   A grid from a pack is added when a pack can supply one. `EVERY_INSTANT` and
@@ -252,10 +279,11 @@ None moves an identity made before; each is held by a test
   another currency needs a rate source the capture would have to state, and is
   not done here.
 - **A trace costs more than the plan's budget.** Series and trace together
-  cost 12.6 to 14.4 percent of a run whose strategy does no work of its own,
-  against the plan's 10, within the 15 the owner approved (PC-07). The cost is
-  a fixed amount of Python work per step, so it is a smaller share of a run
-  whose strategy computes anything.
+  cost 7.6 to 8.9 percent of a run whose strategy does no work of its own, on
+  the reference machine. Shared hosted runners read more: up to 16.8 percent
+  before the chain was batched. The plan budgeted 10 percent, and the owner
+  approved 15 (PC-07). The cost is a fixed amount of Python work per step, so
+  it is a smaller share of a run whose strategy computes anything.
 
 # Consequences
 

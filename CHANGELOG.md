@@ -644,11 +644,24 @@ entry below says otherwise.
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
   percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's
-  ceiling, a failed gate taken to the owner. The trace's writer now finds each
-  value's writer in one lookup by its exact type, and writes each record from
-  one template. Its text is unchanged, so every pinned `trace_id` holds. On the
-  reference machine, series and trace now cost 10.9 to 12.8 percent, from 12.1
-  to 13.3.
+  ceiling, a failed gate taken to the owner. Every change below leaves the
+  trace's text as it was, so every pinned `trace_id` holds. PC-07's limits
+  are unchanged.
+  * **One lookup, one template.** The trace's writer finds each value's
+    writer in one lookup by its exact type, and writes each record from one
+    template. On the reference machine series and trace cost 10.9 to 12.8
+    percent, from 12.1 to 13.3. The owner approved this change on 2026-11-16.
+    Hosted runners then read 11.9 to 16.8 percent on CPython 3.12, over the
+    ceiling at a trade on every eighth record, a failed gate. They read 10.8 to
+    13.1 percent on CPython 3.13 and 10.7 to 14.7 on 3.14.
+  * **The chain in batches.** The trace takes each step's entries as the step
+    ends and computes their links 64 steps at a time: one link per step, in
+    step order, as before. A link computed between two of the run's steps ran
+    on code and data the step had pushed out of the processor's caches. A step
+    the trace cannot write still fails the capture before anything the run did
+    after it. A log the run left as it was is no longer read, and a log the run
+    grew is read in one call (`append_log._since`). On the reference machine
+    series and trace cost 7.6 to 8.9 percent.
 
 ## Changed
 

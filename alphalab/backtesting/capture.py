@@ -117,7 +117,7 @@ from alphalab.backtesting.engine import _drive
 from alphalab.backtesting.exceptions import BacktestError
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE, RunSchedule
 from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, QueuedResult
-from alphalab.common.append_log import AppendOnlyLog
+from alphalab.common.append_log import AppendOnlyLog, _since
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.execution.queue import QueueModel
 from alphalab.persistence.exceptions import PersistenceError, SerializationError
@@ -580,17 +580,24 @@ def run_captured(
     if not isinstance(capture, CaptureSpec):
         raise CaptureError(f"capture must be a CaptureSpec, got {capture!r}.")
     observer = _Capture(capture)
-    result = _drive(
-        config,
-        dataset,
-        strategy_state,
-        context_factory,
-        observations,
-        schedule,
-        execution,
-        queue,
-        observer,
-    )
+    try:
+        result = _drive(
+            config,
+            dataset,
+            strategy_state,
+            context_factory,
+            observations,
+            schedule,
+            execution,
+            queue,
+            observer,
+        )
+    except Exception:
+        # The trace chains its steps in batches. What the run recorded before it
+        # failed is chained first, so a step the trace cannot write fails the
+        # capture before anything the run did after it, as it would step by step.
+        observer.settle()
+        raise
     return Captured(result, observer.finish())
 
 
@@ -707,28 +714,37 @@ class _Series:
         return total
 
 
-def _decimal_text(value: Decimal) -> str:
-    # The encoder writes a Decimal as its exact text, quoted.
-    return _quote(str(value))
+#: How a Decimal and a UUID are written: their text, quoted. Neither text holds
+#: a character JSON escapes -- a Decimal's is digits, a sign, a point, an
+#: exponent or a special value's name, and a UUID's is hex digits and hyphens --
+#: so the encoder's quoting is the two quotes alone, written in one C call.
+_QUOTED: Final[Callable[[Any], str]] = '"%s"'.__mod__
 
 
-def _boolean(value: bool) -> str:
-    return "true" if value else "false"
+class _Writers(dict[type, Callable[[Any], str]]):
+    """How each type the trace has met is written, decided once per type.
+
+    A lookup that misses decides the type's writer and keeps it, so a value's
+    writer is always one dictionary lookup by its exact type away.
+    """
+
+    def __missing__(self, kind: type) -> Callable[[Any], str]:
+        writer = self[kind] = _writer(kind)
+        return writer
 
 
-def _null(value: None) -> str:
-    return "null"
-
-
-#: How each type the trace has met is written, decided once per type. The JSON
-#: scalars' exact types are written by the encoder's own rules from the start.
-_WRITERS: dict[type, Callable[[Any], str]] = {
-    str: _quote,
-    Decimal: _decimal_text,
-    int: int.__repr__,
-    bool: _boolean,
-    type(None): _null,
-}
+#: The JSON scalars' exact types are written by the encoder's own rules from the
+#: start; ``None`` and the booleans by a lookup of their one text.
+_WRITERS: Final = _Writers(
+    {
+        str: _quote,
+        Decimal: _QUOTED,
+        UUID: _QUOTED,
+        int: int.__repr__,
+        bool: {True: "true", False: "false"}.__getitem__,
+        type(None): {None: "null"}.__getitem__,
+    }
+)
 
 #: The encoder's own fallback, for a type with no rule here.
 _DEFAULT: Final = DeterministicEncoder().default
@@ -748,11 +764,7 @@ def _write(value: Any) -> str:
     finds every writer, a JSON scalar's included.
     """
 
-    kind = type(value)
-    writer = _WRITERS.get(kind)
-    if writer is None:
-        writer = _WRITERS[kind] = _writer(kind)
-    return writer(value)
+    return _WRITERS[type(value)](value)
 
 
 def _writer(kind: type) -> Callable[[Any], str]:
@@ -777,18 +789,31 @@ def _writer(kind: type) -> Callable[[Any], str]:
     return _defaulted
 
 
-def _record_writer(kind: type) -> Callable[[Any], str]:
-    """A dataclass's fields in name order, as one template filled once per record."""
+def _record_writer(kind: type, opening: str = "", closing: str = "") -> Callable[[Any], str]:
+    """A dataclass's fields in name order, as one template filled once per record.
+
+    ``opening`` and ``closing`` are written around the record in the same
+    template: an entry's name, for one.
+    """
 
     names = sorted(item.name for item in fields(kind))
+    escaped = opening.replace("%", "%%"), closing.replace("%", "%%")
     if not names:
-        return lambda value: "{}"
-    template = "{" + ",".join(_quote(name).replace("%", "%%") + ":%s" for name in names) + "}"
+        text = opening + "{}" + closing
+        return lambda value: text
+    template = (
+        escaped[0]
+        + "{"
+        + ",".join(_quote(name).replace("%", "%%") + ":%s" for name in names)
+        + "}"
+        + escaped[1]
+    )
     if len(names) == 1:
         (name,) = names
         return lambda value: template % (_write(getattr(value, name)),)
     read = attrgetter(*names)
-    return lambda value: template % tuple(map(_write, read(value)))
+    writers = _WRITERS
+    return lambda value: template % tuple([writers[type(item)](item) for item in read(value)])
 
 
 def _float(value: float) -> str:
@@ -817,6 +842,8 @@ def _array(value: Any) -> str:
 
 
 def _object(value: Any) -> str:
+    if not value:
+        return "{}"
     return (
         "{"
         + ",".join([_key(key) + ":" + _write(item) for key, item in sorted(value.items())])
@@ -840,32 +867,58 @@ def _key(key: Any) -> str:
     raise TypeError(f"keys must be str, int, float, bool or None, not {type(key).__name__}")
 
 
-#: Each entry type's opening, ``["TypeName",``, written once per type.
-_PREFIXES: dict[type, str] = {}
+class _EntryWriters(dict[type, Callable[[Any], str]]):
+    """How each entry type is written as ``["TypeName",entry]``, decided once per type."""
+
+    def __missing__(self, kind: type) -> Callable[[Any], str]:
+        opening = "[" + _quote(kind.__name__) + ","
+        writer: Callable[[Any], str]
+        if (
+            is_dataclass(kind)
+            and not issubclass(kind, type)
+            and not hasattr(kind, "__serializable__")
+        ):
+            # The record's own writer, with the entry's opening and closing in its template.
+            writer = _record_writer(kind, opening, "]")
+        else:
+            writer = lambda entry: opening + _write(entry) + "]"  # noqa: E731
+        self[kind] = writer
+        return writer
 
 
-def _named(entry: Any) -> str:
-    kind = type(entry)
-    prefix = _PREFIXES.get(kind)
-    if prefix is None:
-        prefix = _PREFIXES[kind] = "[" + _quote(kind.__name__) + ","
-    return prefix
+_ENTRIES: Final = _EntryWriters()
 
 
-def _payload(logs: Sequence[Sequence[Any]]) -> str:
-    """One step's entries, each named by its type, as ``serialize`` writes them."""
+def _entries(log: Sequence[Any]) -> str:
+    entries = _ENTRIES
+    return "[" + ",".join([entries[type(entry)](entry) for entry in log]) + "]"
+
+
+def _payload(
+    fills: Sequence[Any],
+    transactions: Sequence[Any],
+    order_events: Sequence[Any],
+    points: Sequence[Any],
+) -> str:
+    """One step's entries, each named by its type, as ``serialize`` writes them.
+
+    ``serialize([[[type(entry).__name__, entry] for entry in log] for log in logs])``,
+    byte for byte, for the four logs in this order.
+    """
 
     try:
+        if not (fills or transactions or order_events):
+            # Most steps add an equity point and nothing else.
+            return "[[],[],[]," + (_entries(points) if points else "[]") + "]"
         return (
             "["
-            + ",".join(
-                [
-                    "[" + ",".join([_named(entry) + _write(entry) + "]" for entry in log]) + "]"
-                    if log
-                    else "[]"
-                    for log in logs
-                ]
-            )
+            + (_entries(fills) if fills else "[]")
+            + ","
+            + (_entries(transactions) if transactions else "[]")
+            + ","
+            + (_entries(order_events) if order_events else "[]")
+            + ","
+            + (_entries(points) if points else "[]")
             + "]"
         )
     except Exception as error:
@@ -880,8 +933,7 @@ def _tail[T](log: AppendOnlyLog[T], read: int, name: str) -> tuple[tuple[T, ...]
     capture refuses rather than read a partial history.
     """
 
-    kept = len(log)
-    total = kept + log.dropped
+    entries, total, kept = _since(log, read)
     added = total - read
     if not added:
         return (), total
@@ -894,7 +946,17 @@ def _tail[T](log: AppendOnlyLog[T], read: int, name: str) -> tuple[tuple[T, ...]
         )
     if added < 0:
         raise CaptureError(f"The run's {name} lost entries it had appended.")
-    return log[kept - added :], total
+    return entries, total
+
+
+#: Steps taken before the trace chains them. One link per step, in step order,
+#: whatever the batch: the batch decides only when the links are computed.
+#: Chained between two of the run's steps, a link ran cold, on code and data
+#: the step had just pushed out of the processor's caches; chained 64 at a
+#: time it costs about a third less (v4.3 M6, PC-07), and more steps gain
+#: nothing measurable. What a batch holds is the entries its steps already
+#: read: a bounded number of references, whatever retention does.
+_CHAIN_BATCH: Final = 64
 
 
 class _Trace:
@@ -904,22 +966,42 @@ class _Trace:
         start = serialize({"configuration_id": configuration_id, "scheme": CAPTURE_TRACE_SCHEME})
         self.link = hashlib.sha256(start.encode("utf-8")).digest()
         self.points: list[Any] = []
+        self.pending: list[tuple[Sequence[Any], Sequence[Any], Sequence[Any], list[Any]]] = []
         self.counts = [0, 0, 0, 0]
 
     def absorb(
         self, fills: Sequence[Any], transactions: Sequence[Any], order_events: Sequence[Any]
     ) -> None:
-        """Chain one step: its fills, transactions, order events and equity points, in order."""
+        """Take one step: its fills, transactions, order events and equity points, in order."""
 
-        points = self.points
-        payload = _payload((fills, transactions, order_events, points))
-        self.link = hashlib.sha256(self.link + payload.encode("utf-8")).digest()
-        counts = self.counts
-        counts[0] += len(fills)
-        counts[1] += len(transactions)
-        counts[2] += len(order_events)
-        counts[3] += len(points)
+        pending = self.pending
+        pending.append((fills, transactions, order_events, self.points))
         self.points = []
+        if len(pending) >= _CHAIN_BATCH:
+            self.chain()
+
+    def chain(self) -> None:
+        """Chain every step taken and not yet chained, oldest first: one link each."""
+
+        pending = self.pending
+        if not pending:
+            return
+        # Taken out first: a step that cannot be written fails the capture once.
+        self.pending = []
+        link = self.link
+        counts = self.counts
+        sha256 = hashlib.sha256
+        for fills, transactions, order_events, points in pending:
+            payload = _payload(fills, transactions, order_events, points)
+            link = sha256(link + payload.encode("utf-8")).digest()
+            if fills:
+                counts[0] += len(fills)
+            if transactions:
+                counts[1] += len(transactions)
+            if order_events:
+                counts[2] += len(order_events)
+            counts[3] += len(points)
+        self.link = link
 
 
 class _Capture:
@@ -939,6 +1021,13 @@ class _Capture:
         self._fills_read = 0
         self._transactions_read = 0
         self._order_events_read = 0
+        # The log each count was last read from. A log is immutable, so the same
+        # object holds the same entries: nothing appended, nothing dropped.
+        self._points_log: object = None
+        self._events_log: object = None
+        self._fills_log: object = None
+        self._transactions_log: object = None
+        self._order_events_log: object = None
         self._flows: Mapping[str, Decimal] = {}
         self._units: Any = None
         self._steps = 0
@@ -984,14 +1073,17 @@ class _Capture:
         self._state = state
         pipeline = state.pipeline
         if self._excluded:
-            events, self._events_read = _tail(
-                pipeline.portfolio.events, self._events_read, "portfolio events"
-            )
-            if events:
-                self._book(events)
-        points, self._points_read = _tail(
-            pipeline.portfolio_snapshots, self._points_read, "equity points"
-        )
+            log = pipeline.portfolio.events
+            if log is not self._events_log:
+                events, self._events_read = _tail(log, self._events_read, "portfolio events")
+                self._events_log = log
+                if events:
+                    self._book(events)
+        snapshots = pipeline.portfolio_snapshots
+        if snapshots is self._points_log:
+            return
+        points, self._points_read = _tail(snapshots, self._points_read, "equity points")
+        self._points_log = snapshots
         if not points:
             return
         if self._trace is not None:
@@ -1043,18 +1135,35 @@ class _Capture:
             # survives its own trimming unless the step outgrew a bound.
             assert self._state is not None, "the loop tells of a state before a step ends"
             pipeline = self._state.pipeline
-            fills, self._fills_read = _tail(pipeline.fills, self._fills_read, "fills")
-            transactions, self._transactions_read = _tail(
-                pipeline.portfolio.ledger.transactions,
-                self._transactions_read,
-                "ledger transactions",
-            )
-            order_events, self._order_events_read = _tail(
-                pipeline.oms.events, self._order_events_read, "order events"
-            )
+            fills: Sequence[Any] = ()
+            fills_log = pipeline.fills
+            if fills_log is not self._fills_log:
+                fills, self._fills_read = _tail(fills_log, self._fills_read, "fills")
+                self._fills_log = fills_log
+            transactions: Sequence[Any] = ()
+            transactions_log = pipeline.portfolio.ledger.transactions
+            if transactions_log is not self._transactions_log:
+                transactions, self._transactions_read = _tail(
+                    transactions_log, self._transactions_read, "ledger transactions"
+                )
+                self._transactions_log = transactions_log
+            order_events: Sequence[Any] = ()
+            order_events_log = pipeline.oms.events
+            if order_events_log is not self._order_events_log:
+                order_events, self._order_events_read = _tail(
+                    order_events_log, self._order_events_read, "order events"
+                )
+                self._order_events_log = order_events_log
             trace.absorb(fills, transactions, order_events)
 
+    def settle(self) -> None:
+        """Chain every step the trace has taken."""
+
+        if self._trace is not None:
+            self._trace.chain()
+
     def finish(self) -> CaptureRecord:
+        self.settle()
         series = self._series
         series.end()
         instants, returns = tuple(series.instants), tuple(series.returns)

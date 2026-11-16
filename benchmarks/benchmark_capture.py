@@ -11,15 +11,27 @@ cost alone and every ratio is as large as it gets:
   and is judged against it;
 * **the trace** adds a fixed cost per step -- the canonical serialization of
   what the step added, an equity point at the least, and one SHA-256 link --
-  of about 9 percent more, so series and trace together cost 10.9 to 12.8
-  percent on the reference machine (CPython 3.12, Apple arm64). They cost 12.6
-  to 14.4 when PC-07 was proposed, 12.1 to 13.3 after two output-identical
-  changes to the trace's writer, and 10.9 to 12.8 after a third (v4.3 M6: one
-  lookup by a value's exact type, one template per record), made when a hosted
-  runner read 15.0 at one density (CPython 3.12, Ubuntu). Narrowing what
-  the trace covers would not bring it to 10 percent: with a trade on every
-  eighth record it costs 12.2 percent without the order events and 11.4 without
-  the equity points, most of it the work it does every step.
+  of about 5 to 6 percent more, so series and trace together cost 7.6 to 8.9
+  percent on the reference machine (CPython 3.12, Apple arm64).
+
+How it got there, every change output-identical (the pinned identities hold):
+
+* 12.6 to 14.4 percent when PC-07 was proposed.
+* 12.1 to 13.3 after two changes to the trace's writer.
+* 10.9 to 12.8 after a third (v4.3 M6): one lookup by a value's exact type, one
+  template per record. It was made when a hosted runner read 15.0 percent at
+  one density (CPython 3.12, Ubuntu). The owner approved it on 2026-11-16.
+  Hosted runners then read it at 11.9 to 16.8 percent on CPython 3.12, over the
+  ceiling at a trade on every eighth record, 10.8 to 13.1 on 3.13 and 10.7 to
+  14.7 on 3.14.
+* 7.6 to 8.9 after a fourth (v4.3 M6): the chain computed 64 steps at a time,
+  not between two of the run's steps, where it ran on code and data the step
+  had pushed out of the processor's caches.
+
+The figures before the fourth change bear on what narrowing would buy: with a
+trade on every eighth record the trace cost 12.2 percent without the order
+events and 11.4 without the equity points. Narrowing would not have brought
+it to 10 percent, because most of its cost is the work it does every step.
 
 The owner approved plan change PC-07 (2026-11-15). The series is held to the
 plan's 10 percent, ``MAX_SERIES_OVERHEAD``, and series and trace together to
