@@ -336,6 +336,19 @@ Building M6 settled these points, each held by a test
       every value, and a finite difference for the delta method.
     * **OFE-007 closed.** The fit delivers what OFE-007's reopening asked for.
       `factor_library.decay` is unchanged.
+16. **The VECM is Johansen's two steps, every value class 2.**
+    `cointegration.fit_vecm(series, rank=...)` reads its relations from
+    Johansen's first `r` eigenvectors, normalized so that the first `r`
+    series' block is the identity. That block is set to the identity exactly.
+    * **The second step.** Each series' difference is regressed by least
+      squares on the error-correction terms, the lagged differences and the
+      unrestricted deterministic terms, with `β` taken as given. `β` is
+      super-consistent, so `α`, `Γ` and the terms carry classical standard
+      errors. The residual covariance is over `T`.
+    * **Refusals.** A rank of 0 is a VAR in differences and full rank a
+      stationary VAR, so both are refused. So is a block the first series
+      cannot normalize. One reduction serves the test and the fit, so they
+      read the same relations.
 
 # Compatibility
 

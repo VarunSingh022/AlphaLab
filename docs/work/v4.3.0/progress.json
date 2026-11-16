@@ -1529,6 +1529,11 @@
           "milestone": "M6",
           "item": "The Ornstein-Uhlenbeck fit and its half-life (OFE-007 reopened and delivered, TD-38): the exact discretisation by least squares, theta, mu, sigma and the half-life with delta-method standard errors, every value class 2, a coefficient outside (0, 1) refused",
           "status": "Local validation passed"
+        },
+        {
+          "milestone": "M6",
+          "item": "The VECM of a stated rank by Johansen's two steps: the relations from the eigenvectors, normalized on the first series exactly; each equation's alpha, Gamma and unrestricted terms by least squares with standard errors; the residual covariance; a pair's relation and error correction recovered, the second step exact against rational least squares, every value class 2 and pinned",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -3537,6 +3542,10 @@
     {
       "date": "2026-11-16",
       "entry": "The Ornstein-Uhlenbeck fit validated locally (TD-38): known parameters recovered, the intervals' coverage held over 60 samples, every value exact against rational arithmetic, the delta method against a finite difference. OFE-007, reopened by ADR-0074, is delivered: a half-life is quoted only as the estimate of a named model."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "The VECM validated locally: one reduction now serves Johansen's test and the fit, with the test's pinned values unchanged. A pair's hedge ratio and constant are recovered; the deviating series corrects (t below -5) and the walk it is tied to does not. The second step matches exact rational least squares, and every value is pinned across CPython 3.12, 3.13 and 3.14."
     }
   ]
 }

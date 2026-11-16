@@ -45,12 +45,14 @@ from dataclasses import dataclass
 from decimal import Decimal, localcontext
 from typing import Final
 
-from alphalab.common.estimate import Estimate, NumericalClass
+from alphalab.common.convergence import ConvergenceReport
+from alphalab.common.estimate import Estimate, NumericalClass, Setting
 from alphalab.common.linalg import (
     CholeskyFactor,
     IllConditionedError,
     NotPositiveDefiniteError,
     cholesky,
+    least_squares,
     singular_values,
     symmetric_eigensystem,
 )
@@ -87,10 +89,13 @@ __all__ = [
     "ENGLE_GRANGER_RESIDUAL_METHOD",
     "JOHANSEN_METHOD",
     "MINIMUM_JOHANSEN_OBSERVATIONS",
+    "VECM_METHOD",
     "CointegrationTest",
     "JohansenRank",
     "JohansenTest",
+    "VecmFit",
     "engle_granger",
+    "fit_vecm",
     "johansen",
 ]
 
@@ -343,6 +348,96 @@ def johansen(
         ConvergenceError: If the eigensystem does not meet its criterion.
     """
 
+    reduction = _reduce(series, case, lags, tolerance, max_iterations, maximum_condition)
+    count, observations = reduction.count, reduction.observations
+    eigenvalues, vectors, names = reduction.eigenvalues, reduction.vectors, reduction.names
+    p = reduction.lags
+    logs = [_log_complement(value) for value in eigenvalues]
+    ranks = []
+    for rank in range(count):
+        dimension = count - rank
+        trace = _statistic(observations, logs[rank:])
+        maximum = _statistic(observations, logs[rank : rank + 1])
+        ranks.append(
+            JohansenRank(
+                rank=rank,
+                eigenvalue=eigenvalues[rank],
+                trace=trace,
+                trace_critical_values=johansen_critical_values(
+                    case, JohansenStatistic.TRACE, dimension
+                ),
+                trace_p_value=johansen_p_value(trace, case, JohansenStatistic.TRACE, dimension),
+                maximum_eigenvalue=maximum,
+                maximum_critical_values=johansen_critical_values(
+                    case, JohansenStatistic.MAXIMUM_EIGENVALUE, dimension
+                ),
+                maximum_p_value=johansen_p_value(
+                    maximum, case, JohansenStatistic.MAXIMUM_EIGENVALUE, dimension
+                ),
+            )
+        )
+
+    parameters = {f"eigenvalue_{j + 1}": value for j, value in enumerate(eigenvalues)}
+    for j, vector in enumerate(vectors):
+        for name, value in zip(names, vector, strict=True):
+            parameters[f"beta_{j + 1}_{name}"] = value
+    estimate = Estimate(
+        method=JOHANSEN_METHOD,
+        data_id=system_identity(reduction.xs),
+        parameters=parameters,
+        standard_errors={},
+        settings={
+            "case": case.value,
+            "lags": p,
+            "maximum_condition": float(maximum_condition),
+            "observations": observations,
+            "tolerance": float(tolerance),
+            "max_iterations": max_iterations,
+            "variables": count,
+        },
+        numerical_class=NumericalClass.CORRECTLY_ROUNDED,
+        convergence=reduction.convergence,
+    )
+    return JohansenTest(
+        case=case,
+        lags=p,
+        observations=observations,
+        variables=count,
+        ranks=tuple(ranks),
+        estimate=estimate,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _Reduction:
+    """Johansen's reduction of a system: what both the test and the VECM read."""
+
+    xs: list[tuple[float, ...]]
+    count: int
+    lags: int
+    observations: int
+    #: The columns of ``X_{t-1}``, a restricted term's last: ``series_k``, ``constant``, ``trend``.
+    names: list[str]
+    stacked: list[list[float]]
+    #: The lagged differences, then the unrestricted terms, each a column of ``T`` rows.
+    regressors: list[list[float]]
+    regressor_names: list[str]
+    differences: list[list[float]]
+    eigenvalues: tuple[float, ...]
+    vectors: list[list[float]]
+    convergence: ConvergenceReport
+
+
+def _reduce(
+    series: Sequence[Sequence[float]],
+    case: JohansenCase,
+    lags: FixedLags,
+    tolerance: float,
+    max_iterations: int,
+    maximum_condition: float,
+) -> _Reduction:
+    """Johansen's reduction: the refusals, the residual moments and the eigensystem."""
+
     if not isinstance(case, JohansenCase):
         raise EconometricsInputError(f"case must be a JohansenCase, got {case!r}.")
     if not isinstance(lags, FixedLags):
@@ -378,6 +473,7 @@ def johansen(
     differences = [[x[t] - x[t - 1] for t in rows] for x in xs]
     levels = [[x[t - 1] for t in rows] for x in xs]
     regressors = [[x[t - i] - x[t - i - 1] for t in rows] for i in range(1, p + 1) for x in xs]
+    regressor_names = [f"gamma_{i}_series_{k + 1}" for i in range(1, p + 1) for k in range(count)]
     ones = [1.0] * observations
     trend = [(position + 1) / observations for position in range(observations)]
     extra: list[list[float]] = []
@@ -386,11 +482,14 @@ def johansen(
         extra, names = [ones], [*names, "constant"]
     elif case is JohansenCase.UNRESTRICTED_CONSTANT:
         regressors.append(ones)
+        regressor_names.append("constant")
     elif case is JohansenCase.RESTRICTED_TREND:
         regressors.append(ones)
+        regressor_names.append("constant")
         extra, names = [trend], [*names, "trend"]
     elif case is JohansenCase.UNRESTRICTED_TREND:
         regressors += [ones, trend]
+        regressor_names += ["constant", "trend"]
     stacked = [*levels, *extra]
     width = len(stacked)
     moments = residual_moments(regressors, [*stacked, *differences], maximum_condition)
@@ -416,59 +515,19 @@ def johansen(
         )
     vectors = [_backward(level_factor, vector) for vector in system.eigenvectors[:count]]
 
-    logs = [_log_complement(value) for value in eigenvalues]
-    ranks = []
-    for rank in range(count):
-        dimension = count - rank
-        trace = _statistic(observations, logs[rank:])
-        maximum = _statistic(observations, logs[rank : rank + 1])
-        ranks.append(
-            JohansenRank(
-                rank=rank,
-                eigenvalue=eigenvalues[rank],
-                trace=trace,
-                trace_critical_values=johansen_critical_values(
-                    case, JohansenStatistic.TRACE, dimension
-                ),
-                trace_p_value=johansen_p_value(trace, case, JohansenStatistic.TRACE, dimension),
-                maximum_eigenvalue=maximum,
-                maximum_critical_values=johansen_critical_values(
-                    case, JohansenStatistic.MAXIMUM_EIGENVALUE, dimension
-                ),
-                maximum_p_value=johansen_p_value(
-                    maximum, case, JohansenStatistic.MAXIMUM_EIGENVALUE, dimension
-                ),
-            )
-        )
-
-    parameters = {f"eigenvalue_{j + 1}": value for j, value in enumerate(eigenvalues)}
-    for j, vector in enumerate(vectors):
-        for name, value in zip(names, vector, strict=True):
-            parameters[f"beta_{j + 1}_{name}"] = value
-    estimate = Estimate(
-        method=JOHANSEN_METHOD,
-        data_id=system_identity(xs),
-        parameters=parameters,
-        standard_errors={},
-        settings={
-            "case": case.value,
-            "lags": p,
-            "maximum_condition": float(maximum_condition),
-            "observations": observations,
-            "tolerance": float(tolerance),
-            "max_iterations": max_iterations,
-            "variables": count,
-        },
-        numerical_class=NumericalClass.CORRECTLY_ROUNDED,
-        convergence=system.convergence,
-    )
-    return JohansenTest(
-        case=case,
+    return _Reduction(
+        xs=xs,
+        count=count,
         lags=p,
         observations=observations,
-        variables=count,
-        ranks=tuple(ranks),
-        estimate=estimate,
+        names=names,
+        stacked=stacked,
+        regressors=regressors,
+        regressor_names=regressor_names,
+        differences=differences,
+        eigenvalues=eigenvalues,
+        vectors=vectors,
+        convergence=system.convergence,
     )
 
 
@@ -536,3 +595,186 @@ def _statistic(observations: int, logs: Sequence[Decimal]) -> float:
     with localcontext() as context:
         context.prec = 34
         return float(-observations * sum(logs, Decimal(0)))
+
+
+#: The VECM's method scheme: Johansen's reduction, then least squares given its relations.
+VECM_METHOD: Final = "alphalab.econometrics.cointegration.fit_vecm/johansen-two-step.v1"
+
+
+@dataclass(frozen=True, slots=True)
+class VecmFit:
+    """A VECM of a stated cointegrating rank, fitted by Johansen's two steps.
+
+    Attributes:
+        case: The deterministic terms.
+        rank: ``r``, the cointegrating relations.
+        lags: The lagged differences.
+        observations: ``T``.
+        relations: ``β``, the relations, normalized so that the first ``r``
+            series' block is the identity: ``beta_j_<column>`` for relation
+            ``j`` (no standard errors: ``β`` is super-consistent, and the second
+            step takes it as given).
+        equations: One estimate per series' equation: ``alpha_j`` on relation
+            ``j``'s error-correction term, ``gamma_<lag>_<series>`` on each
+            lagged difference, and the unrestricted constant or trend, each
+            with its least-squares standard error.
+        covariance: The residuals' covariance, ``sigma_<i>_<k>``, over ``T``.
+    """
+
+    case: JohansenCase
+    rank: int
+    lags: int
+    observations: int
+    relations: Estimate
+    equations: tuple[Estimate, ...]
+    covariance: Estimate
+
+
+def fit_vecm(
+    series: Sequence[Sequence[float]],
+    *,
+    rank: int,
+    case: JohansenCase,
+    lags: FixedLags,
+    tolerance: float,
+    max_iterations: int,
+    maximum_condition: float,
+) -> VecmFit:
+    """Fit a VECM of cointegrating rank ``rank``: Johansen's relations, then least squares.
+
+    Step one is :func:`johansen`'s reduction: its first ``rank`` eigenvectors
+    are the relations, normalized so that the first ``rank`` series' block is
+    the identity. Step two regresses each series' difference on the relations'
+    error-correction terms, the lagged differences and the unrestricted
+    deterministic terms, by least squares (class 2), with ``β`` taken as given.
+
+    Args:
+        series: Two to twelve series of the same length, in time order.
+        rank: The cointegrating relations, 1 to one less than the series: rank
+            0 is a VAR in differences, and full rank a stationary VAR.
+        case, lags, tolerance, max_iterations, maximum_condition: As for
+            :func:`johansen`.
+
+    Raises:
+        EconometricsInputError: For a rank outside ``1 .. p - 1``, or a
+            relation block that cannot be normalized, besides what
+            :func:`johansen` refuses.
+        IllConditionedError: As :func:`johansen`, and for a second-step design
+            too ill-conditioned to solve.
+        ConvergenceError: If the eigensystem does not meet its criterion.
+    """
+
+    reduction = _reduce(series, case, lags, tolerance, max_iterations, maximum_condition)
+    count = reduction.count
+    if isinstance(rank, bool) or not isinstance(rank, int) or not 1 <= rank <= count - 1:
+        raise EconometricsInputError(
+            f"A VECM's rank is 1 to {count - 1} for {count} series, got {rank!r}: rank 0 is a "
+            "VAR in differences, and full rank a stationary VAR."
+        )
+    vectors = [list(vector) for vector in reduction.vectors[:rank]]  # rank vectors, each of width
+    width = len(reduction.names)
+    # The block of the first `rank` series: block[i][j] = vector_j[i].
+    block = [[vectors[j][i] for j in range(rank)] for i in range(rank)]
+    inverse = _inverse(block, maximum_condition)
+    # beta_norm[c][j] = sum_k vector_k[c] * inverse[k][j]. The first rank rows are the
+    # identity by definition: they are set so, not left as rounding leaves them.
+    normalized = [
+        [
+            (1.0 if c == j else 0.0)
+            if c < rank
+            else math.fsum(vectors[k][c] * inverse[k][j] for k in range(rank))
+            for j in range(rank)
+        ]
+        for c in range(width)
+    ]
+    terms = [
+        [
+            math.fsum(normalized[c][j] * reduction.stacked[c][t] for c in range(width))
+            for t in range(reduction.observations)
+        ]
+        for j in range(rank)
+    ]
+    design_columns = [*terms, *reduction.regressors]
+    design = [list(row) for row in zip(*design_columns, strict=True)]
+    names = [
+        *(f"alpha_{j + 1}" for j in range(rank)),
+        *reduction.regressor_names,
+    ]
+    data_id = system_identity(reduction.xs)
+    settings: dict[str, Setting] = {
+        "case": case.value,
+        "lags": reduction.lags,
+        "max_iterations": max_iterations,
+        "maximum_condition": float(maximum_condition),
+        "observations": reduction.observations,
+        "rank": rank,
+        "tolerance": float(tolerance),
+    }
+    equations = []
+    residuals = []
+    for i, target in enumerate(reduction.differences):
+        fit = ordinary_least_squares(design, target, maximum_condition)
+        residuals.append(fit.residuals)
+        equations.append(
+            Estimate(
+                method=VECM_METHOD,
+                data_id=data_id,
+                parameters=dict(zip(names, fit.coefficients, strict=True)),
+                standard_errors=dict(zip(names, fit.standard_errors, strict=True)),
+                settings={**settings, "equation": i + 1},
+                numerical_class=NumericalClass.CORRECTLY_ROUNDED,
+            )
+        )
+    relations = Estimate(
+        method=VECM_METHOD,
+        data_id=data_id,
+        parameters={
+            f"beta_{j + 1}_{name}": normalized[c][j]
+            for j in range(rank)
+            for c, name in enumerate(reduction.names)
+        },
+        standard_errors={},
+        settings=settings,
+        numerical_class=NumericalClass.CORRECTLY_ROUNDED,
+        convergence=reduction.convergence,
+    )
+    covariance = Estimate(
+        method=VECM_METHOD,
+        data_id=data_id,
+        parameters={
+            f"sigma_{i + 1}_{k + 1}": math.fsum(map(operator.mul, residuals[i], residuals[k]))
+            / reduction.observations
+            for i in range(count)
+            for k in range(count)
+        },
+        standard_errors={},
+        settings=settings,
+        numerical_class=NumericalClass.CORRECTLY_ROUNDED,
+    )
+    return VecmFit(
+        case=case,
+        rank=rank,
+        lags=reduction.lags,
+        observations=reduction.observations,
+        relations=relations,
+        equations=tuple(equations),
+        covariance=covariance,
+    )
+
+
+def _inverse(block: list[list[float]], maximum_condition: float) -> list[list[float]]:
+    """``block⁻¹`` by M2's least squares, column by column, refused when ill-conditioned."""
+
+    size = len(block)
+    try:
+        columns = [
+            least_squares(block, [1.0 if i == j else 0.0 for i in range(size)], maximum_condition)
+            for j in range(size)
+        ]
+    except IllConditionedError as error:
+        raise EconometricsInputError(
+            "The relations' block for the first series is singular: those series do not "
+            "identify the relations, so they cannot be normalized on them. Order the series "
+            "so that the first ones enter the relations."
+        ) from error
+    return [[columns[j].coefficients[i] for j in range(size)] for i in range(size)]

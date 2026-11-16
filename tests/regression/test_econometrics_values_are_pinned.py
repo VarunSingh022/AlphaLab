@@ -28,6 +28,7 @@ from alphalab.econometrics import (
     SelectedLags,
     augmented_dickey_fuller,
     fit_ornstein_uhlenbeck,
+    fit_vecm,
     johansen,
     kpss,
     phillips_perron,
@@ -193,4 +194,36 @@ def test_the_ornstein_uhlenbeck_fit_and_its_half_life_are_pinned() -> None:
     )
     assert fit.process.estimate_id == (
         "b98e0ef92285fde88c074a9233756bbf7299c4c15c0df8978629b75b3a68bf67"
+    )
+
+
+def test_the_vecms_relation_adjustments_and_identities_are_pinned() -> None:
+    fit = fit_vecm(
+        [Y, X],
+        rank=1,
+        case=JohansenCase.RESTRICTED_CONSTANT,
+        lags=FixedLags(1),
+        tolerance=1e-15,
+        max_iterations=60,
+        maximum_condition=CONDITION,
+    )
+
+    relation = {name: value.hex() for name, value in fit.relations.parameters.items()}
+    assert relation == {
+        "beta_1_series_1": "0x1.0000000000000p+0",
+        "beta_1_series_2": "-0x1.8231d704935c9p+0",
+        "beta_1_constant": "-0x1.05ce8a158b7a6p+1",
+    }
+    first, second = fit.equations
+    assert first.parameters["alpha_1"].hex() == "-0x1.4a293b0bcefe2p-1"
+    assert first.standard_errors["alpha_1"].hex() == "0x1.119aa8d60131cp-3"
+    assert second.parameters["alpha_1"].hex() == "-0x1.2fb68b2c17f61p-4"
+    assert fit.covariance.parameters["sigma_1_2"].hex() == "0x1.2ecc978d2c337p-1"
+    assert [fit.relations.estimate_id, first.estimate_id, second.estimate_id] == [
+        "728182c2309735e7d944f30ab9e3d500707fa2a5fc323f9fd3f7bd0ebc9b89bb",
+        "584deee738ccf991e3a940ce5d469894c73f55663da1eb6586660328c7ac22b4",
+        "7e1fb855231b8723798a8b0dcc907660c345491f20868328d4b2e2fb4dc038fb",
+    ]
+    assert fit.covariance.estimate_id == (
+        "24f4ca5d21466c40dba4e15c2ba64cd2676057b559bee12b600ec3339582ccbe"
     )

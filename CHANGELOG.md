@@ -671,6 +671,11 @@ entry below says otherwise.
     It refuses a coefficient outside `(0, 1)`, where no mean reversion is
     measured. Every value is class 2. The decay profile in `factor_library`
     stays the measurement it was.
+  * **The VECM of a stated rank.** `fit_vecm` takes the relations from
+    Johansen's eigenvectors, normalized so that the first `r` series' block is
+    the identity, then fits each equation's `α`, `Γ` and unrestricted terms by
+    least squares, each with its standard error, and the residual covariance.
+    It returns a `VecmFit`, every value class 2.
   * **Johansen's tables, verified.** `johansen_critical_values` and
     `johansen_p_value` read MacKinnon, Haug and Michelis (1996)'s Tables 1 to
     5, decoded from the paper's own text. They are held three ways: by their

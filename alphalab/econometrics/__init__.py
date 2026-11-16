@@ -24,7 +24,8 @@ Delivered so far
 * :mod:`~alphalab.econometrics.cointegration`: Engle and Granger's two-step
   test. Its cointegrating regression is the combination tested: for a pair,
   the hedge ratio. Johansen's trace and maximum-eigenvalue tests of a system's
-  cointegrating rank, under each of Osterwald-Lenum's five cases.
+  cointegrating rank, under each of Osterwald-Lenum's five cases, and the VECM
+  of a stated rank, fitted by Johansen's two steps.
 * :mod:`~alphalab.econometrics.mean_reversion`: the Ornstein-Uhlenbeck fit and
   the half-life it implies, each with its standard error (OFE-007 reopened).
 
@@ -41,10 +42,13 @@ from alphalab.econometrics.cointegration import (
     ENGLE_GRANGER_RESIDUAL_METHOD,
     JOHANSEN_METHOD,
     MINIMUM_JOHANSEN_OBSERVATIONS,
+    VECM_METHOD,
     CointegrationTest,
     JohansenRank,
     JohansenTest,
+    VecmFit,
     engle_granger,
+    fit_vecm,
     johansen,
 )
 from alphalab.econometrics.critical_values import (
@@ -121,6 +125,7 @@ __all__ = [
     "PHILLIPS_PERRON_METHOD",
     "SERIES_SCHEME",
     "SYSTEM_SCHEME",
+    "VECM_METHOD",
     "Bandwidth",
     "CointegrationTest",
     "CriticalValues",
@@ -142,9 +147,11 @@ __all__ = [
     "SchwertBandwidth",
     "SelectedLags",
     "UnitRootTest",
+    "VecmFit",
     "augmented_dickey_fuller",
     "engle_granger",
     "fit_ornstein_uhlenbeck",
+    "fit_vecm",
     "johansen",
     "johansen_critical_values",
     "johansen_p_value",
