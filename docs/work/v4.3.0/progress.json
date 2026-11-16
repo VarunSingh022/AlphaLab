@@ -847,6 +847,32 @@
       "compatibility": "Additive: 7 new public names in alphalab.econometrics (API manifest 3,029 exports).",
       "record": "docs/ADR/0074 (settled point 21); CHANGELOG; docs/ECONOMETRICS.md.",
       "tests": "tests/unit/econometrics/test_arma.py: the recursion and its inverse, refusing polynomials outside the region; the exact likelihood of an ARMA(1, 1) and an MA(2) equal to their joint densities; least squares' residuals the recursion written out; an ARMA(1, 1) about a mean, an AR(2) and an MA(1) recovered within three standard errors by both methods; the two methods agreeing; BIC choosing (1, 1) on one sample and refitting it; the exact criterion scoring every value; every choice in the estimate with its class; white noise needing no iteration; every refusal. tests/regression/test_econometrics_values_are_pinned.py: least squares pinned bit for bit, the exact likelihood within 1e-4, across CPython 3.12, 3.13 and 3.14."
+    },
+    {
+      "id": "TD-46",
+      "date": "2026-11-16",
+      "workstream": "WS-09",
+      "title": "ADR-0057 accepted: optional distributions beside a dependency-free core (D-V2)",
+      "problem": "Model adapters, M11's array backends and GPUs need third-party code, and frozen invariant #9 keeps it out of alphalab. G0 approved D-V2 = (d) on 2026-11-09, but the ADR the plan needs before WS-09's first distribution was not drafted. Measured at drafting: of 655 modules, none imports a third-party package by an import statement, and lifecycle.environment imports tzdata by name, to record the version of zoneinfo's fallback database.",
+      "alternatives": "Extras of the alphalab distribution; a hard dependency on NumPy (a 5.0 change); or separate distributions under distributions/ implementing core protocols (D-V2's option d). For tzdata: an exception in AC-38's sweep, or its version read as data without executing it.",
+      "decision": "Separate distributions, each with its own pyproject, version, suite and CI cells, depending on alphalab >=4.3,<5: alphalab-models (M7, M12), alphalab-compute and alphalab-columnar (M11), alphalab-reference (M10). The core declares the protocols and imports no implementation (AC-38). An AST sweep enforces it over import statements and names written in a module's source; a module the researcher names at run time is the researcher's code. tzdata's version is read from its files without executing it. Discovery is explicit (AC-10), and a capability whose distribution is absent refuses, naming it. Identity never depends on optional code: models enter as artifacts (ADR-0064), and a backend's result is cross-checked against the core's reference or mints no identity. How the distributions are released is the owner's D-W3.",
+      "rationale": "The charter's dependency-free core (ADR-0056) stays auditable alone, while research that needs third-party code stays inside AlphaLab with its identity. An exception in the sweep would be the first third-party import the core keeps; reading a version as data needs none.",
+      "compatibility": "None for the core: no name, signature, identity or persisted format moves, and the recorded tzdata version is the same.",
+      "record": "docs/ADR/0057-optional-distributions-and-backend-protocols.md",
+      "tests": "The AC-38 sweep over every alphalab module's imports, static and by written name; tzdata's version read from a package that raises if executed; each distribution's suite in its own CI cells."
+    },
+    {
+      "id": "TD-47",
+      "date": "2026-11-16",
+      "workstream": "WS-08",
+      "title": "ADR-0064 accepted: the research model protocol, a trained model's identity as its artifact (N8)",
+      "problem": "GAP-12: there is no model protocol. Example 73 carries a linear model's coefficients as declared parameters by hand. A tree ensemble or a framework's model has no coefficients to declare, and a training run on a GPU or a thread pool is not reproducible to the bit. GAP-13: ml's dataset builder reads feature_store.latest_value, so it is not point-in-time.",
+      "alternatives": "A model's identity as its training run (seed, data and hyperparameters), or as its captured bytes. Framework models inside alphalab behind optional imports, or adapters in alphalab-models (ADR-0057). A new strategy hook for inference, or the strategy holding a restored model (AC-35).",
+      "decision": "ml.protocol.Model: model_kind; hyperparameters() as parameter values; a pure fit(training, *, seed); predict per row, from a fitted model only; capture() to canonical bytes; and restore(), which refuses bytes that are not a model. A training set states its feature names and derives its identity from its values, and a fitted model refuses rows that name other features. The artifact's bytes are the model's identity, filed as alphalab-artifact:sha256:<hex>. A strategy declares the id among its parameters, so another artifact is INPUTS_DIFFER, and bytes whose digest is not the id are refused. The seed, the hyperparameters and the training set's identity are recorded beside the artifact. The reference models are pure Python, captured as canonical JSON: ridge, logistic regression by Newton's method, and gradient-boosted regression trees as the adapters' oracle. Adapters live in alphalab-models, and the core never unpickles.",
+      "rationale": "An identity in the bytes contains every nondeterminism of training -- a GPU, threads, a framework's version -- without asking any of them to be deterministic. A strategy's parameters already carry identity into a run (ADR-0053), so no new mechanism is needed.",
+      "compatibility": "Additive: ml.protocol and new names. build_dataset_from_feature_store is kept, documented as not point-in-time.",
+      "record": "docs/ADR/0064-research-model-protocol-and-artifacts.md",
+      "tests": "Protocol conformance for every reference model; capture, restore and capture again byte-identical; a restore from altered bytes refused; INPUTS_DIFFER on another artifact; a model-holding strategy restored byte for byte (S-07)."
     }
   ],
   "plan_changes": [
@@ -1096,7 +1122,7 @@
       "deliverables": "Model protocol and artifacts; PIT datasets and labels; HPO samplers; adapters",
       "exit_gate": "S-07 with a boosting adapter; counterfactual tests",
       "size": "L",
-      "status": "Not started",
+      "status": "In progress",
       "evidence": []
     },
     {
@@ -1687,8 +1713,14 @@
       "milestones": [
         "M7"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M7",
+          "item": "ADR-0064 accepted (TD-47): the Model protocol, a trained model's identity as its artifact, the reference models and the adapters' place",
+          "status": "Local validation passed"
+        }
+      ],
       "evidence": []
     },
     {
@@ -1698,8 +1730,14 @@
         "M7",
         "M11"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M7",
+          "item": "ADR-0057 accepted (TD-46): optional distributions under distributions/, AC-38 enforced by an AST sweep, tzdata read as data, discovery explicit",
+          "status": "Local validation passed"
+        }
+      ],
       "evidence": []
     },
     {
@@ -2755,7 +2793,7 @@
       "plan_section": "§P",
       "workstream": "WS-09",
       "needed": "G0",
-      "status": "Not drafted in the repository"
+      "status": "Accepted (2026-11-16)"
     },
     {
       "id": "ADR-0058",
@@ -2811,7 +2849,7 @@
       "plan_section": "§I",
       "workstream": "WS-08",
       "needed": "Before M7",
-      "status": "Not drafted in the repository"
+      "status": "Accepted (2026-11-16)"
     },
     {
       "id": "ADR-0065",
@@ -2921,7 +2959,7 @@
   },
   "state": {
     "updated": "2026-11-16",
-    "remote_head": "04b4e0f",
+    "remote_head": "13c437c",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3610,7 +3648,7 @@
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M6's close on hosted CI, with the macOS cells re-run on 7b6bdc0 and 04b4e0f read once; the benchmarks workflow dispatched at M6's checkpoint, WS-07 item 15's hosted figures and PC-07 read on its Linux cells. Then M7 (WS-08, WS-09, WS-20): ADR-0057 and ADR-0064, the Model protocol and its artifacts, point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep, S-07, the ML guide and M7's mutation series.",
+    "next": "M6 on hosted CI: 13c437c's run, the re-run macOS cells of 7b6bdc0 and 04b4e0f, and the benchmarks dispatched at M6's checkpoint (run 43928771613), WS-07 item 15's hosted figures and PC-07 read on its Linux cells. M7 (WS-08, WS-09, WS-20): the Model protocol and its artifacts with the reference models, point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series.",
     "open_questions": []
   },
   "log": [
@@ -3913,6 +3951,10 @@
     {
       "date": "2026-11-16",
       "entry": "7b6bdc0 (S-02's screen and the guide) and 04b4e0f (ARMA) passed the full local gate and were pushed; 5513213 (regime models) and 50f9632 (WS-25) passed hosted CI on all six cells and CodeQL. On 7b6bdc0 and 04b4e0f CodeQL passed and so did every cell a runner took, but three macOS cells were never acquired by a hosted runner (GitHub's capacity notice for macOS arm64) and ended cancelled, so neither run counts as passed; the cancelled jobs were re-run and are read once at the next boundary. M6's close: the EC mutation series caught 39 of 40 on the first run; EC28, the MA polynomial's sign, cannot move an MA(1) -- flipping it only mirrors the coordinate -- so an MA(2) with complex roots joined the recovery cases and EC28 was caught when run again. GAP-11 closed; WS-25's characteristic portfolios and incremental evaluator recorded for M11."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "M6's close (13c437c) passed the full gate (13,904 tests) and was pushed; the benchmarks workflow was dispatched at M6's checkpoint (run 43928771613), and PR #22's description records M6's state, the cancelled macOS cells included. M7 begins: ADR-0057 (optional distributions beside a dependency-free core, D-V2) and ADR-0064 (the research model protocol, a trained model's identity as its artifact) accepted (TD-46, TD-47). Measured for ADR-0057: no alphalab module imports a third-party package by an import statement; lifecycle.environment imports tzdata by name, and is to read its version as data instead (AC-38)."
     }
   ]
 }

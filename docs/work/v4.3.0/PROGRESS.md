@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `04b4e0f` |
+| Remote head | `13c437c` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M6's close on hosted CI, with the macOS cells re-run on 7b6bdc0 and 04b4e0f read once; the benchmarks workflow dispatched at M6's checkpoint, WS-07 item 15's hosted figures and PC-07 read on its Linux cells. Then M7 (WS-08, WS-09, WS-20): ADR-0057 and ADR-0064, the Model protocol and its artifacts, point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep, S-07, the ML guide and M7's mutation series. |
+| Next | M6 on hosted CI: 13c437c's run, the re-run macOS cells of 7b6bdc0 and 04b4e0f, and the benchmarks dispatched at M6's checkpoint (run 43928771613), WS-07 item 15's hosted figures and PC-07 read on its Linux cells. M7 (WS-08, WS-09, WS-20): the Model protocol and its artifacts with the reference models, point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -244,6 +244,7 @@ Never:
 - **2026-11-16** 50f9632 (WS-25) passed the full local gate and was pushed; 1c55995 (state space) passed hosted CI on all six cells and CodeQL. S-02's screening stage validated locally (TD-44): 200 candidate pairs screened under Holm's correction, the planted pairs alone selected, and the same 200 run as a ledgered experiment's trials in four spawned workers, every one recorded and each fitting its own window. The econometrics guide, docs/ECONOMETRICS.md, written and indexed.
 - **2026-11-16** ARMA validated locally (TD-45): conditional least squares, class 2, and the exact Gaussian likelihood, both in coordinates that keep every estimate stationary and invertible, the order chosen by AIC or BIC on one sample; the exact likelihood held to the joint density; known parameters recovered; pinned across CPython 3.12, 3.13 and 3.14.
 - **2026-11-16** 7b6bdc0 (S-02's screen and the guide) and 04b4e0f (ARMA) passed the full local gate and were pushed; 5513213 (regime models) and 50f9632 (WS-25) passed hosted CI on all six cells and CodeQL. On 7b6bdc0 and 04b4e0f CodeQL passed and so did every cell a runner took, but three macOS cells were never acquired by a hosted runner (GitHub's capacity notice for macOS arm64) and ended cancelled, so neither run counts as passed; the cancelled jobs were re-run and are read once at the next boundary. M6's close: the EC mutation series caught 39 of 40 on the first run; EC28, the MA polynomial's sign, cannot move an MA(1) -- flipping it only mirrors the coordinate -- so an MA(2) with complex roots joined the recovery cases and EC28 was caught when run again. GAP-11 closed; WS-25's characteristic portfolios and incremental evaluator recorded for M11.
+- **2026-11-16** M6's close (13c437c) passed the full gate (13,904 tests) and was pushed; the benchmarks workflow was dispatched at M6's checkpoint (run 43928771613), and PR #22's description records M6's state, the cancelled macOS cells included. M7 begins: ADR-0057 (optional distributions beside a dependency-free core, D-V2) and ADR-0064 (the research model protocol, a trained model's identity as its artifact) accepted (TD-46, TD-47). Measured for ADR-0057: no alphalab module imports a third-party package by an import statement; lifecycle.environment imports tzdata by name, and is to read its version as data instead (AC-38).
 
 ## Milestones
 
@@ -257,7 +258,7 @@ Never:
 | M4 | Hosted CI passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Hosted CI passed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Pushed | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
-| M7 | Not started | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
+| M7 | In progress | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Not started | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
 | M9 | Not started | WS-12 | A rebalancing backtest with CVaR, certified |
 | M10 | Not started | WS-13, WS-27, WS-14, WS-28 | S-03, S-04, S-05, S-06, S-14; GR-1, GR-3, GR-6 |
@@ -760,6 +761,26 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0074 (settled point 21); CHANGELOG; docs/ECONOMETRICS.md.
 - **Tests:** tests/unit/econometrics/test_arma.py: the recursion and its inverse, refusing polynomials outside the region; the exact likelihood of an ARMA(1, 1) and an MA(2) equal to their joint densities; least squares' residuals the recursion written out; an ARMA(1, 1) about a mean, an AR(2) and an MA(1) recovered within three standard errors by both methods; the two methods agreeing; BIC choosing (1, 1) on one sample and refitting it; the exact criterion scoring every value; every choice in the estimate with its class; white noise needing no iteration; every refusal. tests/regression/test_econometrics_values_are_pinned.py: least squares pinned bit for bit, the exact likelihood within 1e-4, across CPython 3.12, 3.13 and 3.14.
 
+### TD-46: ADR-0057 accepted: optional distributions beside a dependency-free core (D-V2) (WS-09, 2026-11-16)
+
+- **Problem:** Model adapters, M11's array backends and GPUs need third-party code, and frozen invariant #9 keeps it out of alphalab. G0 approved D-V2 = (d) on 2026-11-09, but the ADR the plan needs before WS-09's first distribution was not drafted. Measured at drafting: of 655 modules, none imports a third-party package by an import statement, and lifecycle.environment imports tzdata by name, to record the version of zoneinfo's fallback database.
+- **Alternatives:** Extras of the alphalab distribution; a hard dependency on NumPy (a 5.0 change); or separate distributions under distributions/ implementing core protocols (D-V2's option d). For tzdata: an exception in AC-38's sweep, or its version read as data without executing it.
+- **Decision:** Separate distributions, each with its own pyproject, version, suite and CI cells, depending on alphalab >=4.3,<5: alphalab-models (M7, M12), alphalab-compute and alphalab-columnar (M11), alphalab-reference (M10). The core declares the protocols and imports no implementation (AC-38). An AST sweep enforces it over import statements and names written in a module's source; a module the researcher names at run time is the researcher's code. tzdata's version is read from its files without executing it. Discovery is explicit (AC-10), and a capability whose distribution is absent refuses, naming it. Identity never depends on optional code: models enter as artifacts (ADR-0064), and a backend's result is cross-checked against the core's reference or mints no identity. How the distributions are released is the owner's D-W3.
+- **Rationale:** The charter's dependency-free core (ADR-0056) stays auditable alone, while research that needs third-party code stays inside AlphaLab with its identity. An exception in the sweep would be the first third-party import the core keeps; reading a version as data needs none.
+- **Compatibility:** None for the core: no name, signature, identity or persisted format moves, and the recorded tzdata version is the same.
+- **Recorded in:** docs/ADR/0057-optional-distributions-and-backend-protocols.md
+- **Tests:** The AC-38 sweep over every alphalab module's imports, static and by written name; tzdata's version read from a package that raises if executed; each distribution's suite in its own CI cells.
+
+### TD-47: ADR-0064 accepted: the research model protocol, a trained model's identity as its artifact (N8) (WS-08, 2026-11-16)
+
+- **Problem:** GAP-12: there is no model protocol. Example 73 carries a linear model's coefficients as declared parameters by hand. A tree ensemble or a framework's model has no coefficients to declare, and a training run on a GPU or a thread pool is not reproducible to the bit. GAP-13: ml's dataset builder reads feature_store.latest_value, so it is not point-in-time.
+- **Alternatives:** A model's identity as its training run (seed, data and hyperparameters), or as its captured bytes. Framework models inside alphalab behind optional imports, or adapters in alphalab-models (ADR-0057). A new strategy hook for inference, or the strategy holding a restored model (AC-35).
+- **Decision:** ml.protocol.Model: model_kind; hyperparameters() as parameter values; a pure fit(training, *, seed); predict per row, from a fitted model only; capture() to canonical bytes; and restore(), which refuses bytes that are not a model. A training set states its feature names and derives its identity from its values, and a fitted model refuses rows that name other features. The artifact's bytes are the model's identity, filed as alphalab-artifact:sha256:<hex>. A strategy declares the id among its parameters, so another artifact is INPUTS_DIFFER, and bytes whose digest is not the id are refused. The seed, the hyperparameters and the training set's identity are recorded beside the artifact. The reference models are pure Python, captured as canonical JSON: ridge, logistic regression by Newton's method, and gradient-boosted regression trees as the adapters' oracle. Adapters live in alphalab-models, and the core never unpickles.
+- **Rationale:** An identity in the bytes contains every nondeterminism of training -- a GPU, threads, a framework's version -- without asking any of them to be deterministic. A strategy's parameters already carry identity into a run (ADR-0053), so no new mechanism is needed.
+- **Compatibility:** Additive: ml.protocol and new names. build_dataset_from_feature_store is kept, documented as not point-in-time.
+- **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md
+- **Tests:** Protocol conformance for every reference model; capture, restore and capture again byte-identical; a restore from altered bytes refused; INPUTS_DIFFER on another artifact; a model-holding strategy restored byte for byte (S-07).
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -784,8 +805,8 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-05 | Experiment and trial ledger, executor, runner registry | M4 | In progress |
 | WS-06 | Statistical research functions | M2, M3, M5 | In progress |
 | WS-07 | Econometrics and time series | M6 | In progress |
-| WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | Not started |
-| WS-09 | Optional distributions and backends | M7, M11 | Not started |
+| WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | In progress |
+| WS-09 | Optional distributions and backends | M7, M11 | In progress |
 | WS-10 | Strategy authoring and safe extensibility | M8 | Not started |
 | WS-11 | Execution realism: fills, partial fills, latency, plan+queue, combos | M8 | Not started |
 | WS-12 | Portfolio construction and rebalancing | M9 | Not started |
@@ -947,6 +968,14 @@ Evidence:
 - [Pushed] M6: ARMA (TD-45, ADR-0074 settled point 21): conditional least squares (class 2) and the exact Gaussian likelihood by the Kalman filter from the stationary covariance (class 3), in partial-autocorrelation coordinates that keep every estimate stationary and invertible; Gauss-Newton and curvature standard errors; select_arma by AIC or BIC on one sample, Decimal logarithms under least squares; the recursion and its inverse, the exact likelihood held to the joint density, known parameters recovered by both methods; pinned across CPython 3.12, 3.13 and 3.14
 - [Pushed] M6: Mutation series EC (40): the unit-root tests and MacKinnon's tables, Engle-Granger, Johansen, the half-life, the VAR's criterion and sample, the GARCH family, the filter, smoother and diffuse start, the regime models, ARMA, the shared curvature, Fama-MacBeth, principal components and S-02's screen -- 40 of 40 caught, EC28 after the MA(2) case it asked for
 
+### WS-08: Research model interfaces, ML datasets, hyperparameter search
+
+- [Local validation passed] M7: ADR-0064 accepted (TD-47): the Model protocol, a trained model's identity as its artifact, the reference models and the adapters' place
+
+### WS-09: Optional distributions and backends
+
+- [Local validation passed] M7: ADR-0057 accepted (TD-46): optional distributions under distributions/, AC-38 enforced by an AST sweep, tzdata read as data, discovery explicit
+
 ### WS-13: Global conventions, reference data and historical universes
 
 - [Hosted CI passed] M2: Global day counts (N21)
@@ -1100,14 +1129,14 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | ADR-0072 | Experiments and trial ledger (plan 0054B) | WS-05 | Before M4 | Accepted (2026-11-15) |
 | ADR-0055 | Streaming research capture, extractor identity, trace identity, retention | WS-04 | Before M3 | Accepted (2026-11-14) |
 | ADR-0056 | Product charter (D-V1) | WS-00 | G0 | Accepted (2026-11-10) |
-| ADR-0057 | Optional distributions and backend protocols (D-V2); includes the screening evaluator (B9) | WS-09 | G0 | Not drafted in the repository |
+| ADR-0057 | Optional distributions and backend protocols (D-V2); includes the screening evaluator (B9) | WS-09 | G0 | Accepted (2026-11-16) |
 | ADR-0058 | Numerical foundation, record-path host independence, estimation identity (reopens OFE-007, OFE-010 under identity) | WS-03 | Before M2 | Accepted (2026-11-14) |
 | ADR-0059 | Historical universes and reference-data packs (reopens BDY-013 "permanently") | WS-13 | Before M3 | Accepted (2026-11-14) |
 | ADR-0060 | Fill timing `NEXT_OPEN`, intraday opening, `RemainderPolicy`, latency pricing (D-V4) | WS-11 | Before M8 | Not drafted in the repository |
 | ADR-0061 | Per-venue execution (FUT-045) and plan+queue composition | WS-26 | Before M8 | Not drafted in the repository |
 | ADR-0062 | Combo and multi-leg intents (N16) | WS-11 | Before M8 | Not drafted in the repository |
 | ADR-0063 | Rebalancing bridge and certified additional solvers (reopens ADR-0043's non-goal and §19) | WS-12 | Before M9 | Not drafted in the repository |
-| ADR-0064 | Research model protocol and artifacts (N8) | WS-08 | Before M7 | Not drafted in the repository |
+| ADR-0064 | Research model protocol and artifacts (N8) | WS-08 | Before M7 | Accepted (2026-11-16) |
 | ADR-0065 | Fixed income and rates (reopens BDY-014) | WS-14 | Before M10 | Not drafted in the repository |
 | ADR-0066 | Volatility models (reopens BDY-015) | WS-28 | Before M10 | Not drafted in the repository |
 | ADR-0067 | FX instruments and value dates (N15) | WS-27 | Before M10 | Not drafted in the repository |
