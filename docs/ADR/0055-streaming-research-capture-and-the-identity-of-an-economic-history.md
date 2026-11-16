@@ -265,6 +265,14 @@ None moves an identity made before; each is held by a test
   * **The measurement changed, not the limits.** The capture benchmark now keeps
     the fastest of nine interleaved samples, not three (TD-35). The limits, the
     workload and what the trace covers are unchanged.
+  * **Paired ratios, and a measurement that proves nothing fails.** Nine
+    samples did not settle hosted macOS (benchmarks run 43818953549):
+    * 3.12 read 16.8 percent at one density, a failed gate;
+    * 3.14 read series and trace at -6.7 percent;
+    * 3.13 read -7.9, and the verdict then passed it.
+
+    The benchmark now judges the median of each round's paired ratios. A figure
+    that contradicts another fails as inconsistent (TD-36).
 - **The grid's third member, a declared calendar's sessions, waits for the
   calendars.** Sessions come from ADR-0059's reference packs, which M3 begins.
   A grid from a pack is added when a pack can supply one. `EVERY_INSTANT` and

@@ -717,6 +717,19 @@
       "compatibility": "No code changes. The capture benchmark takes about three times as long, about 3 to 5 minutes a cell.",
       "record": "benchmarks/benchmark_capture.py; .github/workflows/benchmarks.yml; ADR-0055 (departures); ledger LIM-013; CHANGELOG.",
       "tests": "The workflow's step was run under bash 3.2 as macOS and as Linux. tests/regression/test_release_preflight.py and test_release_gates_are_wired.py hold the called workflow."
+    },
+    {
+      "id": "TD-36",
+      "date": "2026-11-16",
+      "workstream": "WS-04",
+      "title": "PC-07 judged on the median of paired ratios, and a self-contradicting measurement fails",
+      "problem": "On nine samples (benchmarks run 43818953549, 0095775) hosted macOS still read figures that cannot all be true. On 3.12 series and trace read +16.8% at a trade on every record, a failed PC-07 gate, with the series alone at -5.6% at one density and above series and trace at another. On 3.14 series and trace read -1.4% and -6.7%, and the series alone +10.9%, over its budget. On 3.13 series and trace read -7.9% and -5.1%, and the old verdict passed that cell though it proved nothing. Comparing each workload's fastest sample compares samples the runner ran at different speeds.",
+      "alternatives": "(a) More samples: nine already failed, and the experiments benchmark bounds the job's time. (b) Judge macOS as information only: a change to the gate, for the owner. (c) The median of paired ratios: each round runs the workloads back to back, so a slow phase or a slower core that covers the round scales numerator and denominator alike, and the median discards a round that one fell into alone. (d) Fail a measurement that contradicts itself rather than read a verdict from it.",
+      "decision": "(c) and (d). _stable_timing gains rounds(), the per-round times; fastest() is the minimum over them, unchanged for every other benchmark. The capture benchmark judges the median of each round's ratio over nine rounds and prints each ratio's range across the rounds. It fails a density as INCONSISTENT when the series alone reads below -2 percent or series and trace below the series alone by more than 2 points, beside any limit exceeded. The limits, the workload and the trace's coverage are unchanged.",
+      "rationale": "A benchmark that can read a capture cheaper than none cannot be the evidence of a ceiling either way. On the reference machine the paired median reads what the fastest-of-N read: series and trace 7.5 to 8.7 percent, the series 1.2 to 3.6.",
+      "compatibility": "No code changes. fastest() runs the same samples in the same order.",
+      "record": "benchmarks/_stable_timing.py; benchmarks/benchmark_capture.py; ADR-0055 (departures); ledger LIM-013; CHANGELOG.",
+      "tests": "tests/regression/test_benchmark_ceilings.py (every ceiling judged through _stable_timing). The benchmark was run twice on the reference machine with the new estimator."
     }
   ],
   "plan_changes": [
@@ -1301,6 +1314,11 @@
         {
           "milestone": "M3",
           "item": "PC-07's verdict on six cells: the capture benchmark judged on the fastest of nine samples, macOS running it alone (TD-35); limits and coverage unchanged",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M3",
+          "item": "PC-07 judged on the median of paired ratios over nine rounds; a self-contradicting measurement fails as inconsistent (TD-36); reference machine 7.5 to 8.7 percent",
           "status": "Local validation passed"
         }
       ],
@@ -2703,7 +2721,7 @@
   },
   "state": {
     "updated": "2026-11-16",
-    "remote_head": "61b4793",
+    "remote_head": "d52fd4b",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3203,6 +3221,24 @@
         "workflow": "Benchmarks",
         "run": 43794814136,
         "result": "failure. Linux, every benchmark passing: series and trace +7.6, +7.3, +8.0, +7.8% on CPython 3.12; +10.5, +8.2, +8.4, +9.2% on 3.13; +7.0, +9.5, +9.1, +8.5% on 3.14 (a trade every 1, 2, 4, 8 records). macOS, its first run: 3.12 read +15.5, +6.7, +9.1, +25.3% with the series alone at +10.0% at the second density, failing PC-07 at two densities and the series budget at one; 3.13 read +3.6, +6.9, +9.1, +22.2% with the series at -2.4% and +23.8%, failing PC-07 at one density, and the OMS scaling ceiling at 3.07x; 3.14 passed PC-07 at +7.0 to +8.7% and failed the experiments benchmark's reused-worker budget at +15.3%"
+      },
+      {
+        "sha": "0095775",
+        "workflow": "CodeQL",
+        "run": 43818959460,
+        "result": "success"
+      },
+      {
+        "sha": "0095775",
+        "workflow": "Benchmarks",
+        "run": 43818953549,
+        "result": "failure. macOS on nine samples: 3.12 read series and trace +16.8, +9.6, +11.2, +7.1% at a trade every 1, 2, 4, 8 records, over PC-07's ceiling at the first, with the series -5.6% at the second and +9.5% at the fourth; 3.14 read +7.7, +9.8, -1.4, -6.7% with the series +10.9% at the third, over its budget; 3.13 read -7.9, +1.6, -5.1, +9.5%, a pass the old verdict gave to figures that prove nothing. Linux in progress when read"
+      },
+      {
+        "sha": "d52fd4b",
+        "workflow": "CodeQL",
+        "run": 43819848993,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
@@ -3453,6 +3489,10 @@
     {
       "date": "2026-11-16",
       "entry": "Engle and Granger's test validated locally: a cointegrated pair found and its hedge ratio recovered, 150 pairs of independent walks rejected at the nominal 5 percent within three deviations, both regressions held to exact rational arithmetic, every refusal held (a dependent regressor now refused as ill-conditioned, NUM-018). The econometrics statistics, hedge ratios, critical values and estimate identities are pinned, computed identically under CPython 3.12, 3.13 and 3.14."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "a50f55d (NUM-018), 0095775 (TD-35) and d52fd4b (Engle-Granger) passed the full gate and were pushed. On 0095775's benchmarks run (43818953549) nine samples did not settle hosted macOS. 3.12 read +16.8% at one density, a failed PC-07 gate. 3.13 and 3.14 read series and trace below zero; 3.13's cell passed under the old verdict on figures that prove nothing. The capture benchmark now judges the median of paired ratios over nine rounds and fails a self-contradicting measurement (TD-36). If macOS cannot read a consistent measurement this way either, how PC-07 is judged there is the owner's decision."
     }
   ]
 }

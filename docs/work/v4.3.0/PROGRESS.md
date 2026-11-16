@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `61b4793` |
+| Remote head | `d52fd4b` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | The capture benchmark judged on nine samples, macOS running it alone (TD-35): pushed, and the benchmarks dispatched on that exact commit, read cell by cell. M6: Engle-Granger committed; Johansen with MacKinnon, Haug and Michelis's published tables, verified from the paper; VECM, ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screen. |
@@ -135,6 +135,9 @@ Never:
 | `61b4793` | Continuous Integration | 43794819179 | success: all six quality-gate cells, carrying the batched trace |
 | `61b4793` | CodeQL | 43794819114 | success |
 | `61b4793` | Benchmarks | 43794814136 | failure. Linux, every benchmark passing: series and trace +7.6, +7.3, +8.0, +7.8% on CPython 3.12; +10.5, +8.2, +8.4, +9.2% on 3.13; +7.0, +9.5, +9.1, +8.5% on 3.14 (a trade every 1, 2, 4, 8 records). macOS, its first run: 3.12 read +15.5, +6.7, +9.1, +25.3% with the series alone at +10.0% at the second density, failing PC-07 at two densities and the series budget at one; 3.13 read +3.6, +6.9, +9.1, +22.2% with the series at -2.4% and +23.8%, failing PC-07 at one density, and the OMS scaling ceiling at 3.07x; 3.14 passed PC-07 at +7.0 to +8.7% and failed the experiments benchmark's reused-worker budget at +15.3% |
+| `0095775` | CodeQL | 43818959460 | success |
+| `0095775` | Benchmarks | 43818953549 | failure. macOS on nine samples: 3.12 read series and trace +16.8, +9.6, +11.2, +7.1% at a trade every 1, 2, 4, 8 records, over PC-07's ceiling at the first, with the series -5.6% at the second and +9.5% at the fourth; 3.14 read +7.7, +9.8, -1.4, -6.7% with the series +10.9% at the third, over its budget; 3.13 read -7.9, +1.6, -5.1, +9.5%, a pass the old verdict gave to figures that prove nothing. Linux in progress when read |
+| `d52fd4b` | CodeQL | 43819848993 | success |
 
 ## Continuation log
 
@@ -199,6 +202,7 @@ Never:
 - **2026-11-16** 61b4793 (the batched trace, TD-32, and the six-cell benchmarks, TD-33) passed the full gate (13,606 tests) and was pushed. The benchmarks workflow was dispatched on that exact commit (run 43794814136). M6's Engle-Granger tests found an M2 defect: least_squares raised a non-convergence for a design with a dependent column instead of refusing it as ill-conditioned. It is fixed with every converging input unchanged (NUM-018, TD-34).
 - **2026-11-16** 61b4793 passed all six hosted cells and CodeQL. Its benchmarks run (43794814136, six cells) passed PC-07 on Linux under every interpreter, at 7.0 to 10.5 percent, where ce20731 had read up to 16.8 on 3.12. On macOS, measured for the first time, two cells exceeded the ceiling on figures that cannot all be true: a failed gate on each, recorded as such. The same runners failed an order book's scaling and a reused worker's budget, never judged there before, on readings of the same kind. The capture benchmark now keeps the fastest of nine samples, and macOS runs only that benchmark (TD-35); limits and coverage unchanged.
 - **2026-11-16** Engle and Granger's test validated locally: a cointegrated pair found and its hedge ratio recovered, 150 pairs of independent walks rejected at the nominal 5 percent within three deviations, both regressions held to exact rational arithmetic, every refusal held (a dependent regressor now refused as ill-conditioned, NUM-018). The econometrics statistics, hedge ratios, critical values and estimate identities are pinned, computed identically under CPython 3.12, 3.13 and 3.14.
+- **2026-11-16** a50f55d (NUM-018), 0095775 (TD-35) and d52fd4b (Engle-Granger) passed the full gate and were pushed. On 0095775's benchmarks run (43818953549) nine samples did not settle hosted macOS. 3.12 read +16.8% at one density, a failed PC-07 gate. 3.13 and 3.14 read series and trace below zero; 3.13's cell passed under the old verdict on figures that prove nothing. The capture benchmark now judges the median of paired ratios over nine rounds and fails a self-contradicting measurement (TD-36). If macOS cannot read a consistent measurement this way either, how PC-07 is judged there is the owner's decision.
 
 ## Milestones
 
@@ -615,6 +619,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** benchmarks/benchmark_capture.py; .github/workflows/benchmarks.yml; ADR-0055 (departures); ledger LIM-013; CHANGELOG.
 - **Tests:** The workflow's step was run under bash 3.2 as macOS and as Linux. tests/regression/test_release_preflight.py and test_release_gates_are_wired.py hold the called workflow.
 
+### TD-36: PC-07 judged on the median of paired ratios, and a self-contradicting measurement fails (WS-04, 2026-11-16)
+
+- **Problem:** On nine samples (benchmarks run 43818953549, 0095775) hosted macOS still read figures that cannot all be true. On 3.12 series and trace read +16.8% at a trade on every record, a failed PC-07 gate, with the series alone at -5.6% at one density and above series and trace at another. On 3.14 series and trace read -1.4% and -6.7%, and the series alone +10.9%, over its budget. On 3.13 series and trace read -7.9% and -5.1%, and the old verdict passed that cell though it proved nothing. Comparing each workload's fastest sample compares samples the runner ran at different speeds.
+- **Alternatives:** (a) More samples: nine already failed, and the experiments benchmark bounds the job's time. (b) Judge macOS as information only: a change to the gate, for the owner. (c) The median of paired ratios: each round runs the workloads back to back, so a slow phase or a slower core that covers the round scales numerator and denominator alike, and the median discards a round that one fell into alone. (d) Fail a measurement that contradicts itself rather than read a verdict from it.
+- **Decision:** (c) and (d). _stable_timing gains rounds(), the per-round times; fastest() is the minimum over them, unchanged for every other benchmark. The capture benchmark judges the median of each round's ratio over nine rounds and prints each ratio's range across the rounds. It fails a density as INCONSISTENT when the series alone reads below -2 percent or series and trace below the series alone by more than 2 points, beside any limit exceeded. The limits, the workload and the trace's coverage are unchanged.
+- **Rationale:** A benchmark that can read a capture cheaper than none cannot be the evidence of a ceiling either way. On the reference machine the paired median reads what the fastest-of-N read: series and trace 7.5 to 8.7 percent, the series 1.2 to 3.6.
+- **Compatibility:** No code changes. fastest() runs the same samples in the same order.
+- **Recorded in:** benchmarks/_stable_timing.py; benchmarks/benchmark_capture.py; ADR-0055 (departures); ledger LIM-013; CHANGELOG.
+- **Tests:** tests/regression/test_benchmark_ceilings.py (every ceiling judged through _stable_timing). The benchmark was run twice on the reference machine with the new estimator.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -747,7 +761,8 @@ Evidence:
 - [Hosted CI passed] M3: Mutation series T (16): the capture, its trace and series, keep_equity, the bridge -- 16 of 16 caught
 - [Hosted CI passed] M3: Made at M6, for PC-07's ceiling as a hosted runner read it at M5's checkpoint: the trace's writer made faster again, output-identical (one lookup by exact type, one template per record; 2,479 entries compared byte for byte, the pinned trace identities hold): series and trace 10.9 to 12.8 percent on the reference machine, from 12.1 to 13.3. Approved by the owner 2026-11-16. Hosted CI passed (ce20731); its hosted benchmark failed PC-07 on CPython 3.12 at 16.8 percent
 - [Hosted CI passed] M3: Made at M6, for that failed hosted gate: the trace's chain computed 64 steps at a time, a log the run left as it was not read, a grown one read in one call; output-identical, the pinned identities hold (TD-32): series and trace 7.6 to 8.9 percent on the reference machine. The benchmarks run on Linux and macOS (TD-33). Hosted (61b4793, run 43794814136): Linux 7.0 to 10.5 percent under 3.12, 3.13 and 3.14; macOS failed two cells on figures that cannot all be true
-- [Local validation passed] M3: PC-07's verdict on six cells: the capture benchmark judged on the fastest of nine samples, macOS running it alone (TD-35); limits and coverage unchanged
+- [Pushed] M3: PC-07's verdict on six cells: the capture benchmark judged on the fastest of nine samples, macOS running it alone (TD-35); limits and coverage unchanged
+- [Local validation passed] M3: PC-07 judged on the median of paired ratios over nine rounds; a self-contradicting measurement fails as inconsistent (TD-36); reference machine 7.5 to 8.7 percent
 
 ### WS-05: Experiment and trial ledger, executor, runner registry
 

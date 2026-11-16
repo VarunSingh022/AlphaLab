@@ -47,14 +47,24 @@ what the trace covers.
 judged through ``_stable_timing``: CPU time, collector paused, workloads
 interleaved, fastest of several.
 
-Nine samples, not the harness's three (v4.3 M6, TD-35). The capture's cost is
-about a tenth of the run, judged against a ceiling at a seventh, so a minimum
-inflated by a few percent decides the verdict. On hosted macOS runners the
-fastest of three read figures that cannot all be true: the series alone above
-series and trace, which include it, and a capture cheaper than no capture. A
-slow phase of the runner had inflated every sample of one workload and none of
-another. Nine interleaved samples give each workload more chances at a quiet
-moment. The limits, the workload and what the trace covers are unchanged.
+The overheads are the median of paired ratios over nine rounds (v4.3 M6, TD-35,
+TD-36). Each round runs the four workloads back to back; its ratios are the
+captures' times over the run's in that round, and the median of each ratio is
+the figure judged. The capture's cost is about a tenth of the run, judged
+against a ceiling at a seventh, so a few percent of noise decides a verdict.
+
+On hosted macOS runners the fastest of three samples, then of nine, read
+figures that cannot all be true: a series alone dearer than series and trace,
+which include it, and a capture cheaper than no capture. The fastest of each
+workload compared samples the runner had run at different speeds. Within a round
+a slow phase, or a slower core, covers numerator and denominator alike, and the
+median discards a round that one of them fell into alone.
+
+A measurement that still contradicts itself proves nothing either way, so it
+fails, as **INCONSISTENT**, beside any limit it is over: a series cheaper than
+no capture by more than two points, or series and trace cheaper than the series
+alone by more than two. The limits, the workload and what the trace covers are
+unchanged.
 """
 
 from __future__ import annotations
@@ -64,13 +74,14 @@ from collections.abc import Iterable
 from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from uuid import uuid4
 
-from _stable_timing import fastest
+from _stable_timing import rounds
 
 # The engine workload is the backtesting benchmark's, shared rather than copied.
 from benchmark_backtesting import _config, _context_factory, _dataset
@@ -99,8 +110,10 @@ MAX_SERIES_OVERHEAD = 0.10
 MAX_TRACED_OVERHEAD = 0.15
 RECORDS = 4_000
 DENSITIES = (1, 2, 4, 8)
-#: Samples of each workload, the fastest kept (TD-35).
+#: Rounds of the four workloads, each ratio's median judged (TD-35, TD-36).
 SAMPLES = 9
+#: How far a figure may contradict another before the measurement is refused.
+CONSISTENCY = 0.02
 
 EXTRACTOR = ReturnExtractor(EVERY_INSTANT, Costs.NET, CashFlows.INCLUDED, "USD", Insolvency.REFUSE)
 SERIES = CaptureSpec(EXTRACTOR, trace=False)
@@ -133,11 +146,11 @@ def _running(strategy_id: str, asset_id: str, every: int) -> RuntimeState:
     return replace(state, strategies={strategy_id: entry})
 
 
-def _measure(config: Any, dataset: Any, runtime: RuntimeState) -> list[float]:
-    """The run, its series capture, its traced capture and ``digest_run``, judged together."""
+def _measure(config: Any, dataset: Any, runtime: RuntimeState) -> list[list[float]]:
+    """The run, its series capture, its traced capture and ``digest_run``, in nine rounds."""
 
     plain = BacktestEngine.run(config, dataset, runtime, _context_factory)
-    return fastest(
+    return rounds(
         [
             lambda: BacktestEngine.run(config, dataset, runtime, _context_factory),
             lambda: run_captured(config, dataset, runtime, _context_factory, capture=SERIES),
@@ -146,6 +159,13 @@ def _measure(config: Any, dataset: Any, runtime: RuntimeState) -> list[float]:
         ],
         SAMPLES,
     )
+
+
+def _ratio(table: list[list[float]], index: int) -> tuple[float, float, float]:
+    """The median, least and greatest of workload ``index``'s time over the run's, by round."""
+
+    ratios = sorted(row[index] / max(row[0], 1e-9) for row in table)
+    return median(ratios), ratios[0], ratios[-1]
 
 
 def run_benchmark() -> int:
@@ -160,24 +180,30 @@ def run_benchmark() -> int:
         if captured.result != plain:
             raise SystemExit("A captured run's result differs from the run it captures.")
 
-        run_time, series_time, traced_time, digest_time = _measure(config, dataset, runtime)
-        series = series_time / max(run_time, 1e-9) - 1.0
-        traced = traced_time / max(run_time, 1e-9) - 1.0
-        per_step = (traced_time - run_time) / (RECORDS + 2) * 1e6
-        verdict = "ok"
+        table = _measure(config, dataset, runtime)
+        run_time = min(row[0] for row in table)
+        series, series_low, series_high = (value - 1.0 for value in _ratio(table, 1))
+        traced, traced_low, traced_high = (value - 1.0 for value in _ratio(table, 2))
+        digest, _, _ = _ratio(table, 3)
+        per_step = traced * run_time / (RECORDS + 2) * 1e6
+        verdicts = []
         if series > MAX_SERIES_OVERHEAD:
-            verdict = "OVER THE SERIES BUDGET"
+            verdicts.append("OVER THE SERIES BUDGET")
         if traced > MAX_TRACED_OVERHEAD:
-            verdict = "OVER PC-07's CEILING: a failed performance gate, for the owner"
+            verdicts.append("OVER PC-07's CEILING: a failed performance gate, for the owner")
+        if series < -CONSISTENCY or traced < series - CONSISTENCY:
+            verdicts.append("INCONSISTENT: the measurement contradicts itself, so proves nothing")
         print(
-            f"  a trade every {every}: run {run_time:.3f}s, digest_run "
-            f"{digest_time / run_time:.0%} of it; series {series:+.1%} (budget "
-            f"{MAX_SERIES_OVERHEAD:.0%}), series and trace "
-            f"{traced:+.1%} (PC-07: {MAX_TRACED_OVERHEAD:.0%}), {per_step:.1f} us a step "
-            f"{verdict}"
+            f"  a trade every {every}: run {run_time:.3f}s, digest_run {digest:.0%} of it; "
+            f"series {series:+.2%} (rounds {series_low:+.1%} to {series_high:+.1%}; budget "
+            f"{MAX_SERIES_OVERHEAD:.0%}), series and trace {traced:+.2%} (rounds "
+            f"{traced_low:+.1%} to {traced_high:+.1%}; PC-07: {MAX_TRACED_OVERHEAD:.0%}), "
+            f"{per_step:.1f} us a step {'; '.join(verdicts) or 'ok'}"
         )
-        failures += verdict != "ok"
-    print(f"  judged: CPU time, collector paused, fastest of {SAMPLES}")
+        failures += bool(verdicts)
+    print(
+        f"  judged: CPU time, collector paused, the median of paired ratios over {SAMPLES} rounds"
+    )
     print(f"  the trace absorbed, at a trade every {DENSITIES[-1]}: {captured.record.traced}")
     return 1 if failures else 0
 

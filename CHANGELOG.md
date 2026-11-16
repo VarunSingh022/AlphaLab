@@ -685,6 +685,16 @@ entry below says otherwise.
     which include it, and a capture cheaper than none. Those are failed gates,
     recorded as such. The capture benchmark now keeps the fastest of nine
     samples, not three (TD-35), and hosted macOS runs only that benchmark.
+  * **Judged on paired ratios.** On nine samples (benchmarks run 43818953549,
+    `0095775`) macOS still read impossible figures. On 3.12 it read 16.8
+    percent at one density, a failed gate, beside a series alone dearer than
+    series and trace. On 3.14 it read series and trace at -6.7 percent, and on
+    3.13 at -7.9, a run the old verdict passed though it proved nothing. The
+    benchmark now runs the four workloads back to back in each of nine rounds
+    and judges the median of each round's ratio. A figure that contradicts
+    another fails as INCONSISTENT, beside any limit it is over (TD-36). On the
+    reference machine series and trace read 7.5 to 8.7 percent this way, and
+    the series alone 1.2 to 3.6.
 
 ## Changed
 
