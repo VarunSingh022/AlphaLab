@@ -661,6 +661,16 @@ entry below says otherwise.
     estimate has the eigenvalues and normalized eigenvectors with the
     eigensystem's convergence report. Every value is class 2: the logarithms
     are `Decimal`'s.
+  * **The Ornstein-Uhlenbeck fit, and its half-life** [OFE-007, reopened by
+    ADR-0074]. `fit_ornstein_uhlenbeck` fits `dX = θ (μ - X) dt + σ dW` by its
+    exact discretisation and returns two estimates:
+    * the AR(1) regression;
+    * `θ`, `μ`, `σ` and the half-life `ln 2 / θ`, each with its delta-method
+      standard error.
+
+    It refuses a coefficient outside `(0, 1)`, where no mean reversion is
+    measured. Every value is class 2. The decay profile in `factor_library`
+    stays the measurement it was.
   * **Johansen's tables, verified.** `johansen_critical_values` and
     `johansen_p_value` read MacKinnon, Haug and Michelis (1996)'s Tables 1 to
     5, decoded from the paper's own text. They are held three ways: by their

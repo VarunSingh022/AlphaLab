@@ -204,6 +204,7 @@ Never:
 - **2026-11-16** Engle and Granger's test validated locally: a cointegrated pair found and its hedge ratio recovered, 150 pairs of independent walks rejected at the nominal 5 percent within three deviations, both regressions held to exact rational arithmetic, every refusal held (a dependent regressor now refused as ill-conditioned, NUM-018). The econometrics statistics, hedge ratios, critical values and estimate identities are pinned, computed identically under CPython 3.12, 3.13 and 3.14.
 - **2026-11-16** a50f55d (NUM-018), 0095775 (TD-35) and d52fd4b (Engle-Granger) passed the full gate and were pushed. On 0095775's benchmarks run (43818953549) nine samples did not settle hosted macOS. 3.12 read +16.8% at one density, a failed PC-07 gate. 3.13 and 3.14 read series and trace below zero; 3.13's cell passed under the old verdict on figures that prove nothing. The capture benchmark now judges the median of paired ratios over nine rounds and fails a self-contradicting measurement (TD-36). If macOS cannot read a consistent measurement this way either, how PC-07 is judged there is the owner's decision.
 - **2026-11-16** Johansen's tests validated locally (TD-37). The critical values come from MacKinnon, Haug and Michelis's working paper, decoded from its own text and verified three ways. The authors' replication archive refuses automated readers, so their program's tables were not read; the four-decimal transcription in wide use agrees with the paper within 0.035 for every shared value. Every case's statistics match exact rational arithmetic to 1e-13.
+- **2026-11-16** The Ornstein-Uhlenbeck fit validated locally (TD-38): known parameters recovered, the intervals' coverage held over 60 samples, every value exact against rational arithmetic, the delta method against a finite difference. OFE-007, reopened by ADR-0074, is delivered: a half-life is quoted only as the estimate of a named model.
 
 ## Milestones
 
@@ -640,6 +641,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0074 (settled points 11 to 14, known limitation); ledger FUT-053; CHANGELOG.
 - **Tests:** tests/unit/econometrics/test_johansen.py: the tables' structure, the chi-square rows, the transcription within 0.035; every case's statistics against exact rational arithmetic with 0 to 2 lags; each case's null rate under matching data; a pair's relation recovered; every refusal. tests/regression/test_econometrics_values_are_pinned.py pins a system's eigenvalues, statistics and identity.
 
+### TD-38: The Ornstein-Uhlenbeck fit is class 2, and delivers OFE-007's reopening (WS-07, 2026-11-16)
+
+- **Problem:** ADR-0074 section 7 reopened OFE-007 as the Ornstein-Uhlenbeck fit, and section 5 classed its continuous-time parameters as class 3, because theta and the half-life pass through a logarithm.
+- **Alternatives:** (a) The host's math.log, class 3, recorded beside the identity. (b) Decimal's logarithm, correctly rounded at 34 digits and rounded once to a float, with the rest +, -, *, / and sqrt: class 2.
+- **Decision:** (b). The process estimate is class 2 like its regression. Standard errors are the delta method's, from s^2 (X'X)^-1 and Var s^2 = 2 s^4 / (n - 2). A coefficient outside (0, 1) is refused, as are fewer than 20 transitions and an interval that is not a finite positive number.
+- **Rationale:** A half-life two hosts quote differently in its last bit is still two identities. Decimal's logarithm costs nothing at this size and gives every host the same parameters.
+- **Compatibility:** Additive. factor_library.decay is unchanged; OFE-007's ledger entry records the delivery.
+- **Recorded in:** docs/ADR/0074 (settled point 15); ledger OFE-007; CHANGELOG.
+- **Tests:** tests/unit/econometrics/test_mean_reversion.py: recovery of known parameters; the 95 percent intervals' coverage over 60 samples; exact rational arithmetic and 50-digit formulas for every value; the half-life's standard error as a finite difference measures its derivative; every refusal; the identity.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -816,6 +827,7 @@ Evidence:
 - [Hosted CI passed] M6: The econometrics package and its unit-root tests: series identities; MacKinnon's 2010 response surfaces generated from the paper and MacKinnon's 1994 p-values and KPSS's table held to their published values; augmented Dickey-Fuller, Phillips-Perron and KPSS with every choice stated (ADR-0074 settled 1-8)
 - [Local validation passed] M6: Engle and Granger's test: the cointegrating regression (a constant at least, one to eleven regressors, the series' identity in order) and the residuals' Dickey-Fuller test with MacKinnon (2010)'s critical values and (1994)'s p-value up to six series; a pair recovered, independent walks at their nominal size, both steps held to exact arithmetic; the econometrics statistics and identities pinned across hosts
 - [Local validation passed] M6: Johansen's trace and maximum-eigenvalue tests under Osterwald-Lenum's five cases, with MacKinnon, Haug and Michelis (1996)'s tables decoded from the paper and verified three ways (TD-37); every value class 2; exact arithmetic for every case; the null's rate per case; five series of 2,520 points in 0.049 CPU s against the plan's 2 s (benchmarks/benchmark_econometrics.py), the rank-two system found
+- [Local validation passed] M6: The Ornstein-Uhlenbeck fit and its half-life (OFE-007 reopened and delivered, TD-38): the exact discretisation by least squares, theta, mu, sigma and the half-life with delta-method standard errors, every value class 2, a coefficient outside (0, 1) refused
 
 ### WS-13: Global conventions, reference data and historical universes
 

@@ -27,6 +27,7 @@ from alphalab.econometrics import (
     SchwertBandwidth,
     SelectedLags,
     augmented_dickey_fuller,
+    fit_ornstein_uhlenbeck,
     johansen,
     kpss,
     phillips_perron,
@@ -163,3 +164,33 @@ def test_johansens_eigenvalues_statistics_and_identity_are_pinned() -> None:
     )
     assert test.estimate.convergence is not None
     assert test.estimate.convergence.reached.hex() == "0x1.036e7b232d853p-65"
+
+
+def test_the_ornstein_uhlenbeck_fit_and_its_half_life_are_pinned() -> None:
+    """The pair's spread, ``y - 1.5 x``, reverts as it was built to: every value class 2."""
+
+    spread = [y - 1.5 * x for y, x in zip(Y, X, strict=True)]
+    fit = fit_ornstein_uhlenbeck(spread, interval=1.0 / 252, maximum_condition=CONDITION)
+
+    pinned = {
+        "intercept": ("0x1.fa3da61ddf77dp-1", "0x1.770b9ff553ab6p-3"),
+        "coefficient": ("0x1.0a3a2bbed7b82p-1", "0x1.46658963eee03p-4"),
+    }
+    for name, (value, error) in pinned.items():
+        assert fit.regression.parameters[name].hex() == value
+        assert fit.regression.standard_errors[name].hex() == error
+    pinned = {
+        "theta": ("0x1.499a65aff410dp+7", "0x1.34f4350c868cbp+5"),
+        "mu": ("0x1.07a744b10f4c3p+1", "0x1.6abd869a3343bp-3"),
+        "sigma": ("0x1.3b52d9e840f3bp+4", "0x1.c0f822a6bf440p+0"),
+        "half_life": ("0x1.13a42390c15f7p-8", "0x1.025f64a3ffbabp-10"),
+    }
+    for name, (value, error) in pinned.items():
+        assert fit.process.parameters[name].hex() == value
+        assert fit.process.standard_errors[name].hex() == error
+    assert fit.regression.estimate_id == (
+        "f2e97216f3fda4b7c634a4907624e44512daa58cfba06553a9304862e0ad7c96"
+    )
+    assert fit.process.estimate_id == (
+        "b98e0ef92285fde88c074a9233756bbf7299c4c15c0df8978629b75b3a68bf67"
+    )

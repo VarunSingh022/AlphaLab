@@ -318,6 +318,24 @@ Building M6 settled these points, each held by a test
     and a 50-digit root. Under each case, with data that has what the case
     assumes, the trace test rejects a true null at its nominal rate. A table
     applied to another case's data rejects at 0 to 79 percent instead.
+15. **The Ornstein-Uhlenbeck fit is class 2, and OFE-007 is closed.**
+    `mean_reversion.fit_ornstein_uhlenbeck(values, interval=...,
+    maximum_condition=...)` fits the exact discretisation by least squares and
+    reads `θ`, `μ`, `σ` and the half-life off it. Section 5 put these in class
+    3, because of `log`.
+    * **Class 2.** Each logarithm is `Decimal`'s, correctly rounded, and the
+      rest is `+ - * /` and `sqrt`, so the process's parameters are the same
+      bits on every host, like the regression.
+    * **Standard errors.** Each is the delta method's, from the regression's
+      covariance `s² (X'X)⁻¹` and `Var s² = 2 s⁴ / (n - 2)`.
+    * **Refusals.** A coefficient outside `(0, 1)` is refused, as section 7
+      states, as are fewer than 20 transitions and an interval that is not a
+      finite positive number.
+    * **Held by tests.** Recovery of known parameters, the 95 percent
+      intervals' coverage over 60 samples, exact rational arithmetic for
+      every value, and a finite difference for the delta method.
+    * **OFE-007 closed.** The fit delivers what OFE-007's reopening asked for.
+      `factor_library.decay` is unchanged.
 
 # Compatibility
 

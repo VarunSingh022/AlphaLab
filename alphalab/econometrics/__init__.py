@@ -25,6 +25,8 @@ Delivered so far
   test. Its cointegrating regression is the combination tested: for a pair,
   the hedge ratio. Johansen's trace and maximum-eigenvalue tests of a system's
   cointegrating rank, under each of Osterwald-Lenum's five cases.
+* :mod:`~alphalab.econometrics.mean_reversion`: the Ornstein-Uhlenbeck fit and
+  the half-life it implies, each with its standard error (OFE-007 reopened).
 
 Every choice is stated
 ----------------------
@@ -66,6 +68,13 @@ from alphalab.econometrics.critical_values import (
     mackinnon_p_value,
 )
 from alphalab.econometrics.exceptions import EconometricsError, EconometricsInputError
+from alphalab.econometrics.mean_reversion import (
+    MINIMUM_ORNSTEIN_UHLENBECK_OBSERVATIONS,
+    ORNSTEIN_UHLENBECK_METHOD,
+    ORNSTEIN_UHLENBECK_REGRESSION_METHOD,
+    OrnsteinUhlenbeckFit,
+    fit_ornstein_uhlenbeck,
+)
 from alphalab.econometrics.series import (
     SERIES_SCHEME,
     SYSTEM_SCHEME,
@@ -106,6 +115,9 @@ __all__ = [
     "MHM_1996",
     "MINIMUM_DICKEY_FULLER_OBSERVATIONS",
     "MINIMUM_JOHANSEN_OBSERVATIONS",
+    "MINIMUM_ORNSTEIN_UHLENBECK_OBSERVATIONS",
+    "ORNSTEIN_UHLENBECK_METHOD",
+    "ORNSTEIN_UHLENBECK_REGRESSION_METHOD",
     "PHILLIPS_PERRON_METHOD",
     "SERIES_SCHEME",
     "SYSTEM_SCHEME",
@@ -124,6 +136,7 @@ __all__ = [
     "LagCriterion",
     "LagRule",
     "Null",
+    "OrnsteinUhlenbeckFit",
     "PBound",
     "PValue",
     "SchwertBandwidth",
@@ -131,6 +144,7 @@ __all__ = [
     "UnitRootTest",
     "augmented_dickey_fuller",
     "engle_granger",
+    "fit_ornstein_uhlenbeck",
     "johansen",
     "johansen_critical_values",
     "johansen_p_value",
