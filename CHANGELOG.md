@@ -654,6 +654,18 @@ entry below says otherwise.
     critical values and estimate identities are pinned, computed identically
     under CPython 3.12, 3.13 and 3.14
     (`tests/regression/test_econometrics_values_are_pinned.py`).
+  * **Johansen's tests.** `johansen` tests a system of two to twelve series
+    under each of Osterwald-Lenum's five cases (`JohansenCase`), with fixed
+    lags. Each rank's `JohansenRank` has the trace and maximum-eigenvalue
+    statistics with their critical values and p-values, and `JohansenTest`'s
+    estimate has the eigenvalues and normalized eigenvectors with the
+    eigensystem's convergence report. Every value is class 2: the logarithms
+    are `Decimal`'s.
+  * **Johansen's tables, verified.** `johansen_critical_values` and
+    `johansen_p_value` read MacKinnon, Haug and Michelis (1996)'s Tables 1 to
+    5, decoded from the paper's own text. They are held three ways: by their
+    structure; by the chi-square rows the theory gives; and by the authors'
+    program's values, as independently transcribed, within 0.035 of each.
 
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0

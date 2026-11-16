@@ -272,6 +272,52 @@ Building M6 settled these points, each held by a test
     host's (`tests/regression/test_econometrics_values_are_pinned.py`).
     MacKinnon's p-values pass through the normal distribution (class 3), so
     they are held by a tolerance instead.
+11. **Johansen's tables are the paper's, held three ways.**
+    * **The source.** MacKinnon, Haug and Michelis's working paper (York
+      University, 1996, the version of their 1999 Journal of Applied
+      Econometrics article that is freely available). Its Tables 1 to 5 give
+      the trace and maximum-eigenvalue critical values at 1, 2, 5, 10 and 20
+      percent, for `p - r = 1` to `12`, in each of Osterwald-Lenum's five
+      cases.
+    * **Generated, not typed.** The tables were decoded from the paper's own
+      text, font by font, and generated into the module.
+    * **What could not be compared.** The article's tables could not be read
+      to compare. The authors' replication archive refuses automated readers,
+      and the program it holds was not run.
+    * **Three checks.** The tables fall with the test size and rise with the
+      dimension. Where the theory makes the last statistic chi-square with
+      one degree of freedom (an unrestricted constant or trend, one
+      dimension), the printed rows are those quantiles to their two
+      decimals. And the authors' program's own values, as a widely used
+      four-decimal transcription prints them for three of the cases, are
+      within 0.035 of every one of the paper's 216 values they share.
+12. **Johansen's statistics are class 2.** Section 5 put them in class 3,
+    because `ln` is the host's.
+    * **The logarithm.** `ln(1 - λ)` is taken in `Decimal`, correctly rounded
+      at 34 digits, and the statistic is summed and scaled there and rounded
+      once.
+    * **The eigenvalues.** They come from M2's symmetric eigensystem, class
+      2, so a statistic is the same bits on every host. The estimate carries
+      the eigensystem's convergence report.
+13. **Johansen's reduction.**
+    * **Partialling out.** One Householder QR of the lagged differences and
+      the unrestricted deterministic terms is applied to every target at
+      once: M2's reflections, with every inner product a `fsum`. It partials
+      them out of `ΔX_t` and of `X_{t-1}`. A restricted constant or trend
+      joins `X_{t-1}`.
+    * **The eigenvalues.** The Cholesky factors of the two residual moment
+      matrices whiten them, and the eigenvalues are the squared canonical
+      correlations. `β` is normalized so that `β' S11 β = I`.
+    * **Choices.** The lags are a fixed count: choosing them is a VAR's order
+      selection. The trend is `t / T`, which changes no eigenvalue.
+    * **Refusals.** A system of fewer than two series or more than twelve is
+      refused, as are fewer than 20 observations, ill-conditioned or
+      rank-deficient residuals, and a canonical correlation of one.
+14. **Held by exact arithmetic and by the null.** Every case's eigenvalues and
+    statistics, with 0, 1 and 2 lags, are held to exact rational projections
+    and a 50-digit root. Under each case, with data that has what the case
+    assumes, the trace test rejects a true null at its nominal rate. A table
+    applied to another case's data rejects at 0 to 79 percent instead.
 
 # Compatibility
 
@@ -285,6 +331,14 @@ Building M6 settled these points, each held by a test
 
 None is accepted at drafting. What implementation settles, or defers, is
 recorded below it.
+
+**Known limitations**
+
+- **Johansen's critical values are asymptotic.** The tests over-reject in
+  small samples: with a restricted trend, 150 observations read the 5 percent
+  test at 7 to 10 percent. No small-sample correction is applied, such as
+  Reinsel and Ahn's degrees of freedom or MacKinnon, Haug and Michelis's
+  finite-sample response surfaces (FUT-053).
 
 # Consequences
 

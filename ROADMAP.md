@@ -854,6 +854,7 @@ Every horizon is a proposal for the maintainer to confirm.
 | FUT-050 | **A delisting settling the positions held through it** | membership ends at the delisting; the caller schedules the settlement | v4.4 | dated membership (ADR-0059, delivered in v4.3); scheduled settlements |
 | FUT-051 | **The deflated Sharpe ratio in promotion evidence** | the assessment reports it; a policy thresholds the exact statistics | v4.4 | a class-2 normal CDF and quantile (ADR-0058); selection-aware evidence (ADR-0073, delivered in v4.3) |
 | FUT-052 | **A hidden Markov model over several series** | model one series at a time, or a switching regression of one on the others | v4.4 | statistical regime models (ADR-0075, delivered in v4.3); the Cholesky factor |
+| FUT-053 | **A small-sample correction for Johansen's tests** | read the asymptotic tables, knowing a small sample over-rejects; or test on more data | v4.4 | Johansen's tests (ADR-0074, delivered in v4.3); MacKinnon, Haug and Michelis's finite-sample response surfaces |
 
 ---
 

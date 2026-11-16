@@ -20,10 +20,14 @@ import pytest
 
 from alphalab.econometrics import (
     Deterministic,
+    FixedLags,
+    JohansenCase,
     LagCriterion,
+    PBound,
     SchwertBandwidth,
     SelectedLags,
     augmented_dickey_fuller,
+    johansen,
     kpss,
     phillips_perron,
 )
@@ -122,3 +126,40 @@ def test_engle_grangers_statistic_hedge_ratio_and_identities_are_pinned() -> Non
     assert test.residual_regression.numerical_class.identity_bearing
     assert test.p_value is not None
     assert test.p_value.value == pytest.approx(float.fromhex("0x1.f45937b528c07p-9"), rel=1e-12)
+
+
+def test_johansens_eigenvalues_statistics_and_identity_are_pinned() -> None:
+    """Every Johansen value is class 2: the logarithms are Decimal's, correctly rounded."""
+
+    test = johansen(
+        [Y, X],
+        case=JohansenCase.RESTRICTED_CONSTANT,
+        lags=FixedLags(1),
+        tolerance=1e-15,
+        max_iterations=60,
+        maximum_condition=CONDITION,
+    )
+
+    assert test.observations == 118
+    pinned = [
+        ("0x1.e105b77a6d0b3p-3", "0x1.07f2511fada55p+5", "0x1.f972272674005p+4"),
+        ("0x1.8348fa144fff9p-7", "0x1.6727b18e74a46p+0", "0x1.6727b18e74a46p+0"),
+    ]
+    for rank, (eigenvalue, trace, maximum) in zip(test.ranks, pinned, strict=True):
+        assert rank.eigenvalue.hex() == eigenvalue
+        assert rank.trace.hex() == trace
+        assert rank.maximum_eigenvalue.hex() == maximum
+    # The pair is cointegrated: rank 0 beyond the table, rank 1 short of it.
+    assert (test.ranks[0].trace_p_value.value, test.ranks[0].trace_p_value.bound) == (
+        0.01,
+        PBound.AT_MOST,
+    )
+    assert (test.ranks[1].trace_p_value.value, test.ranks[1].trace_p_value.bound) == (
+        0.20,
+        PBound.AT_LEAST,
+    )
+    assert test.estimate.estimate_id == (
+        "ca7f6eac44980d420fd296fc1ad4dbb20d8b77487422b82176a7c7ca1bdc59de"
+    )
+    assert test.estimate.convergence is not None
+    assert test.estimate.convergence.reached.hex() == "0x1.036e7b232d853p-65"

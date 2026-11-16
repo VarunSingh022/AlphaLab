@@ -16,13 +16,15 @@ Delivered so far
 * :mod:`~alphalab.econometrics.series`: a series' identity, derived from its
   values and never typed.
 * :mod:`~alphalab.econometrics.critical_values`: MacKinnon's (2010) response
-  surfaces and (1994) p-value approximations, and KPSS's (1992) table, each
-  held to its published values.
+  surfaces and (1994) p-value approximations, KPSS's (1992) table, and
+  MacKinnon, Haug and Michelis's (1996) tables for Johansen's tests, each held
+  to its published values.
 * :mod:`~alphalab.econometrics.unit_root`: the augmented Dickey-Fuller,
   Phillips-Perron and KPSS tests.
 * :mod:`~alphalab.econometrics.cointegration`: Engle and Granger's two-step
   test. Its cointegrating regression is the combination tested: for a pair,
-  the hedge ratio.
+  the hedge ratio. Johansen's trace and maximum-eigenvalue tests of a system's
+  cointegrating rank, under each of Osterwald-Lenum's five cases.
 
 Every choice is stated
 ----------------------
@@ -35,18 +37,29 @@ it runs: a non-finite value, a sample too short, an ill-conditioned design.
 from alphalab.econometrics.cointegration import (
     ENGLE_GRANGER_METHOD,
     ENGLE_GRANGER_RESIDUAL_METHOD,
+    JOHANSEN_METHOD,
+    MINIMUM_JOHANSEN_OBSERVATIONS,
     CointegrationTest,
+    JohansenRank,
+    JohansenTest,
     engle_granger,
+    johansen,
 )
 from alphalab.econometrics.critical_values import (
+    JOHANSEN_LEVELS,
     KPSS_1992,
     LEVELS,
     MACKINNON_1994,
     MACKINNON_2010,
+    MHM_1996,
     CriticalValues,
     Deterministic,
+    JohansenCase,
+    JohansenStatistic,
     PBound,
     PValue,
+    johansen_critical_values,
+    johansen_p_value,
     kpss_critical_values,
     kpss_p_value,
     mackinnon_critical_values,
@@ -83,12 +96,16 @@ __all__ = [
     "ADF_METHOD",
     "ENGLE_GRANGER_METHOD",
     "ENGLE_GRANGER_RESIDUAL_METHOD",
+    "JOHANSEN_LEVELS",
+    "JOHANSEN_METHOD",
     "KPSS_1992",
     "KPSS_METHOD",
     "LEVELS",
     "MACKINNON_1994",
     "MACKINNON_2010",
+    "MHM_1996",
     "MINIMUM_DICKEY_FULLER_OBSERVATIONS",
+    "MINIMUM_JOHANSEN_OBSERVATIONS",
     "PHILLIPS_PERRON_METHOD",
     "SERIES_SCHEME",
     "SYSTEM_SCHEME",
@@ -100,6 +117,10 @@ __all__ = [
     "EconometricsInputError",
     "FixedBandwidth",
     "FixedLags",
+    "JohansenCase",
+    "JohansenRank",
+    "JohansenStatistic",
+    "JohansenTest",
     "LagCriterion",
     "LagRule",
     "Null",
@@ -110,6 +131,9 @@ __all__ = [
     "UnitRootTest",
     "augmented_dickey_fuller",
     "engle_granger",
+    "johansen",
+    "johansen_critical_values",
+    "johansen_p_value",
     "kpss",
     "kpss_critical_values",
     "kpss_p_value",

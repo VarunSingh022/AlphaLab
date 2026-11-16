@@ -196,6 +196,8 @@ CLASSIFIED: dict[tuple[str, str], str] = {
     ("0072", "A worker's isolation is the host's"): "BDY-029",
     # ADR-0073, v4.3: validation over backtests.
     ("0073", "A policy cannot threshold the deflated Sharpe ratio"): "FUT-051",
+    # ADR-0074, v4.3: econometrics.
+    ("0074", "Johansen's critical values are asymptotic"): "FUT-053",
     # ADR-0075, v4.3: statistical regime models.
     ("0075", "Emissions are univariate"): "FUT-052",
 }
