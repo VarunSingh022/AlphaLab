@@ -688,6 +688,20 @@ entry below says otherwise.
     limit and step are stated, and the standard errors invert the curvature.
     It returns a `VolatilityFit` with the conditional variances and the
     persistence. The estimate is class 3, with BFGS's convergence report.
+  * **The Kalman filter and the RTS smoother.** `kalman_filter` filters a
+    `LinearGaussianModel` -- the transition, the covariances and the initial
+    state, with the observation matrix given at every step -- in Joseph's
+    form, and `rts_smoother` smooths back to the initial state. For given
+    parameters every mean and covariance is class 2; the log-likelihood is
+    class 3.
+  * **The local level and the time-varying beta.** `fit_local_level` and
+    `fit_time_varying_beta` fit their variances by likelihood from a diffuse
+    start, conditioned exactly on the first observations. In the second,
+    each beta is a random walk and the intercept is absent, fixed or
+    drifting (`Intercept`). A `StateSpaceFit` holds the estimate, class 3
+    with BFGS's report, and the filtered and smoothed states: a pair's
+    hedge ratio, observation by observation. A drift the likelihood cannot
+    inform is refused, to be stated fixed.
   * **Johansen's tables, verified.** `johansen_critical_values` and
     `johansen_p_value` read MacKinnon, Haug and Michelis (1996)'s Tables 1 to
     5, decoded from the paper's own text. They are held three ways: by their

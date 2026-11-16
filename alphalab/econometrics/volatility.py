@@ -42,8 +42,8 @@ from enum import Enum
 from typing import Final
 
 from alphalab.common.estimate import Estimate, NumericalClass, Setting
-from alphalab.common.linalg import NotPositiveDefiniteError, cholesky
 from alphalab.common.optimize import bfgs, numerical_gradient
+from alphalab.econometrics._likelihood import curvature_standard_errors
 from alphalab.econometrics.exceptions import EconometricsInputError
 from alphalab.econometrics.series import require_series, series_identity
 
@@ -164,7 +164,9 @@ def fit_volatility(
     )
     parameters = _from_coordinates(model, minimum.x)
     log_likelihood, variances = _recursion(model, parameters, values, variance)
-    errors = _standard_errors(model, parameters, values, variance, step)
+    errors = curvature_standard_errors(
+        lambda point: -_log_likelihood(model, point, values, variance), parameters, step
+    )
     persistence = _persistence(model, parameters)
     settings: dict[str, Setting] = {
         "model": model.value,
@@ -347,52 +349,3 @@ def _log_likelihood(
     model: VolatilityModel, parameters: Sequence[float], values: Sequence[float], initial: float
 ) -> float:
     return _recursion(model, parameters, values, initial)[0]
-
-
-def _standard_errors(
-    model: VolatilityModel,
-    parameters: Sequence[float],
-    values: Sequence[float],
-    initial: float,
-    step: float,
-) -> list[float]:
-    """``sqrt(diag(H⁻¹))``, ``H`` the negative log-likelihood's central-difference curvature."""
-
-    size = len(parameters)
-    scales = [step * max(1.0, abs(p)) for p in parameters]
-
-    def f(point: Sequence[float]) -> float:
-        return -_log_likelihood(model, point, values, initial)
-
-    def moved(changes: Mapping[int, float]) -> list[float]:
-        point = list(parameters)
-        for index, change in changes.items():
-            point[index] += change
-        return point
-
-    centre = f(parameters)
-    hessian = [[0.0] * size for _ in range(size)]
-    for i in range(size):
-        hi = scales[i]
-        hessian[i][i] = (f(moved({i: hi})) - 2.0 * centre + f(moved({i: -hi}))) / (hi * hi)
-        for k in range(i):
-            hk = scales[k]
-            value = (
-                f(moved({i: hi, k: hk}))
-                - f(moved({i: hi, k: -hk}))
-                - f(moved({i: -hi, k: hk}))
-                + f(moved({i: -hi, k: -hk}))
-            ) / (4.0 * hi * hk)
-            hessian[i][k] = hessian[k][i] = value
-    try:
-        factor = cholesky(hessian)
-    except NotPositiveDefiniteError as error:
-        raise EconometricsInputError(
-            "The likelihood's curvature at the optimum is not positive definite: the point "
-            "is no maximum to report standard errors for. Restate the start or the model."
-        ) from error
-    errors = []
-    for i in range(size):
-        unit = [1.0 if j == i else 0.0 for j in range(size)]
-        errors.append(math.sqrt(factor.solve(unit)[i]))
-    return errors

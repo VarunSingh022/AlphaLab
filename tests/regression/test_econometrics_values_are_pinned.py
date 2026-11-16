@@ -40,6 +40,14 @@ from alphalab.econometrics import (
     phillips_perron,
 )
 from alphalab.econometrics.cointegration import engle_granger
+from alphalab.econometrics.state_space import (
+    Intercept,
+    LinearGaussianModel,
+    fit_local_level,
+    fit_time_varying_beta,
+    kalman_filter,
+    rts_smoother,
+)
 
 CONDITION = 1e10
 
@@ -319,3 +327,99 @@ def test_a_volatility_fit_agrees_across_hosts_within_its_stated_tolerance(
 
     assert fit.estimate.parameters == pytest.approx(expected, rel=1e-4, abs=1e-7)
     assert not fit.estimate.numerical_class.identity_bearing
+
+
+def test_the_kalman_filter_and_rts_smoother_are_pinned() -> None:
+    """Class 2 for given variances: every mean and covariance is the same bits on every host."""
+
+    model = LinearGaussianModel(
+        transition=((1.0, 0.0), (0.0, 1.0)),
+        transition_covariance=((0.0625, 0.0), (0.0, 0.015625)),
+        observation_covariance=((0.25,),),
+        initial_mean=(2.0, 1.5),
+        initial_covariance=((4.0, 0.0), (0.0, 1.0)),
+    )
+    filtered = kalman_filter(model, [[y] for y in Y], [((1.0, x),) for x in X])
+    smoothed = rts_smoother(model, filtered)
+
+    assert [v.hex() for v in filtered.filtered_means[-1]] == [
+        "0x1.4f894adde8e70p+0",
+        "0x1.e7c67ce57b134p+0",
+    ]
+    last = filtered.filtered_covariances[-1]
+    assert [last[0][0].hex(), last[0][1].hex(), last[1][1].hex()] == [
+        "0x1.43af9cc3095bbp-1",
+        "-0x1.478b5e2023607p-3",
+        "0x1.a5c50f140b442p-5",
+    ]
+    assert [v.hex() for v in smoothed.smoothed_means[59]] == [
+        "0x1.0bddbdb7d7fa0p+1",
+        "0x1.edd104da0ac0ap+0",
+    ]
+    assert [v.hex() for v in smoothed.initial_mean] == [
+        "0x1.3949b20eb4e02p+1",
+        "0x1.855267976f4e6p+0",
+    ]
+    assert smoothed.initial_covariance[1][1].hex() == "0x1.2937fab0c28d4p-3"
+    # The log-likelihood is class 3: 120 logarithms, each within an ulp of a host's.
+    assert filtered.log_likelihood == pytest.approx(-195.03665206640113, rel=1e-12)
+
+
+def _drifting(count: int) -> tuple[list[float], list[float], list[float]]:
+    """A hedge ratio drifting in 256ths beside a price near 40, and a level walking in eighths."""
+
+    state = 4302
+
+    def draw(modulus: int) -> int:
+        nonlocal state
+        state = (1103515245 * state + 12345) % 2**31
+        return (state >> 8) % modulus
+
+    beta, price, level, xs, ys, levels = 0.75, 40.0, 0.0, [], [], []
+    for _ in range(count):
+        beta += (draw(9) - 4) / 256
+        price += (draw(17) - 8) / 8
+        xs.append(price)
+        ys.append(1.0 + beta * price + (draw(13) - 6) / 8)
+        level += (draw(9) - 4) / 8
+        levels.append(level + (draw(13) - 6) / 4)
+    return ys, xs, levels
+
+
+def test_a_state_space_fit_agrees_across_hosts_within_its_stated_tolerance() -> None:
+    """Class 3, as a volatility fit: the variances to 1e-4, relatively; the identity exactly."""
+
+    ys, xs, levels = _drifting(400)
+    level = fit_local_level(
+        levels,
+        start={"level_variance": 0.5, "observation_variance": 0.5},
+        tolerance=1e-6,
+        max_iterations=200,
+        step=1e-5,
+    )
+    beta = fit_time_varying_beta(
+        ys,
+        [xs],
+        intercept=Intercept.FIXED,
+        start={"beta_1_drift_variance": 1e-3, "observation_variance": 0.5},
+        maximum_condition=CONDITION,
+        tolerance=1e-6,
+        max_iterations=200,
+        step=1e-5,
+    )
+
+    assert level.estimate.parameters == pytest.approx(
+        {"level_variance": 0.10743178562936154, "observation_variance": 0.8487778414934913},
+        rel=1e-4,
+    )
+    assert beta.estimate.parameters == pytest.approx(
+        {
+            "beta_1_drift_variance": 9.363121179778145e-05,
+            "observation_variance": 0.2514359869023816,
+        },
+        rel=1e-4,
+    )
+    assert [level.estimate.estimate_id, beta.estimate.estimate_id] == [
+        "f6f338e52aa088b3ef3bcfb9f39db423fcdbc4727442d862fab27d84d869fdbb",
+        "8e64c6ada7d10ec341ee2ca46ee082a68f5a2496bada672f5c20cae56962a0c6",
+    ]

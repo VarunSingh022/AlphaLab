@@ -380,6 +380,32 @@ Building M6 settled these points, each held by a test
       identity, with BFGS's convergence report. Hosts agree to a stated 1e-4,
       relatively, on returns built bit for bit alike.
     * **Budget.** 2,520 returns take 0.081 CPU s against the plan's 5 s.
+19. **State space is the Kalman filter from a stated prior, and two models
+    fitted from a diffuse start.** `state_space.kalman_filter(model,
+    observations, observation_matrices)` and `rts_smoother(model, filtered)`
+    take a `LinearGaussianModel`: `F`, `Q`, `R`, `m_0` and `P_0`, with `H_t`
+    given for every observation.
+    * **The filter.** The covariance takes Joseph's form. `S` is divided when
+      it is a number and factored by M2's Cholesky otherwise. For given
+      parameters every mean and covariance is class 2; the log-likelihood is
+      class 3. The smoother runs back to `x_0`.
+    * **The fits.** `fit_local_level` and `fit_time_varying_beta` (each beta a
+      random walk; the intercept `NONE`, `FIXED` or `DRIFTING`) maximise the
+      likelihood of the observations after the first `k`, given them, `k`
+      the state's size. The start is conditioned on those `k`: its mean
+      solves their rows, refused above a stated condition number, and its
+      covariance is `A Ω A'`. Since `F` and `H` hold no parameter, this has
+      the exact diffuse likelihood's maximum, with no constant and no
+      tolerance.
+    * **Standard errors.** BFGS moves in the variances' logarithms; the
+      curvature is inverted there and mapped back by `se(v) = v se(ln v)`.
+      The routine is the GARCH family's, now shared, in the same arithmetic.
+      A curvature that is not positive definite is refused, naming the
+      variances reached: a drift the likelihood is flat in is stated fixed,
+      not estimated at zero.
+    * **Class 3.** Each fit's estimate is class 3, with BFGS's report. Hosts
+      agree to 1e-4, relatively, and the filter's values are pinned bit for
+      bit.
 
 # Compatibility
 

@@ -782,6 +782,19 @@
       "compatibility": "Additive.",
       "record": "docs/ADR/0074 (settled point 18); CHANGELOG; benchmarks/benchmark_econometrics.py.",
       "tests": "tests/unit/econometrics/test_volatility.py: each model's known parameters recovered within their standard errors; the likelihood against a hand recursion; every choice in the estimate with the convergence report; every refusal. tests/regression/test_econometrics_values_are_pinned.py: GARCH and EGARCH agree across hosts within 1e-4. 2,520 returns in 0.081 CPU s against 5."
+    },
+    {
+      "id": "TD-41",
+      "date": "2026-11-16",
+      "workstream": "WS-07",
+      "title": "State space: the filter in Joseph's form, the smoother back to x_0, and fits from an exact diffuse start",
+      "problem": "ADR-0074 names the Kalman filter and the RTS smoother, and local-level and time-varying-beta models: the filter class 2 for given parameters, the likelihood class 3. A fitted model needs a start for its first state. A stated prior makes every estimate depend on a choice the researcher cannot make well, and an approximate diffuse prior -- a large P_0 -- is a hidden constant that makes the result depend on the data's scale and rounds badly. And where the likelihood cannot separate two drifts, such as an intercept's and a beta's beside a price far from zero, a fit can only report a variance at the region's edge.",
+      "alternatives": "The start: (a) a large P_0; (b) Koopman's exact initial filter, whose rank decision on F_infinity needs a tolerance; (c) conditioning on the first k observations, which fix the state: the mean solves their rows and the covariance is A Omega A'. Standard errors: in the natural variances, whose difference step can cross zero at small scales, or in their logarithms with the delta method. A drift the likelihood cannot inform: report a variance near zero, or refuse and let the caller state the coefficient fixed.",
+      "decision": "(c): F and H hold no parameter, so the exact diffuse likelihood's first k terms hold none and the conditional likelihood has the same maximum. A start the first rows do not fix is refused by M2's condition number against a stated maximum. The covariance takes Joseph's form; S is divided when it is a number and factored by Cholesky otherwise; the smoother runs back to x_0, so a fit's states cover every observation from the k-th. BFGS moves in the variances' logarithms; the standard errors invert the curvature there and map back by se(v) = v se(ln v), through the central-difference routine now shared with the GARCH family in the same arithmetic. The intercept is NONE, FIXED or DRIFTING (Intercept). A curvature that is not positive definite is refused, with the variances reached and the advice to state that coefficient fixed.",
+      "rationale": "Conditioning is exact, has no tolerance and no constant, and is what the exact diffuse filter computes for these models. Logarithms keep every variance positive at any scale, which the data's units would otherwise decide. Joseph's form keeps the covariance symmetric and positive semi-definite under rounding. Refusing a flat direction is ADR-0074's rule: an estimate at the region's edge that the tolerance decides is not an estimate.",
+      "compatibility": "Additive: 12 new public names in alphalab.econometrics. The GARCH family's standard errors move to a shared private routine with the same arithmetic in the same order, so every value and pin is unchanged.",
+      "record": "docs/ADR/0074 (settled point 19); CHANGELOG.",
+      "tests": "tests/unit/econometrics/test_state_space.py: the filter's log-likelihood equals the joint Gaussian density for a random walk, a drifting regression and a two-value observation of a general transition; with nothing drifting the state is Bayesian least squares, held to rational arithmetic; each smoothed state, the initial one too, is the exact posterior; a fit's start is a 10^30 prior's limit, filtered in rationals; known variances recovered within three standard errors (a local level, a hedge ratio beside a price, a market beta with a drifting intercept); the smoothed hedge ratio tracks the truth better than the filtered; every choice in the estimate; a flat drift, an unfixed start and malformed models refused. tests/regression/test_econometrics_values_are_pinned.py: the filter and smoother pinned bit for bit, and the fits within 1e-4 with their identities exact, computed identically under CPython 3.12, 3.13 and 3.14."
     }
   ],
   "plan_changes": [
@@ -1551,31 +1564,36 @@
         {
           "milestone": "M6",
           "item": "Engle and Granger's test: the cointegrating regression (a constant at least, one to eleven regressors, the series' identity in order) and the residuals' Dickey-Fuller test with MacKinnon (2010)'s critical values and (1994)'s p-value up to six series; a pair recovered, independent walks at their nominal size, both steps held to exact arithmetic; the econometrics statistics and identities pinned across hosts",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M6",
           "item": "Johansen's trace and maximum-eigenvalue tests under Osterwald-Lenum's five cases, with MacKinnon, Haug and Michelis (1996)'s tables decoded from the paper and verified three ways (TD-37); every value class 2; exact arithmetic for every case; the null's rate per case; five series of 2,520 points in 0.049 CPU s against the plan's 2 s (benchmarks/benchmark_econometrics.py), the rank-two system found",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M6",
           "item": "The Ornstein-Uhlenbeck fit and its half-life (OFE-007 reopened and delivered, TD-38): the exact discretisation by least squares, theta, mu, sigma and the half-life with delta-method standard errors, every value class 2, a coefficient outside (0, 1) refused",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M6",
           "item": "The VECM of a stated rank by Johansen's two steps: the relations from the eigenvectors, normalized on the first series exactly; each equation's alpha, Gamma and unrestricted terms by least squares with standard errors; the residual covariance; a pair's relation and error correction recovered, the second step exact against rational least squares, every value class 2 and pinned",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M6",
           "item": "Vector autoregressions: least squares by equation with standard errors, the residual covariance over T, the lags fixed or chosen by AIC or BIC on the maximum's sample through Decimal logarithms of the residual determinant; known coefficients recovered, each equation exact against rational least squares, a VAR(2)'s order found by BIC, every value class 2 and pinned",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M6",
           "item": "GARCH, GJR-GARCH and EGARCH by Gaussian likelihood in admissible coordinates (TD-40): every choice stated, standard errors from the curvature, class 3 with the convergence report; known parameters recovered for each model; hosts agreeing within 1e-4; 2,520 returns in 0.081 CPU s against the plan's 5 s",
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M6",
+          "item": "State space (TD-41): the Kalman filter in Joseph's form and the RTS smoother back to the initial state, class 2 for given parameters with a class-3 log-likelihood; the local level and the time-varying beta (each beta a random walk, the intercept absent, fixed or drifting) fitted by likelihood from an exact diffuse start, standard errors from the curvature in the variances' logarithms; the filter held to the joint density, Bayesian least squares and the exact posterior in rationals, the start to a 10^30 prior's limit, known variances recovered, every refusal held; pinned across CPython 3.12, 3.13 and 3.14",
           "status": "Local validation passed"
         }
       ],
@@ -2805,7 +2823,7 @@
   },
   "state": {
     "updated": "2026-11-16",
-    "remote_head": "185b118",
+    "remote_head": "a815c5e",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3377,6 +3395,60 @@
         "workflow": "CodeQL",
         "run": 43823731356,
         "result": "success"
+      },
+      {
+        "sha": "185b118",
+        "workflow": "Continuous Integration",
+        "run": 43826376554,
+        "result": "success: all six quality-gate cells, carrying the VECM"
+      },
+      {
+        "sha": "185b118",
+        "workflow": "CodeQL",
+        "run": 43826376570,
+        "result": "success"
+      },
+      {
+        "sha": "6f49b99",
+        "workflow": "Continuous Integration",
+        "run": 43827598312,
+        "result": "success: all six quality-gate cells, carrying PC-07's Linux-and-reference policy (TD-39)"
+      },
+      {
+        "sha": "6f49b99",
+        "workflow": "CodeQL",
+        "run": 43827598265,
+        "result": "success"
+      },
+      {
+        "sha": "6f49b99",
+        "workflow": "Benchmarks",
+        "run": 43827592090,
+        "result": "Linux, authoritative under TD-39, every benchmark passing: PC-07 confirmed. The median of nine paired ratios, unrounded, at a trade every 1, 2, 4 and 8 records: CPython 3.12 series +1.47, +2.22, +2.99, +3.55% and series and trace +6.17, +6.99, +7.59, +7.75%; 3.13 series +1.37, +3.15, +3.19, +4.75% and series and trace +7.67, +8.39, +8.95, +9.16%; 3.14 series +1.92, +2.56, +3.38, +4.89% and series and trace +7.66, +8.19, +9.02, +9.39%. macOS, diagnostic and not judged: series and trace 3.12 +7.58, +2.36, +6.68, +8.77% (at a trade every 2 records an UNRELIABLE MEASUREMENT: it contradicts itself, the series above series and trace); 3.13 +4.34, +8.04, +7.05, +8.18%; 3.14 +8.39, +8.52, +7.95, +11.91%"
+      },
+      {
+        "sha": "9c36575",
+        "workflow": "Continuous Integration",
+        "run": 43859142117,
+        "result": "success: all six quality-gate cells, carrying vector autoregressions"
+      },
+      {
+        "sha": "9c36575",
+        "workflow": "CodeQL",
+        "run": 43859142159,
+        "result": "success"
+      },
+      {
+        "sha": "a815c5e",
+        "workflow": "Continuous Integration",
+        "run": 43860721179,
+        "result": "success: all six quality-gate cells, carrying the GARCH family"
+      },
+      {
+        "sha": "a815c5e",
+        "workflow": "CodeQL",
+        "run": 43860720798,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
@@ -3655,6 +3727,14 @@
     {
       "date": "2026-11-16",
       "entry": "6f49b99 (PC-07 judged on hosted Linux, passed, TD-39) and 9c36575 (the VAR) each passed the full gate and were pushed; the benchmarks workflow was dispatched on 6f49b99 (run 43827592090) to confirm the roles. The GARCH family validated locally (TD-40): each model's parameters recovered, the likelihood against a hand recursion, cross-host agreement within 1e-4, 2,520 returns in 0.081 CPU s against 5."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "Hosted CI: 185b118 (the VECM), 6f49b99 (PC-07's policy), 9c36575 (vector autoregressions) and a815c5e (the GARCH family) each passed all six quality-gate cells and CodeQL. Benchmarks run 43827592090 on 6f49b99 confirmed PC-07 on hosted Linux: series and trace 6.17 to 9.39 percent, the series 1.37 to 4.89; macOS printed, diagnostic, one figure flagged unreliable. WS-07's Engle-Granger, Johansen, Ornstein-Uhlenbeck, VECM, VAR and GARCH items are Hosted CI passed."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "State space validated locally (TD-41): the Kalman filter in Joseph's form and the RTS smoother back to the initial state; the local level and the time-varying beta fitted from an exact diffuse start. The filter is held to the joint density, to Bayesian least squares and to the exact posterior in rationals, and the start to a 10^30 prior's limit; known variances are recovered; every refusal holds; the values are pinned across CPython 3.12, 3.13 and 3.14."
     }
   ]
 }

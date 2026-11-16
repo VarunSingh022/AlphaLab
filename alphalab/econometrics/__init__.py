@@ -32,6 +32,9 @@ Delivered so far
   equation by equation, the lags fixed or chosen by AIC or BIC.
 * :mod:`~alphalab.econometrics.volatility`: GARCH, GJR-GARCH and EGARCH by
   Gaussian likelihood, admissible by their parameterisation.
+* :mod:`~alphalab.econometrics.state_space`: the Kalman filter and the RTS
+  smoother, and the local level and the time-varying beta fitted from a
+  diffuse start.
 
 Every choice is stated
 ----------------------
@@ -90,6 +93,20 @@ from alphalab.econometrics.series import (
     series_identity,
     system_identity,
 )
+from alphalab.econometrics.state_space import (
+    LOCAL_LEVEL_METHOD,
+    MINIMUM_STATE_SPACE_OBSERVATIONS,
+    TIME_VARYING_BETA_METHOD,
+    Intercept,
+    KalmanFilter,
+    LinearGaussianModel,
+    RtsSmoother,
+    StateSpaceFit,
+    fit_local_level,
+    fit_time_varying_beta,
+    kalman_filter,
+    rts_smoother,
+)
 from alphalab.econometrics.unit_root import (
     ADF_METHOD,
     KPSS_METHOD,
@@ -127,12 +144,14 @@ __all__ = [
     "KPSS_1992",
     "KPSS_METHOD",
     "LEVELS",
+    "LOCAL_LEVEL_METHOD",
     "MACKINNON_1994",
     "MACKINNON_2010",
     "MHM_1996",
     "MINIMUM_DICKEY_FULLER_OBSERVATIONS",
     "MINIMUM_JOHANSEN_OBSERVATIONS",
     "MINIMUM_ORNSTEIN_UHLENBECK_OBSERVATIONS",
+    "MINIMUM_STATE_SPACE_OBSERVATIONS",
     "MINIMUM_VAR_OBSERVATIONS",
     "MINIMUM_VOLATILITY_OBSERVATIONS",
     "ORNSTEIN_UHLENBECK_METHOD",
@@ -140,6 +159,7 @@ __all__ = [
     "PHILLIPS_PERRON_METHOD",
     "SERIES_SCHEME",
     "SYSTEM_SCHEME",
+    "TIME_VARYING_BETA_METHOD",
     "VAR_METHOD",
     "VECM_METHOD",
     "VOLATILITY_METHOD",
@@ -151,18 +171,23 @@ __all__ = [
     "EconometricsInputError",
     "FixedBandwidth",
     "FixedLags",
+    "Intercept",
     "JohansenCase",
     "JohansenRank",
     "JohansenStatistic",
     "JohansenTest",
+    "KalmanFilter",
     "LagCriterion",
     "LagRule",
+    "LinearGaussianModel",
     "Null",
     "OrnsteinUhlenbeckFit",
     "PBound",
     "PValue",
+    "RtsSmoother",
     "SchwertBandwidth",
     "SelectedLags",
+    "StateSpaceFit",
     "UnitRootTest",
     "VarFit",
     "VecmFit",
@@ -171,13 +196,16 @@ __all__ = [
     "VolatilityStart",
     "augmented_dickey_fuller",
     "engle_granger",
+    "fit_local_level",
     "fit_ornstein_uhlenbeck",
+    "fit_time_varying_beta",
     "fit_var",
     "fit_vecm",
     "fit_volatility",
     "johansen",
     "johansen_critical_values",
     "johansen_p_value",
+    "kalman_filter",
     "kpss",
     "kpss_critical_values",
     "kpss_p_value",
@@ -185,6 +213,7 @@ __all__ = [
     "mackinnon_p_value",
     "phillips_perron",
     "require_series",
+    "rts_smoother",
     "series_identity",
     "system_identity",
 ]
