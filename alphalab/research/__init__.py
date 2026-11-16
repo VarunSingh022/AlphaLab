@@ -21,6 +21,10 @@ Two layers, and they consume different things.
   whose labels condition the v3.2 diagnostics directly. They read
   ``alphalab.alt_data`` for events and ``alphalab.factor_library`` for prices
   and features, and never ``alphalab.data``.
+* **The cointegration screen** (v4.3, ADR-0074 section 8) --
+  ``cointegration_screen`` tests every candidate pair on a stated sample with
+  ``alphalab.econometrics``' Engle-Granger test, and corrects the whole family,
+  every pair counted.
 
 The first two meet at ``alphalab.lifecycle.evidence``, where either can be
 recorded as evidence, and nowhere else. ``analyze_regimes`` and
@@ -45,6 +49,12 @@ from alphalab.research.bias import (
 )
 from alphalab.research.bootstrap import BootstrapReport, bootstrap_statistics
 from alphalab.research.capacity import CapacityReport, estimate_capacity
+from alphalab.research.cointegration_screen import (
+    SCREEN_SCHEME,
+    CointegrationScreen,
+    ScreenedPair,
+    cointegration_screen,
+)
 from alphalab.research.combinatorial_cv import (
     CombinatorialSplit,
     CombinatorialSplitReport,
@@ -226,6 +236,7 @@ __all__ = [
     "REGIME_DEFINITION_SCHEME",
     "REGIME_SERIES_SCHEME",
     "RESULT_KEY_SCHEME",
+    "SCREEN_SCHEME",
     "STATIONARY_BOOTSTRAP_SCHEME",
     "STUDY_KEY_SCHEME",
     "WALK_FORWARD_DESIGN_SCHEME",
@@ -236,6 +247,7 @@ __all__ = [
     "BootstrapReport",
     "CVMethod",
     "CapacityReport",
+    "CointegrationScreen",
     "CombinatorialSplit",
     "CombinatorialSplitReport",
     "CompositeRule",
@@ -292,6 +304,7 @@ __all__ = [
     "ResearchValidationError",
     "RobustnessReport",
     "SPAResult",
+    "ScreenedPair",
     "SelectionMeasure",
     "SharpeInference",
     "SignalDiagnostics",
@@ -333,6 +346,7 @@ __all__ = [
     "canonical_study_key",
     "capacity_report",
     "classify_regimes",
+    "cointegration_screen",
     "combinatorial_purged_splits",
     "conditional_diagnostics",
     "correct_p_values",

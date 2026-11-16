@@ -53,6 +53,8 @@ from alphalab.econometrics.state_space import (
     kalman_filter,
     rts_smoother,
 )
+from alphalab.research.cointegration_screen import cointegration_screen
+from alphalab.research.multiple_testing import Correction
 
 CONDITION = 1e10
 
@@ -500,4 +502,35 @@ def test_a_regime_fit_agrees_across_hosts_within_its_stated_tolerance() -> None:
     assert [hmm.estimate.estimate_id, regression.estimate.estimate_id] == [
         "3492a28282267dd83240021e272c30c09738cf35beb182af7958166e2c021a95",
         "7ff73ff2c778287769e45f9ee4e2b4c621cc7b925a37851c62f19a035dc73bc7",
+    ]
+
+
+def test_a_pair_screens_identity_statistics_and_hedge_ratios_are_pinned() -> None:
+    """The identity covers the class-2 results only: the p-values and decisions are beside it."""
+
+    ys, xs, levels = _drifting(120)
+    screen = cointegration_screen(
+        {"Y": Y, "X": X, "PRICE": xs, "HEDGED": ys, "LEVEL": levels},
+        [("Y", "X"), ("HEDGED", "PRICE"), ("LEVEL", "X"), ("Y", "PRICE")],
+        start=10,
+        stop=120,
+        deterministic=Deterministic.CONSTANT,
+        lags=FixedLags(1),
+        maximum_condition=CONDITION,
+        correction=Correction.HOLM,
+        alpha=0.05,
+    )
+
+    assert screen.screen_id == "442cca157861b82ab4e8ea0be8c8e2ce109a55b5d80d975d415ce6b1a5ee25c6"
+    assert [pair.test.statistic.hex() for pair in screen.pairs if pair.test is not None] == [
+        "-0x1.42bd848b2940dp+2",
+        "-0x1.25780f7397c44p+1",
+        "-0x1.5bb4607a7e5b5p+2",
+        "-0x1.122d8a69302e1p+1",
+    ]
+    assert [ratio.hex() for pair in screen.pairs if (ratio := pair.hedge_ratio) is not None] == [
+        "0x1.90b4bdf402cf6p+0",
+        "0x1.21bb8c952272cp+0",
+        "-0x1.21396a982347fp-1",
+        "-0x1.3e80a877fc4f4p-6",
     ]

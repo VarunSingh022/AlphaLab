@@ -406,6 +406,30 @@ Building M6 settled these points, each held by a test
     * **Class 3.** Each fit's estimate is class 3, with BFGS's report. Hosts
       agree to 1e-4, relatively, and the filter's values are pinned bit for
       bit.
+20. **The screen counts every pair, and corrects on the conservative side.**
+    `research.cointegration_screen(series, pairs, start=..., stop=...,
+    deterministic=..., lags=..., maximum_condition=..., correction=...,
+    alpha=...)` runs Engle and Granger's test on every candidate pair over
+    one stated sample, the dependent regressed on the regressor, and
+    corrects the whole family by `research.multiple_testing`.
+    * **Every pair enters the family.** A pair the test refuses enters with
+      a p-value of one: counted, never rejected. So does a p-value bounded
+      only from below, beyond MacKinnon's table. A bound from above enters as
+      its bound. Every value entered is at least the true one, so the
+      correction keeps its promise.
+    * **The identity.** `screen_id` covers the pairs in order, each series'
+      identity over the sample, every choice, and each test's class-2
+      values: its statistic, lags, observations and its two regressions'
+      identities. The p-values and decisions are class 3, beside it.
+    * **Two hundred pairs.** M6's exit gate screens 200 candidates: planted
+      cointegrated pairs are selected under Holm's correction, and no
+      independent walk is.
+    * **Through the ledger.** The same 200 candidates are a ledgered
+      experiment's trials, run in spawned workers. Each trial's runner fits
+      its pair on the days before the lockbox -- its own window -- by the
+      screen's regression, so its hedge ratio is the screen's bit for bit.
+      Every trial is recorded, so a selected pair's evidence carries the 199
+      others (`tests/integration/test_pairs_screen_through_the_ledger.py`).
 
 # Compatibility
 

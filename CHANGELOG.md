@@ -728,6 +728,21 @@ entry below says otherwise.
     share of each asset's variance as its specific variance. A singular
     covariance is refused, for the caller to regularize with a recorded
     derivation. Every value is class 2.
+  * **S-02's screen: candidate pairs tested, the family corrected.**
+    `research.cointegration_screen` runs Engle and Granger's test on every
+    candidate pair over one stated sample and corrects the whole family by a
+    stated procedure at a stated level. It returns every pair's result:
+    * the test, its hedge ratio, or why the test refused it;
+    * the corrected family, in which a refused pair counts with a p-value of
+      one and a bounded p-value enters on its conservative side.
+
+    Its `screen_id` covers the pairs, the series' identities over the
+    sample, the choices and the class-2 statistics. The same candidates run
+    as a ledgered experiment's trials, each fitting its pair on its own
+    window, so a selected pair's evidence carries the search behind it.
+  * **The econometrics guide.** `docs/ECONOMETRICS.md` says what each
+    estimator measures, which choices it requires, how to read its result
+    and what it refuses.
   * **Johansen's tables, verified.** `johansen_critical_values` and
     `johansen_p_value` read MacKinnon, Haug and Michelis (1996)'s Tables 1 to
     5, decoded from the paper's own text. They are held three ways: by their

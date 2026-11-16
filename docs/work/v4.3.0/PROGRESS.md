@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `5513213` |
+| Remote head | `50f9632` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M6: the VAR (validated locally next), the GARCH family, the Kalman filter and RTS smoother, regime models (ADR-0075), Fama-MacBeth and PCA (WS-25), S-02's pairs screen, the econometrics guide and M6's mutation series; then M6's close on hosted CI. The benchmarks workflow is dispatched at each checkpoint, PC-07 read on its Linux cells. |
@@ -156,6 +156,8 @@ Never:
 | `9c36575` | CodeQL | 43859142159 | success |
 | `a815c5e` | Continuous Integration | 43860721179 | success: all six quality-gate cells, carrying the GARCH family |
 | `a815c5e` | CodeQL | 43860720798 | success |
+| `1c55995` | Continuous Integration | 43864714988 | success: all six quality-gate cells, carrying state space |
+| `1c55995` | CodeQL | 43864714732 | success |
 
 ## Continuation log
 
@@ -231,6 +233,7 @@ Never:
 - **2026-11-16** State space validated locally (TD-41): the Kalman filter in Joseph's form and the RTS smoother back to the initial state; the local level and the time-varying beta fitted from an exact diffuse start. The filter is held to the joint density, to Bayesian least squares and to the exact posterior in rationals, and the start to a 10^30 prior's limit; known variances are recovered; every refusal holds; the values are pinned across CPython 3.12, 3.13 and 3.14.
 - **2026-11-16** 1c55995 (state space) passed the full local gate and was pushed. Regime models validated locally (TD-42, ADR-0075, OFE-010 delivered): the Gaussian HMM and the Markov-switching regression by EM, held to exact fractions at their parameters, recovering simulated chains within their standard errors, every refusal held, pinned across CPython 3.12, 3.13 and 3.14.
 - **2026-11-16** 5513213 (regime models) passed the full local gate and was pushed. WS-25's M6 part validated locally (TD-43): Fama-MacBeth's two passes in factor_library and principal-component factors in analytics, each class 2 and pinned across CPython 3.12, 3.13 and 3.14.
+- **2026-11-16** 50f9632 (WS-25) passed the full local gate and was pushed; 1c55995 (state space) passed hosted CI on all six cells and CodeQL. S-02's screening stage validated locally (TD-44): 200 candidate pairs screened under Holm's correction, the planted pairs alone selected, and the same 200 run as a ledgered experiment's trials in four spawned workers, every one recorded and each fitting its own window. The econometrics guide, docs/ECONOMETRICS.md, written and indexed.
 
 ## Milestones
 
@@ -727,6 +730,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** CHANGELOG; ADR-0074 names these as ordinary additions needing no record of their own.
 - **Tests:** tests/unit/factor_library/test_fama_macbeth.py: each cross-section and the standard error held to rationals; known premiums recovered within three standard errors; skips counted by reason; the data identity moving with one value; every refusal. tests/unit/analytics/test_statistical_factors.py: a closed-form two-asset case; the eigen-equation and orthonormality; every asset's variance kept; isotropic noise in every left-out component; ten factors sorting in order; a singular covariance and counts out of range refused. tests/regression/test_factor_research_values_are_pinned.py: both pinned bit for bit across CPython 3.12, 3.13 and 3.14.
 
+### TD-44: S-02's screen: every pair counted, p-values entered on the conservative side, an identity of the problem and the class-2 results (WS-07, 2026-11-16)
+
+- **Problem:** ADR-0074 section 8 asks for a screen that tests every candidate pair on a stated sample, applies a stated correction and counts every pair, with an identity over the pairs, the series, the choices and the class-2 statistics. Some pairs cannot be tested, and MacKinnon's p-values are bounds beyond his table.
+- **Alternatives:** A refused pair: drop it from the family, which undercounts the search, or count it with a p-value of one. A bounded p-value: enter its reported value, which is anti-conservative for a bound from below, or the conservative side of the bound. The identity: everything, the class-3 p-values included, or the problem and the class-2 results only.
+- **Decision:** Every candidate enters the family. A refused pair and a p-value bounded from below enter with one; a bound from above enters as its bound. The family is corrected by research.multiple_testing at the stated alpha. screen_id is SHA-256 over the pairs in order, each series' identity over the sample, every choice, and each test's statistic, lags, observations and regression identities; the p-values and decisions are beside it. research gains its edge to econometrics, a leaf.
+- **Rationale:** A family is every test tried, which is what a correction's guarantee is about (ADR-0072, D-54-12). A value no smaller than the true p-value keeps both family-wise and false-discovery control. ADR-0058 keeps class-3 values out of identities, so two hosts agree on the screen's.
+- **Compatibility:** Additive: 4 new public names in alphalab.research (API manifest 3,022 exports); research imports econometrics, recorded in the measured dependency table.
+- **Recorded in:** docs/ADR/0074 (settled point 20); docs/ARCHITECTURE.md; CHANGELOG.
+- **Tests:** tests/unit/research/test_cointegration_screen.py: 200 candidates screened, planted pairs selected under Holm and no independent walk; each p-value the test's and the family the correction's; a refused pair counted with one and never selected; each bound entered on its conservative side; the identity moving with the sample, alpha, the correction, the order, a series and the lag rule; every refusal. tests/integration/test_pairs_screen_through_the_ledger.py: the same 200 candidates as a ledgered experiment in four spawned workers, every trial recorded, the planted pairs (and only they) selected and their trials completed, each trial's hedge ratio the screen's bit for bit. tests/regression/test_econometrics_values_are_pinned.py: a screen's identity, statistics and hedge ratios pinned across CPython 3.12, 3.13 and 3.14.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -908,8 +921,9 @@ Evidence:
 - [Hosted CI passed] M6: The VECM of a stated rank by Johansen's two steps: the relations from the eigenvectors, normalized on the first series exactly; each equation's alpha, Gamma and unrestricted terms by least squares with standard errors; the residual covariance; a pair's relation and error correction recovered, the second step exact against rational least squares, every value class 2 and pinned
 - [Hosted CI passed] M6: Vector autoregressions: least squares by equation with standard errors, the residual covariance over T, the lags fixed or chosen by AIC or BIC on the maximum's sample through Decimal logarithms of the residual determinant; known coefficients recovered, each equation exact against rational least squares, a VAR(2)'s order found by BIC, every value class 2 and pinned
 - [Hosted CI passed] M6: GARCH, GJR-GARCH and EGARCH by Gaussian likelihood in admissible coordinates (TD-40): every choice stated, standard errors from the curvature, class 3 with the convergence report; known parameters recovered for each model; hosts agreeing within 1e-4; 2,520 returns in 0.081 CPU s against the plan's 5 s
-- [Local validation passed] M6: State space (TD-41): the Kalman filter in Joseph's form and the RTS smoother back to the initial state, class 2 for given parameters with a class-3 log-likelihood; the local level and the time-varying beta (each beta a random walk, the intercept absent, fixed or drifting) fitted by likelihood from an exact diffuse start, standard errors from the curvature in the variances' logarithms; the filter held to the joint density, Bayesian least squares and the exact posterior in rationals, the start to a 10^30 prior's limit, known variances recovered, every refusal held; pinned across CPython 3.12, 3.13 and 3.14
+- [Hosted CI passed] M6: State space (TD-41): the Kalman filter in Joseph's form and the RTS smoother back to the initial state, class 2 for given parameters with a class-3 log-likelihood; the local level and the time-varying beta (each beta a random walk, the intercept absent, fixed or drifting) fitted by likelihood from an exact diffuse start, standard errors from the curvature in the variances' logarithms; the filter held to the joint density, Bayesian least squares and the exact posterior in rationals, the start to a 10^30 prior's limit, known variances recovered, every refusal held; pinned across CPython 3.12, 3.13 and 3.14
 - [Local validation passed] M6: Regime models (ADR-0075, OFE-010 reopened and delivered, TD-42): the Gaussian HMM and the Markov-switching regression by EM through Hamilton's filter and Kim's smoother, scaled; QuantileStart or an explicit start; the ADR's labelling; standard errors from the observed information, structural zeros kept; filtered and smoothed probabilities and the Viterbi path, each held to exact fractions; two- and three-state chains, a switching regression and a switching autoregression recovered; a collapsing state, a flat transition and every malformed choice refused; pinned across CPython 3.12, 3.13 and 3.14
+- [Local validation passed] M6: S-02's screening stage (TD-44, ADR-0074 settled point 20): research.cointegration_screen tests every candidate pair on a stated sample with Engle and Granger's test and corrects the whole family by research.multiple_testing; a refused pair and a p-value bounded from below enter with one, a bound from above as its bound; screen_id over the pairs, the series' identities, the choices and the class-2 statistics; 200 candidates screened, the planted pairs alone selected under Holm; the same 200 a ledgered experiment's trials in spawned workers, each fitting its own window, every one recorded; the econometrics guide, docs/ECONOMETRICS.md; pinned across CPython 3.12, 3.13 and 3.14
 
 ### WS-13: Global conventions, reference data and historical universes
 
