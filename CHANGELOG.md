@@ -676,6 +676,11 @@ entry below says otherwise.
     the identity, then fits each equation's `α`, `Γ` and unrestricted terms by
     least squares, each with its standard error, and the residual covariance.
     It returns a `VecmFit`, every value class 2.
+  * **ARMA models.** `fit_arma` fits an ARMA(`p`, `q`) about zero or a mean,
+    by conditional least squares (class 2) or the exact Gaussian likelihood
+    by the Kalman filter (class 3). BFGS moves in partial autocorrelations,
+    so every estimate is stationary and invertible. `select_arma` chooses the
+    order by AIC or BIC over a grid, every candidate scored on one sample.
   * **Vector autoregressions.** `fit_var` fits a VAR by least squares,
     equation by equation, each coefficient with its standard error, and the
     residual covariance over `T`. The lags are a fixed count, or AIC or BIC

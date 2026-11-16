@@ -430,6 +430,30 @@ Building M6 settled these points, each held by a test
       screen's regression, so its hedge ratio is the screen's bit for bit.
       Every trial is recorded, so a selected pair's evidence carries the 199
       others (`tests/integration/test_pairs_screen_through_the_ledger.py`).
+21. **ARMA is two estimators in coordinates that keep to the region.**
+    `arma.fit_arma(values, order=(p, q), deterministic=..., method=...,
+    start=..., tolerance=..., max_iterations=..., step=...)` fits about zero
+    or a mean.
+    * **Conditional least squares** conditions on the first `p` values with
+      the earlier errors zero and minimises the residuals' sum of squares:
+      the conditional likelihood's maximum. It is class 2: the recursion, the
+      coordinates and BFGS are `+ - * /`, square roots and `fsum`.
+    * **The exact likelihood** filters Harvey's state-space form from its
+      stationary covariance, solved from `P = T P T' + R R'`, with the
+      variance concentrated out: class 3. It equals the observations' joint
+      Gaussian density under their closed-form autocovariances.
+    * **The region.** BFGS moves in partial autocorrelations `u / sqrt(1 +
+      u²)`, turned into coefficients by Durbin and Levinson's recursion, so
+      every point is stationary and invertible. An explicit start outside the
+      region is refused by the recursion run backward.
+    * **Standard errors.** Least squares takes `sigma² (J'J)⁻¹`; the exact
+      likelihood its curvature in the optimiser's coordinates, mapped by the
+      recursion's Jacobian. A design or curvature that is not positive
+      definite, as a common factor makes it, is refused.
+    * **The order.** `select_arma` fits a grid by AIC or BIC. Under least
+      squares every candidate is conditioned on the largest autoregressive
+      order and the criterion taken by `Decimal` logarithms, so every host
+      chooses alike; the chosen order is refitted on all the data it leaves.
 
 # Compatibility
 

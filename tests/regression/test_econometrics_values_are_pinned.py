@@ -21,6 +21,8 @@ import math
 import pytest
 
 from alphalab.econometrics import (
+    ArmaMethod,
+    ArmaStart,
     Deterministic,
     FixedLags,
     JohansenCase,
@@ -31,6 +33,7 @@ from alphalab.econometrics import (
     VolatilityModel,
     VolatilityStart,
     augmented_dickey_fuller,
+    fit_arma,
     fit_ornstein_uhlenbeck,
     fit_var,
     fit_vecm,
@@ -38,6 +41,7 @@ from alphalab.econometrics import (
     johansen,
     kpss,
     phillips_perron,
+    select_arma,
 )
 from alphalab.econometrics.cointegration import engle_granger
 from alphalab.econometrics.regimes import (
@@ -533,4 +537,92 @@ def test_a_pair_screens_identity_statistics_and_hedge_ratios_are_pinned() -> Non
         "0x1.21bb8c952272cp+0",
         "-0x1.21396a982347fp-1",
         "-0x1.3e80a877fc4f4p-6",
+    ]
+
+
+def _arma_values(count: int) -> list[float]:
+    """An ARMA(1, 1) about 0.5 from integer shocks in eighths: exact values."""
+
+    state = 1717
+
+    def draw(modulus: int) -> int:
+        nonlocal state
+        state = (1103515245 * state + 12345) % 2**31
+        return (state >> 8) % modulus
+
+    value, last, values = 0.5, 0.0, []
+    for _ in range(count + 50):
+        shock = (draw(17) - 8) / 8
+        value = 0.5 + 0.625 * (value - 0.5) + shock + 0.25 * last
+        last = shock
+        values.append(value)
+    return values[-count:]
+
+
+def test_arma_by_least_squares_is_pinned_and_by_likelihood_agrees_across_hosts() -> None:
+    """Least squares is class 2, bit for bit; the exact likelihood class 3, to 1e-4."""
+
+    values = _arma_values(300)
+    choices = {"tolerance": 1e-6, "max_iterations": 200, "step": 1e-6}
+    least = fit_arma(
+        values,
+        order=(1, 1),
+        deterministic=Deterministic.CONSTANT,
+        method=ArmaMethod.CONDITIONAL_LEAST_SQUARES,
+        start=ArmaStart.ZEROS,
+        **choices,  # type: ignore[arg-type]
+    )
+    exact = fit_arma(
+        values,
+        order=(1, 1),
+        deterministic=Deterministic.CONSTANT,
+        method=ArmaMethod.EXACT_LIKELIHOOD,
+        start=ArmaStart.ZEROS,
+        **choices,  # type: ignore[arg-type]
+    )
+    selection = select_arma(
+        values,
+        maximum_order=(2, 1),
+        criterion=LagCriterion.BIC,
+        deterministic=Deterministic.CONSTANT,
+        method=ArmaMethod.CONDITIONAL_LEAST_SQUARES,
+        start=ArmaStart.ZEROS,
+        **choices,  # type: ignore[arg-type]
+    )
+
+    assert {k: v.hex() for k, v in least.estimate.parameters.items()} == {
+        "ar_1": "0x1.5fac0698d471fp-1",
+        "ma_1": "0x1.21310f57012d9p-2",
+        "mean": "0x1.7c271c8e91b6cp-2",
+        "variance": "0x1.8d5e3fdef7b4dp-2",
+    }
+    assert {k: v.hex() for k, v in least.estimate.standard_errors.items()} == {
+        "ar_1": "0x1.a7a5d19247f5ap-5",
+        "ma_1": "0x1.18235d1ac09bap-4",
+        "mean": "0x1.2de46ee6a0113p-3",
+        "variance": "0x1.03fe54c11ae6cp-5",
+    }
+    assert least.estimate.estimate_id == (
+        "ce199db6f5c688a44a6edf17bb8b2ab20607c5ce11346563565dbd18e687d2f1"
+    )
+    assert exact.estimate.parameters == pytest.approx(
+        {
+            "ar_1": 0.6834719124410868,
+            "ma_1": 0.28621869470073213,
+            "mean": 0.35845851768491405,
+            "variance": 0.38724130337383567,
+        },
+        rel=1e-4,
+    )
+    assert exact.estimate.estimate_id == (
+        "b0304718fa7691d433d5b1f0a473644a0f44a3d7aa7652d928d5f57649fc29c1"
+    )
+    assert selection.chosen.order == (1, 1)
+    assert [value.hex() for _, value in selection.candidates] == [
+        "0x1.f9ad74c5f512ep+4",
+        "-0x1.5f7020cf0e50bp+7",
+        "-0x1.f8626a1f11657p+7",
+        "-0x1.03c773e432606p+8",
+        "-0x1.03a9b2c435ee6p+8",
+        "-0x1.fde3105d2a661p+7",
     ]

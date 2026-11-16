@@ -176,6 +176,46 @@ stays the measurement it was.
 
 ---
 
+## ARMA models
+
+```python
+from alphalab.econometrics import (
+    ArmaMethod,
+    ArmaStart,
+    Deterministic,
+    LagCriterion,
+    fit_arma,
+    select_arma,
+)
+
+fit = fit_arma(
+    spread,
+    order=(1, 1),
+    deterministic=Deterministic.CONSTANT,
+    method=ArmaMethod.EXACT_LIKELIHOOD,
+    start=ArmaStart.ZEROS,
+    tolerance=1e-8,
+    max_iterations=200,
+    step=1e-6,
+)
+fit.estimate.parameters["ar_1"], fit.estimate.standard_errors["ma_1"], fit.bic
+```
+
+There are two estimators.
+
+- **Conditional least squares** takes the first `p` values as given and the
+  errors before them as zero, then minimises the residuals' sum of squares. It
+  is class 2: two hosts get the same bits.
+- **The exact likelihood** filters every value from the model's stationary
+  covariance. It is class 3.
+
+Both move in partial autocorrelations, so every estimate is stationary and
+invertible; a start outside that region is refused. `select_arma` chooses the
+order by AIC or BIC over a grid. Under least squares, every candidate is
+scored on the same residuals, and every host makes the same choice.
+
+---
+
 ## Vector autoregressions
 
 `fit_var(series, deterministic=..., lags=..., maximum_condition=...)` fits

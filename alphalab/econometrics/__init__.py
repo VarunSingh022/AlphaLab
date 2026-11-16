@@ -28,6 +28,9 @@ Delivered so far
   of a stated rank, fitted by Johansen's two steps.
 * :mod:`~alphalab.econometrics.mean_reversion`: the Ornstein-Uhlenbeck fit and
   the half-life it implies, each with its standard error (OFE-007 reopened).
+* :mod:`~alphalab.econometrics.arma`: ARMA models by conditional least
+  squares (class 2) or the exact Gaussian likelihood, stationary and
+  invertible by construction, the order chosen by AIC or BIC.
 * :mod:`~alphalab.econometrics.var`: vector autoregressions by least squares,
   equation by equation, the lags fixed or chosen by AIC or BIC.
 * :mod:`~alphalab.econometrics.volatility`: GARCH, GJR-GARCH and EGARCH by
@@ -46,6 +49,15 @@ are arguments, never defaults. What an estimator cannot take is refused before
 it runs: a non-finite value, a sample too short, an ill-conditioned design.
 """
 
+from alphalab.econometrics.arma import (
+    MINIMUM_ARMA_OBSERVATIONS,
+    ArmaFit,
+    ArmaMethod,
+    ArmaSelection,
+    ArmaStart,
+    fit_arma,
+    select_arma,
+)
 from alphalab.econometrics.cointegration import (
     ENGLE_GRANGER_METHOD,
     ENGLE_GRANGER_RESIDUAL_METHOD,
@@ -165,6 +177,7 @@ __all__ = [
     "MACKINNON_2010",
     "MARKOV_SWITCHING_METHOD",
     "MHM_1996",
+    "MINIMUM_ARMA_OBSERVATIONS",
     "MINIMUM_DICKEY_FULLER_OBSERVATIONS",
     "MINIMUM_JOHANSEN_OBSERVATIONS",
     "MINIMUM_ORNSTEIN_UHLENBECK_OBSERVATIONS",
@@ -181,6 +194,10 @@ __all__ = [
     "VAR_METHOD",
     "VECM_METHOD",
     "VOLATILITY_METHOD",
+    "ArmaFit",
+    "ArmaMethod",
+    "ArmaSelection",
+    "ArmaStart",
     "Bandwidth",
     "CointegrationTest",
     "CollapsedStateError",
@@ -217,6 +234,7 @@ __all__ = [
     "VolatilityStart",
     "augmented_dickey_fuller",
     "engle_granger",
+    "fit_arma",
     "fit_gaussian_hmm",
     "fit_local_level",
     "fit_markov_switching_regression",
@@ -237,6 +255,7 @@ __all__ = [
     "phillips_perron",
     "require_series",
     "rts_smoother",
+    "select_arma",
     "series_identity",
     "system_identity",
 ]

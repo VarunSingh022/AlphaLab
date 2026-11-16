@@ -834,6 +834,19 @@
       "compatibility": "Additive: 4 new public names in alphalab.research (API manifest 3,022 exports); research imports econometrics, recorded in the measured dependency table.",
       "record": "docs/ADR/0074 (settled point 20); docs/ARCHITECTURE.md; CHANGELOG.",
       "tests": "tests/unit/research/test_cointegration_screen.py: 200 candidates screened, planted pairs selected under Holm and no independent walk; each p-value the test's and the family the correction's; a refused pair counted with one and never selected; each bound entered on its conservative side; the identity moving with the sample, alpha, the correction, the order, a series and the lag rule; every refusal. tests/integration/test_pairs_screen_through_the_ledger.py: the same 200 candidates as a ledgered experiment in four spawned workers, every trial recorded, the planted pairs (and only they) selected and their trials completed, each trial's hedge ratio the screen's bit for bit. tests/regression/test_econometrics_values_are_pinned.py: a screen's identity, statistics and hedge ratios pinned across CPython 3.12, 3.13 and 3.14."
+    },
+    {
+      "id": "TD-45",
+      "date": "2026-11-16",
+      "workstream": "WS-07",
+      "title": "ARMA: two estimators, coordinates that keep to the region, and an order chosen on one sample",
+      "problem": "ADR-0074 names ARMA by conditional least squares, minimised by a class-2 optimiser, or Gaussian likelihood, with information criteria; every choice stated and an estimate outside the admissible region refused. An optimiser in the coefficients can leave the stationary and invertible region, where the exact likelihood has no stationary start and the residual recursion explodes.",
+      "alternatives": "The region: optimise the coefficients and refuse an estimate outside it, or move in partial autocorrelations, through tanh (class 3) or u / sqrt(1 + u²) (class 2). The exact likelihood: the innovations algorithm over the autocovariances, or the Kalman filter on Harvey's form from the stationary covariance. The criterion: floats, or Decimal logarithms of the residual variance so every host chooses alike.",
+      "decision": "Both estimators move in partial autocorrelations through u / sqrt(1 + u²) and Durbin and Levinson's recursion, which keeps conditional least squares in class 2; an explicit start outside the region is refused by the recursion run backward. The exact likelihood filters Harvey's form from the stationary covariance, solved from vec(P) = (I - T (x) T)^-1 vec(R R') by pivoted elimination, the variance concentrated out. Least squares' standard errors are Gauss-Newton's sigma² (J'J)^-1; the exact likelihood's are its curvature in the optimiser's coordinates mapped by the recursion's Jacobian; the variance's is sigma² sqrt(2 / m). select_arma fits a grid, every least-squares candidate conditioned on the largest autoregressive order, the criterion by Decimal logarithms, ties to the first, the choice refitted on all the data it leaves.",
+      "rationale": "Coordinates that cannot leave the region need no penalty and keep both the stationary start and the recursion defined at every point BFGS tries, and the algebraic map keeps least squares host-independent, as ADR-0074's table asks. Harvey's form and the filter are the package's own machinery in miniature, and the likelihood is checked against the joint density. One conditioning sample for every candidate is the unit-root tests' and the VAR's rule.",
+      "compatibility": "Additive: 7 new public names in alphalab.econometrics (API manifest 3,029 exports).",
+      "record": "docs/ADR/0074 (settled point 21); CHANGELOG; docs/ECONOMETRICS.md.",
+      "tests": "tests/unit/econometrics/test_arma.py: the recursion and its inverse, refusing polynomials outside the region; the exact likelihood of an ARMA(1, 1) and an MA(2) equal to their joint densities; least squares' residuals the recursion written out; an ARMA(1, 1) about a mean, an AR(2) and an MA(1) recovered within three standard errors by both methods; the two methods agreeing; BIC choosing (1, 1) on one sample and refitting it; the exact criterion scoring every value; every choice in the estimate with its class; white noise needing no iteration; every refusal. tests/regression/test_econometrics_values_are_pinned.py: least squares pinned bit for bit, the exact likelihood within 1e-4, across CPython 3.12, 3.13 and 3.14."
     }
   ],
   "plan_changes": [
@@ -1643,6 +1656,11 @@
         {
           "milestone": "M6",
           "item": "S-02's screening stage (TD-44, ADR-0074 settled point 20): research.cointegration_screen tests every candidate pair on a stated sample with Engle and Granger's test and corrects the whole family by research.multiple_testing; a refused pair and a p-value bounded from below enter with one, a bound from above as its bound; screen_id over the pairs, the series' identities, the choices and the class-2 statistics; 200 candidates screened, the planted pairs alone selected under Holm; the same 200 a ledgered experiment's trials in spawned workers, each fitting its own window, every one recorded; the econometrics guide, docs/ECONOMETRICS.md; pinned across CPython 3.12, 3.13 and 3.14",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M6",
+          "item": "ARMA (TD-45, ADR-0074 settled point 21): conditional least squares (class 2) and the exact Gaussian likelihood by the Kalman filter from the stationary covariance (class 3), in partial-autocorrelation coordinates that keep every estimate stationary and invertible; Gauss-Newton and curvature standard errors; select_arma by AIC or BIC on one sample, Decimal logarithms under least squares; the recursion and its inverse, the exact likelihood held to the joint density, known parameters recovered by both methods; pinned across CPython 3.12, 3.13 and 3.14",
           "status": "Local validation passed"
         }
       ],
@@ -2883,7 +2901,7 @@
   },
   "state": {
     "updated": "2026-11-16",
-    "remote_head": "50f9632",
+    "remote_head": "7b6bdc0",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3819,6 +3837,10 @@
     {
       "date": "2026-11-16",
       "entry": "50f9632 (WS-25) passed the full local gate and was pushed; 1c55995 (state space) passed hosted CI on all six cells and CodeQL. S-02's screening stage validated locally (TD-44): 200 candidate pairs screened under Holm's correction, the planted pairs alone selected, and the same 200 run as a ledgered experiment's trials in four spawned workers, every one recorded and each fitting its own window. The econometrics guide, docs/ECONOMETRICS.md, written and indexed."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "ARMA validated locally (TD-45): conditional least squares, class 2, and the exact Gaussian likelihood, both in coordinates that keep every estimate stationary and invertible, the order chosen by AIC or BIC on one sample; the exact likelihood held to the joint density; known parameters recovered; pinned across CPython 3.12, 3.13 and 3.14."
     }
   ]
 }
