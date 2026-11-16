@@ -767,8 +767,8 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   needs a rate source the researcher states; capture records the base
   currency's series exactly (ADR-0055).
 - **A capture's trace costs more than the plan's budget** (LIM-013): series and
-  trace together cost 12.1 to 13.3 percent of a run whose strategy does no work
-  of its own, against the plan's 10; the series alone costs 1.3 to 3.5 percent
+  trace together cost 10.9 to 12.8 percent of a run whose strategy does no work
+  of its own, against the plan's 10; the series alone costs 1 to 4 percent
   (`benchmarks/benchmark_capture.py`). The owner approved 15 percent as the
   ceiling (PC-07): the benchmark enforces it, and a result above it is a failed
   gate. The trace is opt-in, and its cost is a fixed amount of work per step.

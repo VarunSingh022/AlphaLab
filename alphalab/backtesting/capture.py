@@ -707,8 +707,28 @@ class _Series:
         return total
 
 
-#: How each type the trace has met is written, decided once per type.
-_WRITERS: dict[type, Callable[[Any], str]] = {}
+def _decimal_text(value: Decimal) -> str:
+    # The encoder writes a Decimal as its exact text, quoted.
+    return _quote(str(value))
+
+
+def _boolean(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _null(value: None) -> str:
+    return "null"
+
+
+#: How each type the trace has met is written, decided once per type. The JSON
+#: scalars' exact types are written by the encoder's own rules from the start.
+_WRITERS: dict[type, Callable[[Any], str]] = {
+    str: _quote,
+    Decimal: _decimal_text,
+    int: int.__repr__,
+    bool: _boolean,
+    type(None): _null,
+}
 
 #: The encoder's own fallback, for a type with no rule here.
 _DEFAULT: Final = DeterministicEncoder().default
@@ -724,23 +744,11 @@ def _write(value: Any) -> str:
     and :class:`~alphalab.persistence.serializer.DeterministicEncoder`, with
     JSON's own quoting and number forms -- and writes the text directly. A type
     it has no rule for is handed to the encoder's own fallback, as ``serialize``
-    hands it, and the result written by the same rules.
+    hands it, and the result written by the same rules. One lookup by exact type
+    finds every writer, a JSON scalar's included.
     """
 
     kind = type(value)
-    if kind is str:
-        return _quote(value)
-    if kind is Decimal:
-        # The encoder writes a Decimal as its exact text, quoted.
-        return _quote(str(value))
-    if kind is float:
-        return _float(value)
-    if kind is int:
-        return int.__repr__(value)
-    if kind is bool:
-        return "true" if value else "false"
-    if value is None:
-        return "null"
     writer = _WRITERS.get(kind)
     if writer is None:
         writer = _WRITERS[kind] = _writer(kind)
@@ -770,25 +778,26 @@ def _writer(kind: type) -> Callable[[Any], str]:
 
 
 def _record_writer(kind: type) -> Callable[[Any], str]:
+    """A dataclass's fields in name order, as one template filled once per record."""
+
     names = sorted(item.name for item in fields(kind))
-    keys = [_quote(name) + ":" for name in names]
     if not names:
         return lambda value: "{}"
+    template = "{" + ",".join(_quote(name).replace("%", "%%") + ":%s" for name in names) + "}"
     if len(names) == 1:
-        (name,), (key,) = names, keys
-        return lambda value: "{" + key + _write(getattr(value, name)) + "}"
+        (name,) = names
+        return lambda value: template % (_write(getattr(value, name)),)
     read = attrgetter(*names)
-    return lambda value: (
-        "{"
-        + ",".join([key + _write(item) for key, item in zip(keys, read(value), strict=True)])
-        + "}"
-    )
+    return lambda value: template % tuple(map(_write, read(value)))
 
 
 def _float(value: float) -> str:
     if value != value or value in (math.inf, -math.inf):
         raise ValueError(f"Out of range float values are not JSON compliant: {value!r}")
     return float.__repr__(value)
+
+
+_WRITERS[float] = _float
 
 
 def _quoted_text(value: Any) -> str:
@@ -804,7 +813,7 @@ def _projected(value: Any) -> str:
 
 
 def _array(value: Any) -> str:
-    return "[" + ",".join([_write(item) for item in value]) + "]"
+    return "[" + ",".join(map(_write, value)) + "]"
 
 
 def _object(value: Any) -> str:

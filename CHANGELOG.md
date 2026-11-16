@@ -330,9 +330,10 @@ entry below says otherwise.
     (`tests/integration/test_streaming_capture.py`,
     `tests/regression/test_capture_identities_are_pinned.py`).
   * **The cost** is measured by `benchmarks/benchmark_capture.py` at four trade
-    densities. The series costs 1.3 to 3.5 percent of the run. With the trace
-    the capture costs 12.1 to 13.3 percent on a strategy that does no work of
-    its own, against the plan's 10, where `digest_run` costs 76 to 105 percent.
+    densities. The series costs 1 to 4 percent of the run. With the trace the
+    capture costs 10.9 to 12.8 percent on a strategy that does no work of its
+    own (CPython 3.12, Apple arm64), against the plan's 10, where `digest_run`
+    costs 76 to 105 percent.
     The owner approved plan change PC-07: the series at most 10 percent, and
     series and trace at most 15, a ceiling the benchmark enforces and not a
     target (ledger LIM-013).
@@ -639,6 +640,15 @@ entry below says otherwise.
   * **A transcription's errors, found.** The 2010 tables were generated from
     the paper itself. A widely used transcription differs from it in four
     rows, and the tests pin each to the paper.
+
+* **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
+  At M5's checkpoint, a hosted runner measured series and trace at 15.0
+  percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's
+  ceiling, a failed gate taken to the owner. The trace's writer now finds each
+  value's writer in one lookup by its exact type, and writes each record from
+  one template. Its text is unchanged, so every pinned `trace_id` holds. On the
+  reference machine, series and trace now cost 10.9 to 12.8 percent, from 12.1
+  to 13.3.
 
 ## Changed
 

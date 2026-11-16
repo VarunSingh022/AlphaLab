@@ -222,6 +222,11 @@ None moves an identity made before; each is held by a test
   stays the record of what was targeted, and the benchmark enforces both limits.
   After the approval, two output-identical changes to the trace's writer
   brought series and trace to 12.1 to 13.3 percent, the series to 1.3 to 3.5.
+  At M5's checkpoint a hosted runner read 15.0 percent at one density (CPython
+  3.12, Ubuntu), a failed gate taken to the owner. A third output-identical
+  change at M6 -- one lookup by a value's exact type, one template per record --
+  brought series and trace to 10.9 to 12.8 percent on the reference machine,
+  the pinned identities unchanged.
 - **The grid's third member, a declared calendar's sessions, waits for the
   calendars.** Sessions come from ADR-0059's reference packs, which M3 begins.
   A grid from a pack is added when a pack can supply one. `EVERY_INSTANT` and

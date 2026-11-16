@@ -7,14 +7,16 @@ second, every fourth, every eighth -- on the backtesting benchmark's engine
 workload, whose strategy does no work of its own, so the run is the engine's
 cost alone and every ratio is as large as it gets:
 
-* **the series** costs 1.3 to 3.5 percent of the run, inside the plan's
-  budget, and is judged against it;
+* **the series** costs 1 to 4 percent of the run, inside the plan's budget,
+  and is judged against it;
 * **the trace** adds a fixed cost per step -- the canonical serialization of
   what the step added, an equity point at the least, and one SHA-256 link --
-  of about 10 percent more, so series and trace together cost 12.1 to 13.3
-  percent on the reference machine (CPython 3.12, Apple arm64), and cost 12.6 to
-  14.4 when PC-07 was proposed, before two output-identical changes to the
-  trace's writer. Narrowing what
+  of about 9 percent more, so series and trace together cost 10.9 to 12.8
+  percent on the reference machine (CPython 3.12, Apple arm64). They cost 12.6
+  to 14.4 when PC-07 was proposed, 12.1 to 13.3 after two output-identical
+  changes to the trace's writer, and 10.9 to 12.8 after a third (v4.3 M6: one
+  lookup by a value's exact type, one template per record), made when a hosted
+  runner read 15.0 at one density (CPython 3.12, Ubuntu). Narrowing what
   the trace covers would not bring it to 10 percent: with a trade on every
   eighth record it costs 12.2 percent without the order events and 11.4 without
   the equity points, most of it the work it does every step.

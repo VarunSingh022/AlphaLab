@@ -130,7 +130,7 @@ Never:
 
 Open questions:
 
-- PC-07's ceiling on hosted runners (2026-11-16): the benchmarks workflow measured a capture's series and trace at +15.0% of the run on CPython 3.12 (Ubuntu) at one trade density, over the 15% ceiling, and 10.7 to 14.8% elsewhere; locally 12.1 to 13.3%. Under PC-07 this is a failed gate brought to the owner. Meanwhile, output-identical speedups of the trace's writer, the remedy PC-07 allows, are being sought; nothing in the trace's coverage or the limit is changed.
+- PC-07's ceiling on hosted runners (2026-11-16): the benchmarks workflow measured a capture's series and trace at +15.0% of the run on CPython 3.12 (Ubuntu) at one trade density, over the 15% ceiling, and 10.7 to 14.8% elsewhere; locally 12.1 to 13.3%. Under PC-07 this is a failed gate brought to the owner. An output-identical speedup of the trace's writer, the remedy PC-07 allows, brought series and trace to 10.9 to 12.8% on the reference machine (from 12.1 to 13.3); the benchmarks are re-dispatched to measure it on hosted runners. Nothing in the trace's coverage or the limit is changed; whether the ceiling's margin on shared runners is acceptable stays the owner's decision.
 
 ## Continuation log
 
@@ -190,6 +190,7 @@ Open questions:
 - **2026-11-15** M5e (a2903ae) passed the full gate (13,446 tests) and was pushed; M5d (46c947c) passed hosted CI on all six cells and CodeQL. M5's close: S-13, the leak tests, the VD mutation series, the stated N (ADR-0073 section 7), PBO's budget and the validation and selection-bias guides. The VD series caught 35 of 36 on the tree as it stood. VD21 needed a test, now added, and was caught when run again (test_cv_and_cpcv_over_backtests::test_a_candidate_best_on_every_fold_it_completed_is_still_never_selected). The assessment's mutations were re-run on the final tree: 8 of 8. The assessment's pins were re-made once, before any release, when the stated N joined its identity.
 - **2026-11-16** M5's close (c02a6f5) passed the full gate (13,462 tests) and was pushed. M5e (a2903ae) passed all six hosted cells. The benchmarks workflow was dispatched on the branch at M5's checkpoint, as the plan's U.4 asks; M1 to M4's checkpoints never dispatched it. M6 begins: ADR-0074 (econometrics, OFE-007 reopened) and ADR-0075 (regime models, OFE-010 reopened) accepted under D-V3's delegation (TD-30, TD-31).
 - **2026-11-16** M5 closed on hosted CI: its close (c02a6f5) passed all six cells and CodeQL, as did ADR-0074 and ADR-0075 (e2e710d); GAP-02 closed. The benchmarks workflow, dispatched at M5's checkpoint, failed on CPython 3.12: the capture benchmark measured series and trace at +15.0% of a run at one density, over PC-07's 15% ceiling, a failed gate for the owner (the open question); 3.13 and 3.14 passed every benchmark. M6's first part validated locally: the econometrics package, MacKinnon's and KPSS's tables and the ADF, Phillips-Perron and KPSS tests. MacKinnon (2010)'s tables were generated from the paper itself; a widely used transcription of them differs from the paper in four rows, which the tests pin to the paper.
+- **2026-11-16** The econometrics package's first commit (a9f350d) passed the full gate (13,582 tests) and was pushed. For PC-07's failed gate on a hosted runner, the trace's writer was made faster without changing a byte: each value's writer is found in one lookup by its exact type, and each record is written from one template. Compared entry by entry over two runs (2,479 entries), and with the pinned trace identities unchanged, series and trace measured 10.9 to 12.8 percent on the reference machine, alternating old and new twice, from 12.1 to 13.7. The benchmarks workflow is to be re-dispatched to measure it on hosted runners.
 
 ## Milestones
 
@@ -695,6 +696,7 @@ Evidence:
 - [Hosted CI passed] M3: benchmarks/benchmark_capture.py at four trade densities (PC-07, LIM-013)
 - [Hosted CI passed] M3: The trace's writer made faster after PC-07's approval, output-identical (the pinned identities hold): series and trace 12.1 to 13.3 percent
 - [Hosted CI passed] M3: Mutation series T (16): the capture, its trace and series, keep_equity, the bridge -- 16 of 16 caught
+- [Local validation passed] M3: Made at M6, for PC-07's ceiling read on a hosted runner at M5's checkpoint: PC-07's ceiling on hosted runners: the trace's writer made faster again, output-identical (one lookup by exact type, one template per record; 2,479 entries compared byte for byte, the pinned trace identities hold): series and trace 10.9 to 12.8 percent on the reference machine, from 12.1 to 13.3
 
 ### WS-05: Experiment and trial ledger, executor, runner registry
 
