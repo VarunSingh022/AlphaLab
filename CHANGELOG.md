@@ -688,6 +688,19 @@ entry below says otherwise.
 
 ## Fixed
 
+* **A design with a dependent column is refused as ill-conditioned** [NUM-018].
+  `common.linalg.least_squares` documents that a rank-deficient design -- a
+  regressor beside a multiple of itself -- is refused with
+  `IllConditionedError`. For many such designs it raised instead that the
+  singular values had not converged: two exactly parallel columns leave a
+  column of rounding noise, and one-sided Jacobi's relative criterion cycles
+  on noise. `singular_values` failed the same way on such a matrix.
+  * **No converging input changes.** Every matrix that meets the strict
+    criterion gets it alone, as before, so every pinned value holds.
+  * **Only after 64 sweeps.** A matrix that has not settled by then has any
+    column within the sweeps' own backward-error bound of zero left out of
+    further rotations, and its norm is reported.
+
 * **Example 39 says what its output shows** [DOC-015]. It printed a bond's
   accrued interest under each day count and said "three answers", but
   ACT/365F and ACT/360 gave the same accrual: a bond accrues the fraction of

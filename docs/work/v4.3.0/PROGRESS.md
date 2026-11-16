@@ -193,6 +193,7 @@ Never:
 - **2026-11-16** M5 closed on hosted CI: its close (c02a6f5) passed all six cells and CodeQL, as did ADR-0074 and ADR-0075 (e2e710d); GAP-02 closed. The benchmarks workflow, dispatched at M5's checkpoint, failed on CPython 3.12: the capture benchmark measured series and trace at +15.0% of a run at one density, over PC-07's 15% ceiling, a failed gate for the owner (the open question); 3.13 and 3.14 passed every benchmark. M6's first part validated locally: the econometrics package, MacKinnon's and KPSS's tables and the ADF, Phillips-Perron and KPSS tests. MacKinnon (2010)'s tables were generated from the paper itself; a widely used transcription of them differs from the paper in four rows, which the tests pin to the paper.
 - **2026-11-16** The econometrics package's first commit (a9f350d) passed the full gate (13,582 tests) and was pushed. For PC-07's failed gate on a hosted runner, the trace's writer was made faster without changing a byte: each value's writer is found in one lookup by its exact type, and each record is written from one template. Compared entry by entry over two runs (2,479 entries), and with the pinned trace identities unchanged, series and trace measured 10.9 to 12.8 percent on the reference machine, alternating old and new twice, from 12.1 to 13.7. The benchmarks workflow is to be re-dispatched to measure it on hosted runners.
 - **2026-11-16** The owner approved the M6 trace-writer change (466d350, amended as ce20731 with its certificate corrected). Its output is byte-identical and PC-07's limits are unchanged; the approval is of the change, not of the hosted gate. ce20731 passed the full gate (13,582 tests; the earlier cascade of missing working directories did not recur with nothing else touching the clone) and was pushed. a9f350d and ce20731 each passed all six hosted cells and CodeQL. The benchmarks workflow on ce20731 failed PC-07 on CPython 3.12 at 16.8 percent (a trade every eighth record) and passed on 3.13 and 3.14, up to 14.7 percent. It runs on Linux only, so three cells were read, not six. Under the owner's instruction the trace was optimised further, byte for byte: its chain is computed 64 steps at a time (TD-32), 7.6 to 8.9 percent on the reference machine, and the benchmarks now run on Linux and macOS, every benchmark after a failure too (TD-33).
+- **2026-11-16** 61b4793 (the batched trace, TD-32, and the six-cell benchmarks, TD-33) passed the full gate (13,606 tests) and was pushed. The benchmarks workflow was dispatched on that exact commit (run 43794814136). M6's Engle-Granger tests found an M2 defect: least_squares raised a non-convergence for a design with a dependent column instead of refusing it as ill-conditioned. It is fixed with every converging input unchanged (NUM-018, TD-34).
 
 ## Milestones
 
@@ -589,6 +590,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** .github/workflows/benchmarks.yml.
 - **Tests:** tests/regression/test_release_preflight.py and test_release_gates_are_wired.py (the called workflow's checkout, its interpreters, no failure allowed). The step was run under bash 3.2 with a passing, a failing, a warning and a later benchmark: each ran, and the job failed naming the two.
 
+### TD-34: A design with a dependent column is refused as ill-conditioned: one-sided Jacobi settles on rounding noise (NUM-018) (WS-03, 2026-11-16)
+
+- **Problem:** least_squares documents that a rank-deficient design is refused with IllConditionedError. For a regressor beside a multiple of itself it often raised that the singular values had not converged. Householder QR leaves the two columns exactly parallel in its triangular factor. Rotated together they leave a column of rounding noise, and the relative criterion |gamma| <= eps sqrt(alpha beta) cycles on noise: rotating noise against the other columns makes new noise. In 400 random designs [1, x, c x], 181 failed so.
+- **Alternatives:** (a) Bound the condition number by the factor's diagonal before the singular values: it changes the reported condition of designs refused today. (b) Catch the non-convergence in least_squares and refuse by that bound: leaves singular_values failing on the same matrices. (c) A looser criterion throughout: moves pinned values. (d) The strict criterion alone first; only for a matrix that has not settled after 64 sweeps, leave a column within the sweeps' own backward-error bound of zero out of further rotations.
+- **Decision:** (d). Every matrix that meets the strict criterion gets it alone, the same operations in the same order. After 64 sweeps, a column whose norm is at most 8 n (k + 1) eps ||A||_F, with k the 128 sweeps the call may make (Higham, Lemma 19.9, the bound M2's tests state), is no longer rotated, and its norm is reported as its singular value. A matrix that still does not settle is refused as before.
+- **Rationale:** Zeroing such a column moves the matrix by less than the error the sweeps already carry, so the values reported are those of a matrix the computation cannot tell from the input. The design is then refused as least_squares documents.
+- **Compatibility:** No converging input changes by a bit: every pinned value of the linear algebra holds. A dependent design that raised AlphaLabValidationError now raises IllConditionedError, a subclass of it.
+- **Recorded in:** Ledger NUM-018; CHANGELOG (Fixed).
+- **Tests:** tests/unit/common/test_linalg.py: the captured factor's singular values, held to their closed form in 50-digit Decimal within the bound; 200 dependent designs each refused as ill-conditioned (90 raised the non-convergence before). Engle-Granger's refusal of collinear regressors.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -698,6 +709,7 @@ Evidence:
 - [Hosted CI passed] M2: common.optimize and common.quadrature, with required tolerances and ConvergenceError
 - [Hosted CI passed] M2: The Estimate type and its identity
 - [Hosted CI passed] M2: One authority: ml.linalg and ml's splits delegate (GAP-48)
+- [Local validation passed] M2: Made at M6: a design with an exactly dependent column refused as ill-conditioned, as documented; one-sided Jacobi leaves a column of rounding noise out once the strict criterion has had 64 sweeps, every converging input unchanged (NUM-018, TD-34)
 
 Evidence:
 

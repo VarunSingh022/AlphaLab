@@ -100,8 +100,9 @@ __all__ = [
 _EPSILON = sys.float_info.epsilon
 
 #: One-sided Jacobi converges quadratically; a well-scaled matrix settles in
-#: well under ten sweeps. A bound this generous is only ever reached by a
-#: defect, and reaching it is an error rather than a silently partial answer.
+#: well under ten sweeps. A bound this generous is reached only by a column of
+#: rounding noise (see :func:`_jacobi_singular_values`) or by a defect, and
+#: reaching it twice is an error rather than a silently partial answer.
 _MAXIMUM_SWEEPS = 64
 
 #: Beyond this ratio a Jacobi rotation's ``theta * theta`` would come near
@@ -186,37 +187,67 @@ def _columns(rows: Sequence[Sequence[float]], width: int) -> list[list[float]]:
     return [[float(row[column]) for row in rows] for column in range(width)]
 
 
+def _jacobi_sweep(columns: list[list[float]], negligible: float | None) -> bool:
+    """One cyclic sweep of Hestenes' rotations; whether any pair was rotated.
+
+    A pair is left alone when it is orthogonal to working precision, or, given
+    ``negligible``, when either column's squared norm is at most that.
+    """
+
+    count = len(columns)
+    rotated = False
+    for p in range(count - 1):
+        for q in range(p + 1, count):
+            first, second = columns[p], columns[q]
+            alpha = math.fsum(x * x for x in first)
+            beta = math.fsum(y * y for y in second)
+            gamma = math.fsum(x * y for x, y in zip(first, second, strict=True))
+            if gamma == 0.0 or abs(gamma) <= _EPSILON * math.sqrt(alpha) * math.sqrt(beta):
+                continue
+            if negligible is not None and min(alpha, beta) <= negligible:
+                continue
+            rotated = True
+            zeta = (beta - alpha) / (2.0 * gamma)
+            tangent = math.copysign(1.0, zeta) / (abs(zeta) + math.hypot(1.0, zeta))
+            cosine = 1.0 / math.hypot(1.0, tangent)
+            sine = cosine * tangent
+            columns[p] = [cosine * x - sine * y for x, y in zip(first, second, strict=True)]
+            columns[q] = [sine * x + cosine * y for x, y in zip(first, second, strict=True)]
+    return rotated
+
+
 def _jacobi_singular_values(columns: list[list[float]]) -> tuple[float, ...]:
     """Singular values of the matrix whose columns are given, largest first.
 
     Hestenes' one-sided Jacobi: rotate pairs of columns until every pair is
     orthogonal to working precision; the column norms are then the singular
     values. Mutates ``columns``.
+
+    A rank-deficient matrix can leave a column of rounding noise: two columns
+    that are exactly parallel, rotated together, leave one of them zero up to
+    rounding. Rotating noise against the other columns only makes new noise,
+    and the relative criterion can then cycle without ever being met. Matrices
+    that never do this get the strict criterion alone. For one that does,
+    after :data:`_MAXIMUM_SWEEPS` sweeps of it, a column whose norm is within
+    the sweeps' own backward-error bound of zero, ``8 n (k + 1) eps ||A||_F``
+    for ``n`` columns and ``k`` sweeps (Higham, *Accuracy and Stability of
+    Numerical Algorithms*, Lemma 19.9), is left out of further rotations:
+    zeroing it would move the matrix by less than that bound. Its own norm is
+    reported as its singular value. A matrix that still does not settle is
+    refused.
     """
 
-    count = len(columns)
     for _ in range(_MAXIMUM_SWEEPS):
-        rotated = False
-        for p in range(count - 1):
-            for q in range(p + 1, count):
-                first, second = columns[p], columns[q]
-                alpha = math.fsum(x * x for x in first)
-                beta = math.fsum(y * y for y in second)
-                gamma = math.fsum(x * y for x, y in zip(first, second, strict=True))
-                if gamma == 0.0 or abs(gamma) <= _EPSILON * math.sqrt(alpha) * math.sqrt(beta):
-                    continue
-                rotated = True
-                zeta = (beta - alpha) / (2.0 * gamma)
-                tangent = math.copysign(1.0, zeta) / (abs(zeta) + math.hypot(1.0, zeta))
-                cosine = 1.0 / math.hypot(1.0, tangent)
-                sine = cosine * tangent
-                columns[p] = [cosine * x - sine * y for x, y in zip(first, second, strict=True)]
-                columns[q] = [sine * x + cosine * y for x, y in zip(first, second, strict=True)]
-        if not rotated:
+        if not _jacobi_sweep(columns, None):
+            return tuple(sorted((math.hypot(*column) for column in columns), reverse=True))
+    frobenius = math.hypot(*(x for column in columns for x in column))
+    bound = 8.0 * len(columns) * (2 * _MAXIMUM_SWEEPS + 1) * _EPSILON * frobenius
+    for _ in range(_MAXIMUM_SWEEPS):
+        if not _jacobi_sweep(columns, bound * bound):
             return tuple(sorted((math.hypot(*column) for column in columns), reverse=True))
     raise AlphaLabValidationError(
-        f"The singular values did not converge within {_MAXIMUM_SWEEPS} Jacobi sweeps. A "
-        "partially orthogonalized matrix would report singular values that are not."
+        f"The singular values did not converge within {2 * _MAXIMUM_SWEEPS} Jacobi sweeps. "
+        "A partially orthogonalized matrix would report singular values that are not."
     )
 
 

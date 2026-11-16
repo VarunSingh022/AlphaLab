@@ -691,6 +691,19 @@
       "compatibility": "No code changes. The release preflight, which calls this workflow, runs the benchmarks on six cells too. The job fails exactly when a benchmark fails, raises or warns.",
       "record": ".github/workflows/benchmarks.yml.",
       "tests": "tests/regression/test_release_preflight.py and test_release_gates_are_wired.py (the called workflow's checkout, its interpreters, no failure allowed). The step was run under bash 3.2 with a passing, a failing, a warning and a later benchmark: each ran, and the job failed naming the two."
+    },
+    {
+      "id": "TD-34",
+      "date": "2026-11-16",
+      "workstream": "WS-03",
+      "title": "A design with a dependent column is refused as ill-conditioned: one-sided Jacobi settles on rounding noise (NUM-018)",
+      "problem": "least_squares documents that a rank-deficient design is refused with IllConditionedError. For a regressor beside a multiple of itself it often raised that the singular values had not converged. Householder QR leaves the two columns exactly parallel in its triangular factor. Rotated together they leave a column of rounding noise, and the relative criterion |gamma| <= eps sqrt(alpha beta) cycles on noise: rotating noise against the other columns makes new noise. In 400 random designs [1, x, c x], 181 failed so.",
+      "alternatives": "(a) Bound the condition number by the factor's diagonal before the singular values: it changes the reported condition of designs refused today. (b) Catch the non-convergence in least_squares and refuse by that bound: leaves singular_values failing on the same matrices. (c) A looser criterion throughout: moves pinned values. (d) The strict criterion alone first; only for a matrix that has not settled after 64 sweeps, leave a column within the sweeps' own backward-error bound of zero out of further rotations.",
+      "decision": "(d). Every matrix that meets the strict criterion gets it alone, the same operations in the same order. After 64 sweeps, a column whose norm is at most 8 n (k + 1) eps ||A||_F, with k the 128 sweeps the call may make (Higham, Lemma 19.9, the bound M2's tests state), is no longer rotated, and its norm is reported as its singular value. A matrix that still does not settle is refused as before.",
+      "rationale": "Zeroing such a column moves the matrix by less than the error the sweeps already carry, so the values reported are those of a matrix the computation cannot tell from the input. The design is then refused as least_squares documents.",
+      "compatibility": "No converging input changes by a bit: every pinned value of the linear algebra holds. A dependent design that raised AlphaLabValidationError now raises IllConditionedError, a subclass of it.",
+      "record": "Ledger NUM-018; CHANGELOG (Fixed).",
+      "tests": "tests/unit/common/test_linalg.py: the captured factor's singular values, held to their closed form in 50-digit Decimal within the bound; 200 dependent designs each refused as ill-conditioned (90 raised the non-convergence before). Engle-Granger's refusal of collinear regressors."
     }
   ],
   "plan_changes": [
@@ -1202,6 +1215,11 @@
           "milestone": "M2",
           "item": "One authority: ml.linalg and ml's splits delegate (GAP-48)",
           "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M2",
+          "item": "Made at M6: a design with an exactly dependent column refused as ill-conditioned, as documented; one-sided Jacobi leaves a column of rounding noise out once the strict criterion has had 64 sweeps, every converging input unchanged (NUM-018, TD-34)",
+          "status": "Local validation passed"
         }
       ],
       "evidence": [
@@ -3382,6 +3400,10 @@
     {
       "date": "2026-11-16",
       "entry": "The owner approved the M6 trace-writer change (466d350, amended as ce20731 with its certificate corrected). Its output is byte-identical and PC-07's limits are unchanged; the approval is of the change, not of the hosted gate. ce20731 passed the full gate (13,582 tests; the earlier cascade of missing working directories did not recur with nothing else touching the clone) and was pushed. a9f350d and ce20731 each passed all six hosted cells and CodeQL. The benchmarks workflow on ce20731 failed PC-07 on CPython 3.12 at 16.8 percent (a trade every eighth record) and passed on 3.13 and 3.14, up to 14.7 percent. It runs on Linux only, so three cells were read, not six. Under the owner's instruction the trace was optimised further, byte for byte: its chain is computed 64 steps at a time (TD-32), 7.6 to 8.9 percent on the reference machine, and the benchmarks now run on Linux and macOS, every benchmark after a failure too (TD-33)."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "61b4793 (the batched trace, TD-32, and the six-cell benchmarks, TD-33) passed the full gate (13,606 tests) and was pushed. The benchmarks workflow was dispatched on that exact commit (run 43794814136). M6's Engle-Granger tests found an M2 defect: least_squares raised a non-convergence for a design with a dependent column instead of refusing it as ill-conditioned. It is fixed with every converging input unchanged (NUM-018, TD-34)."
     }
   ]
 }
