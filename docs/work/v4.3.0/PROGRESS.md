@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `ce20731` |
+| Remote head | `61b4793` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | PC-07: the batched chain (TD-32) pushed, and the benchmarks workflow dispatched on that exact commit, on Linux and macOS (TD-33); its verdict is read cell by cell, unrounded. M6: Engle-Granger with MacKinnon's tables (with M2's least squares refusing a dependent design as ill-conditioned); Johansen's critical values verified before they ship, or simulated as documented, or deferred; VECM, ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screen. |
+| Next | The capture benchmark judged on nine samples, macOS running it alone (TD-35): pushed, and the benchmarks dispatched on that exact commit, read cell by cell. M6: Engle-Granger committed; Johansen with MacKinnon, Haug and Michelis's published tables, verified from the paper; VECM, ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screen. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -132,6 +132,9 @@ Never:
 | `ce20731` | Continuous Integration | 43788973866 | success: all six quality-gate cells, carrying the M6 trace writer |
 | `ce20731` | CodeQL | 43788973734 | success |
 | `ce20731` | Benchmarks | 43788977726 | failure: PC-07 failed on CPython 3.12 (Ubuntu): series and trace +11.9, +14.2, +14.7 and +16.8% at a trade every 1, 2, 4 and 8 records, over the 15% ceiling at 8; the job stopped there. CPython 3.13 read +10.8, +12.5, +12.2, +13.1% and 3.14 +10.7, +12.2, +13.5, +14.7%, passing every benchmark. The workflow ran on Linux only: three cells |
+| `61b4793` | Continuous Integration | 43794819179 | success: all six quality-gate cells, carrying the batched trace |
+| `61b4793` | CodeQL | 43794819114 | success |
+| `61b4793` | Benchmarks | 43794814136 | failure. Linux, every benchmark passing: series and trace +7.6, +7.3, +8.0, +7.8% on CPython 3.12; +10.5, +8.2, +8.4, +9.2% on 3.13; +7.0, +9.5, +9.1, +8.5% on 3.14 (a trade every 1, 2, 4, 8 records). macOS, its first run: 3.12 read +15.5, +6.7, +9.1, +25.3% with the series alone at +10.0% at the second density, failing PC-07 at two densities and the series budget at one; 3.13 read +3.6, +6.9, +9.1, +22.2% with the series at -2.4% and +23.8%, failing PC-07 at one density, and the OMS scaling ceiling at 3.07x; 3.14 passed PC-07 at +7.0 to +8.7% and failed the experiments benchmark's reused-worker budget at +15.3% |
 
 ## Continuation log
 
@@ -194,6 +197,7 @@ Never:
 - **2026-11-16** The econometrics package's first commit (a9f350d) passed the full gate (13,582 tests) and was pushed. For PC-07's failed gate on a hosted runner, the trace's writer was made faster without changing a byte: each value's writer is found in one lookup by its exact type, and each record is written from one template. Compared entry by entry over two runs (2,479 entries), and with the pinned trace identities unchanged, series and trace measured 10.9 to 12.8 percent on the reference machine, alternating old and new twice, from 12.1 to 13.7. The benchmarks workflow is to be re-dispatched to measure it on hosted runners.
 - **2026-11-16** The owner approved the M6 trace-writer change (466d350, amended as ce20731 with its certificate corrected). Its output is byte-identical and PC-07's limits are unchanged; the approval is of the change, not of the hosted gate. ce20731 passed the full gate (13,582 tests; the earlier cascade of missing working directories did not recur with nothing else touching the clone) and was pushed. a9f350d and ce20731 each passed all six hosted cells and CodeQL. The benchmarks workflow on ce20731 failed PC-07 on CPython 3.12 at 16.8 percent (a trade every eighth record) and passed on 3.13 and 3.14, up to 14.7 percent. It runs on Linux only, so three cells were read, not six. Under the owner's instruction the trace was optimised further, byte for byte: its chain is computed 64 steps at a time (TD-32), 7.6 to 8.9 percent on the reference machine, and the benchmarks now run on Linux and macOS, every benchmark after a failure too (TD-33).
 - **2026-11-16** 61b4793 (the batched trace, TD-32, and the six-cell benchmarks, TD-33) passed the full gate (13,606 tests) and was pushed. The benchmarks workflow was dispatched on that exact commit (run 43794814136). M6's Engle-Granger tests found an M2 defect: least_squares raised a non-convergence for a design with a dependent column instead of refusing it as ill-conditioned. It is fixed with every converging input unchanged (NUM-018, TD-34).
+- **2026-11-16** 61b4793 passed all six hosted cells and CodeQL. Its benchmarks run (43794814136, six cells) passed PC-07 on Linux under every interpreter, at 7.0 to 10.5 percent, where ce20731 had read up to 16.8 on 3.12. On macOS, measured for the first time, two cells exceeded the ceiling on figures that cannot all be true: a failed gate on each, recorded as such. The same runners failed an order book's scaling and a reused worker's budget, never judged there before, on readings of the same kind. The capture benchmark now keeps the fastest of nine samples, and macOS runs only that benchmark (TD-35); limits and coverage unchanged.
 
 ## Milestones
 
@@ -600,6 +604,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** Ledger NUM-018; CHANGELOG (Fixed).
 - **Tests:** tests/unit/common/test_linalg.py: the captured factor's singular values, held to their closed form in 50-digit Decimal within the bound; 200 dependent designs each refused as ill-conditioned (90 raised the non-convergence before). Engle-Granger's refusal of collinear regressors.
 
+### TD-35: PC-07's verdict on six cells: the capture judged on nine samples, macOS running the capture benchmark (WS-04, 2026-11-16)
+
+- **Problem:** Benchmarks run 43794814136 on 61b4793 read series and trace at 7.0 to 10.5 percent on hosted Linux under CPython 3.12, 3.13 and 3.14. On hosted macOS, measured for the first time (TD-33), it read figures that cannot all be true. On 3.12 the series alone was +10.0 percent where series and trace read +6.7, and series and trace read +25.3 at one density. On 3.13 the series read -2.4 percent at one density, and +23.8 against +22.2 for series and trace at another. Two cells exceeded the ceiling: a failed gate on each, recorded as such. The same runners failed two ceilings never judged there before, on readings of the same kind: an order book's scaling at 3.07x on one cell and 1.85x, below linear, on the next; a reused worker's overhead at 15.3 percent on one and 3.9 on another.
+- **Alternatives:** (a) Raise or relax the ceiling, or judge macOS as information only: excluded, as a change to the gate. (b) Revert macOS: loses the six cells the owner asked for. (c) Judge on more samples: the same estimator, the fastest of interleaved samples, with more chances at a quiet moment. The harness's default cannot rise, because the experiments benchmark would exceed its 900-second bound. (d) A paired median of ratios: a new estimator; not taken.
+- **Decision:** (c) for the capture benchmark: the fastest of nine samples. macOS cells run the capture benchmark alone, PC-07's verdict on both systems. Linux runs every benchmark, as it did before TD-33. The limits, the workload and the trace's coverage are unchanged, and every result above the ceiling is recorded as a failed gate.
+- **Rationale:** The capture's cost is about a tenth of a run, judged against a ceiling at a seventh, so a minimum inflated by a few percent decides the verdict. The fastest of three left every sample of one workload in a slow phase of the runner, and figures that contradict each other cannot be a measurement of the code.
+- **Compatibility:** No code changes. The capture benchmark takes about three times as long, about 3 to 5 minutes a cell.
+- **Recorded in:** benchmarks/benchmark_capture.py; .github/workflows/benchmarks.yml; ADR-0055 (departures); ledger LIM-013; CHANGELOG.
+- **Tests:** The workflow's step was run under bash 3.2 as macOS and as Linux. tests/regression/test_release_preflight.py and test_release_gates_are_wired.py hold the called workflow.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -731,7 +745,8 @@ Evidence:
 - [Hosted CI passed] M3: The trace's writer made faster after PC-07's approval, output-identical (the pinned identities hold): series and trace 12.1 to 13.3 percent
 - [Hosted CI passed] M3: Mutation series T (16): the capture, its trace and series, keep_equity, the bridge -- 16 of 16 caught
 - [Hosted CI passed] M3: Made at M6, for PC-07's ceiling as a hosted runner read it at M5's checkpoint: the trace's writer made faster again, output-identical (one lookup by exact type, one template per record; 2,479 entries compared byte for byte, the pinned trace identities hold): series and trace 10.9 to 12.8 percent on the reference machine, from 12.1 to 13.3. Approved by the owner 2026-11-16. Hosted CI passed (ce20731); its hosted benchmark failed PC-07 on CPython 3.12 at 16.8 percent
-- [Local validation passed] M3: Made at M6, for that failed hosted gate: the trace's chain computed 64 steps at a time, a log the run left as it was not read, a grown one read in one call; output-identical, the pinned identities hold (TD-32): series and trace 7.6 to 8.9 percent on the reference machine. The benchmarks run on Linux and macOS (TD-33)
+- [Hosted CI passed] M3: Made at M6, for that failed hosted gate: the trace's chain computed 64 steps at a time, a log the run left as it was not read, a grown one read in one call; output-identical, the pinned identities hold (TD-32): series and trace 7.6 to 8.9 percent on the reference machine. The benchmarks run on Linux and macOS (TD-33). Hosted (61b4793, run 43794814136): Linux 7.0 to 10.5 percent under 3.12, 3.13 and 3.14; macOS failed two cells on figures that cannot all be true
+- [Local validation passed] M3: PC-07's verdict on six cells: the capture benchmark judged on the fastest of nine samples, macOS running it alone (TD-35); limits and coverage unchanged
 
 ### WS-05: Experiment and trial ledger, executor, runner registry
 

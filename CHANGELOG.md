@@ -662,6 +662,15 @@ entry below says otherwise.
     after it. A log the run left as it was is no longer read, and a log the run
     grew is read in one call (`append_log._since`). On the reference machine
     series and trace cost 7.6 to 8.9 percent.
+  * **Measured on hosted runners.** In benchmarks run 43794814136 on
+    `61b4793`, series and trace read 7.6, 7.3, 8.0 and 7.8 percent on CPython
+    3.12 (Linux), 10.5, 8.2, 8.4 and 9.2 on 3.13, and 7.0, 9.5, 9.1 and 8.5 on
+    3.14, at a trade every 1, 2, 4 and 8 records. On macOS the same run read
+    figures that cannot all be true. Two cells exceeded the ceiling, at 15.5,
+    22.2 and 25.3 percent, beside a series alone dearer than series and trace,
+    which include it, and a capture cheaper than none. Those are failed gates,
+    recorded as such. The capture benchmark now keeps the fastest of nine
+    samples, not three (TD-35), and hosted macOS runs only that benchmark.
 
 ## Changed
 

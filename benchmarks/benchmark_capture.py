@@ -26,7 +26,10 @@ How it got there, every change output-identical (the pinned identities hold):
   14.7 on 3.14.
 * 7.6 to 8.9 after a fourth (v4.3 M6): the chain computed 64 steps at a time,
   not between two of the run's steps, where it ran on code and data the step
-  had pushed out of the processor's caches.
+  had pushed out of the processor's caches. Hosted Linux runners then read 7.6
+  to 8.0 percent on CPython 3.12, 8.2 to 10.5 on 3.13 and 7.0 to 9.5 on 3.14.
+  Hosted macOS runners read 3.6 to 25.3, figures that cannot all be true (see
+  below), as failed gates.
 
 The figures before the fourth change bear on what narrowing would buy: with a
 trade on every eighth record the trace cost 12.2 percent without the order
@@ -43,6 +46,15 @@ what the trace covers.
 ``digest_run``'s share is printed beside each figure, not gated. Every ceiling is
 judged through ``_stable_timing``: CPU time, collector paused, workloads
 interleaved, fastest of several.
+
+Nine samples, not the harness's three (v4.3 M6, TD-35). The capture's cost is
+about a tenth of the run, judged against a ceiling at a seventh, so a minimum
+inflated by a few percent decides the verdict. On hosted macOS runners the
+fastest of three read figures that cannot all be true: the series alone above
+series and trace, which include it, and a capture cheaper than no capture. A
+slow phase of the runner had inflated every sample of one workload and none of
+another. Nine interleaved samples give each workload more chances at a quiet
+moment. The limits, the workload and what the trace covers are unchanged.
 """
 
 from __future__ import annotations
@@ -58,7 +70,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from uuid import uuid4
 
-from _stable_timing import SAMPLES, fastest
+from _stable_timing import fastest
 
 # The engine workload is the backtesting benchmark's, shared rather than copied.
 from benchmark_backtesting import _config, _context_factory, _dataset
@@ -87,6 +99,8 @@ MAX_SERIES_OVERHEAD = 0.10
 MAX_TRACED_OVERHEAD = 0.15
 RECORDS = 4_000
 DENSITIES = (1, 2, 4, 8)
+#: Samples of each workload, the fastest kept (TD-35).
+SAMPLES = 9
 
 EXTRACTOR = ReturnExtractor(EVERY_INSTANT, Costs.NET, CashFlows.INCLUDED, "USD", Insolvency.REFUSE)
 SERIES = CaptureSpec(EXTRACTOR, trace=False)
@@ -129,7 +143,8 @@ def _measure(config: Any, dataset: Any, runtime: RuntimeState) -> list[float]:
             lambda: run_captured(config, dataset, runtime, _context_factory, capture=SERIES),
             lambda: run_captured(config, dataset, runtime, _context_factory, capture=TRACED),
             lambda: digest_run(plain),
-        ]
+        ],
+        SAMPLES,
     )
 
 

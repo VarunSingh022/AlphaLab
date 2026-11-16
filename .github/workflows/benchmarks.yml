@@ -8,10 +8,13 @@ name: Benchmarks
 # in tests/regression gate scaling on every push instead.
 #
 # Run on every supported interpreter (v4.1, ledger LIM-007), on Linux and macOS
-# (v4.3 M6, TD-33): a benchmark's verdict, PC-07's ceiling among them, is read
-# on both systems the quality gates hold. Every benchmark runs even after one
-# fails, so a failure hides nothing measured after it; the job then fails. Each
-# is bounded by Python itself, since macOS has no GNU `timeout`. The job installs
+# (v4.3 M6, TD-33, TD-35). Linux runs every benchmark, as it always has. macOS
+# runs the capture benchmark, so PC-07's ceiling is read on both systems the
+# quality gates hold. Hosted macOS runners read other ceilings, never judged
+# there before, as their own noise: an order book's scaling at 1.85x on one cell
+# and 3.07x on the next. Every benchmark runs even after one fails, so a failure
+# hides nothing measured after it; the job then fails. Each is bounded by Python
+# itself, since macOS has no GNU `timeout`. The job installs
 # the development extra because a benchmark may share a helper with the tests;
 # tests/regression/test_workflow_environments.py holds every benchmark's
 # imports to what this job installs, so a job that installs too little fails
@@ -71,7 +74,12 @@ jobs:
         run: |
           set -euo pipefail
           failed=()
-          for benchmark in benchmarks/benchmark_*.py; do
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            benchmarks=(benchmarks/benchmark_capture.py)
+          else
+            benchmarks=(benchmarks/benchmark_*.py)
+          fi
+          for benchmark in "${benchmarks[@]}"; do
             echo "::group::${benchmark}"
             if ! python -c 'import subprocess, sys; sys.exit(subprocess.run([sys.executable, "-W", "error", sys.argv[1]], timeout=900).returncode)' "${benchmark}"; then
               failed+=("${benchmark}")

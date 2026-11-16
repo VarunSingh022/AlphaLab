@@ -254,6 +254,17 @@ None moves an identity made before; each is held by a test
     further without changing a byte, the chain is now computed in batches
     (settled point 6). On the reference machine series and trace cost 7.6 to
     8.9 percent.
+  * **Hosted Linux passed it.** In benchmarks run 43794814136 (`61b4793`)
+    series and trace read 7.0 to 10.5 percent on Linux under CPython 3.12, 3.13
+    and 3.14.
+  * **Hosted macOS failed it, on figures that cannot all be true.** That
+    workflow then ran on macOS for the first time (TD-33). Two macOS cells read
+    over the ceiling, at 15.5, 22.2 and 25.3 percent, beside a series alone
+    dearer than series and trace and a capture cheaper than none. These are
+    recorded as failed gates.
+  * **The measurement changed, not the limits.** The capture benchmark now keeps
+    the fastest of nine interleaved samples, not three (TD-35). The limits, the
+    workload and what the trace covers are unchanged.
 - **The grid's third member, a declared calendar's sessions, waits for the
   calendars.** Sessions come from ADR-0059's reference packs, which M3 begins.
   A grid from a pack is added when a pack can supply one. `EVERY_INSTANT` and
