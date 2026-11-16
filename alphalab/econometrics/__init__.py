@@ -28,6 +28,8 @@ Delivered so far
   of a stated rank, fitted by Johansen's two steps.
 * :mod:`~alphalab.econometrics.mean_reversion`: the Ornstein-Uhlenbeck fit and
   the half-life it implies, each with its standard error (OFE-007 reopened).
+* :mod:`~alphalab.econometrics.var`: vector autoregressions by least squares,
+  equation by equation, the lags fixed or chosen by AIC or BIC.
 
 Every choice is stated
 ----------------------
@@ -104,6 +106,7 @@ from alphalab.econometrics.unit_root import (
     kpss,
     phillips_perron,
 )
+from alphalab.econometrics.var import MINIMUM_VAR_OBSERVATIONS, VAR_METHOD, VarFit, fit_var
 
 __all__ = [
     "ADF_METHOD",
@@ -120,11 +123,13 @@ __all__ = [
     "MINIMUM_DICKEY_FULLER_OBSERVATIONS",
     "MINIMUM_JOHANSEN_OBSERVATIONS",
     "MINIMUM_ORNSTEIN_UHLENBECK_OBSERVATIONS",
+    "MINIMUM_VAR_OBSERVATIONS",
     "ORNSTEIN_UHLENBECK_METHOD",
     "ORNSTEIN_UHLENBECK_REGRESSION_METHOD",
     "PHILLIPS_PERRON_METHOD",
     "SERIES_SCHEME",
     "SYSTEM_SCHEME",
+    "VAR_METHOD",
     "VECM_METHOD",
     "Bandwidth",
     "CointegrationTest",
@@ -147,10 +152,12 @@ __all__ = [
     "SchwertBandwidth",
     "SelectedLags",
     "UnitRootTest",
+    "VarFit",
     "VecmFit",
     "augmented_dickey_fuller",
     "engle_granger",
     "fit_ornstein_uhlenbeck",
+    "fit_var",
     "fit_vecm",
     "johansen",
     "johansen_critical_values",

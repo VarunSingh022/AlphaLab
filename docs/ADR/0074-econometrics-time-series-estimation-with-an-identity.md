@@ -349,6 +349,18 @@ Building M6 settled these points, each held by a test
       stationary VAR, so both are refused. So is a block the first series
       cannot normalize. One reduction serves the test and the fit, so they
       read the same relations.
+17. **A VAR is least squares by equation, and its lags are chosen for the
+    system.** `var.fit_var(series, deterministic=..., lags=...,
+    maximum_condition=...)` regresses each series on its deterministic terms
+    and `p` lags of every series (class 2).
+    * **Choosing the lags.** A fixed count of one at least, or AIC or BIC
+      among 1 to a maximum. The t-statistic rule, which chooses one
+      equation's lags, is refused. Every candidate is fitted on the sample
+      the maximum leaves, and the chosen count on all the data it leaves, as
+      the unit-root tests do (settled point 5).
+    * **The criterion.** `T ln det Σ + penalty`, with `ln det Σ` the sum of
+      `Decimal`'s logarithms of `Σ`'s Cholesky pivots, so every host chooses
+      alike. The residual covariance is over `T`.
 
 # Compatibility
 

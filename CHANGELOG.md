@@ -676,6 +676,12 @@ entry below says otherwise.
     the identity, then fits each equation's `α`, `Γ` and unrestricted terms by
     least squares, each with its standard error, and the residual covariance.
     It returns a `VecmFit`, every value class 2.
+  * **Vector autoregressions.** `fit_var` fits a VAR by least squares,
+    equation by equation, each coefficient with its standard error, and the
+    residual covariance over `T`. The lags are a fixed count, or AIC or BIC
+    choosing among candidates fitted on one sample, through `Decimal`
+    logarithms of the residual determinant. It returns a `VarFit`, every value
+    class 2.
   * **Johansen's tables, verified.** `johansen_critical_values` and
     `johansen_p_value` read MacKinnon, Haug and Michelis (1996)'s Tables 1 to
     5, decoded from the paper's own text. They are held three ways: by their

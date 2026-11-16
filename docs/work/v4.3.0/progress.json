@@ -1554,6 +1554,11 @@
           "milestone": "M6",
           "item": "The VECM of a stated rank by Johansen's two steps: the relations from the eigenvectors, normalized on the first series exactly; each equation's alpha, Gamma and unrestricted terms by least squares with standard errors; the residual covariance; a pair's relation and error correction recovered, the second step exact against rational least squares, every value class 2 and pinned",
           "status": "Local validation passed"
+        },
+        {
+          "milestone": "M6",
+          "item": "Vector autoregressions: least squares by equation with standard errors, the residual covariance over T, the lags fixed or chosen by AIC or BIC on the maximum's sample through Decimal logarithms of the residual determinant; known coefficients recovered, each equation exact against rational least squares, a VAR(2)'s order found by BIC, every value class 2 and pinned",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -3624,6 +3629,10 @@
     {
       "date": "2026-11-16",
       "entry": "The owner decided where PC-07 is judged (TD-39). Hosted Linux under CPython 3.12, 3.13 and 3.14 is authoritative, by the paired median on unrounded figures, with the limits unchanged. A fixed, documented reference machine monitors regressions, and hosted macOS timing is diagnostic, with macOS kept in functional CI. PC-07 PASSED under that policy (run 43821336553, 3a95cef): series and trace 7.41 to 9.92 percent, the series 1.29 to 4.55. M5's remaining closure record is complete: WS-06's PBO budget on hosted CPython 3.12, 1.43 to 7.34 CPU s against 60. 4ccc130 (the OU fit) and 11f4ee7 (Johansen) passed all six cells and CodeQL; 185b118 (the VECM) was pushed."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "Vector autoregressions validated locally: coefficients recovered within their standard errors; each equation exact against rational least squares; BIC finds a VAR(2)'s order with every candidate fitted on one sample; every refusal held; values pinned across CPython 3.12, 3.13 and 3.14."
     }
   ]
 }

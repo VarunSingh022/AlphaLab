@@ -28,6 +28,7 @@ from alphalab.econometrics import (
     SelectedLags,
     augmented_dickey_fuller,
     fit_ornstein_uhlenbeck,
+    fit_var,
     fit_vecm,
     johansen,
     kpss,
@@ -227,3 +228,26 @@ def test_the_vecms_relation_adjustments_and_identities_are_pinned() -> None:
     assert fit.covariance.estimate_id == (
         "24f4ca5d21466c40dba4e15c2ba64cd2676057b559bee12b600ec3339582ccbe"
     )
+
+
+def test_the_vars_chosen_order_coefficients_and_identities_are_pinned() -> None:
+    """BIC's choice is Decimal's: the same order on every host."""
+
+    fit = fit_var(
+        [Y, X],
+        deterministic=Deterministic.CONSTANT,
+        lags=SelectedLags(LagCriterion.BIC, 4, None),
+        maximum_condition=CONDITION,
+    )
+
+    assert (fit.lags, fit.observations) == (1, 119)
+    first, second = fit.equations
+    assert first.parameters["phi_1_series_2"].hex() == "0x1.8efaf0575a7bbp-1"
+    assert first.standard_errors["phi_1_series_2"].hex() == "0x1.9cbf62629403ap-3"
+    assert second.parameters["phi_1_series_2"].hex() == "0x1.0388b2abfed70p+0"
+    assert fit.covariance.parameters["sigma_1_2"].hex() == "0x1.3059620495a02p-1"
+    assert [first.estimate_id, second.estimate_id, fit.covariance.estimate_id] == [
+        "6125b60b1f493db73a960c6b6d695dc877c8fff572ff06a1444e47655cd28e00",
+        "7f166064ae68647a865a1744cd3e3ad670dce33b2af65e93654c2f145a5239fe",
+        "b2128dec23ff5fbf1336f289803e7db4d31ab3689d93ba4bc000904d0fd5bf3f",
+    ]
