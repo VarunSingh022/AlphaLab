@@ -164,3 +164,30 @@ def test_the_mypy_hook_checks_what_ci_checks_with_what_the_tests_import() -> Non
     assert "python -m mypy ." in CI
     assert 'args: ["."]' in hook
     assert re.search(r'additional_dependencies:\n\s+- "pytest', hook)
+
+
+def test_pc07_is_judged_on_hosted_linux_and_hosted_macos_timing_is_diagnostic() -> None:
+    """The owner's decision (2026-11-16): Linux decides PC-07; macOS timing reports only.
+
+    The benchmarks run on Linux and macOS under every interpreter. The Linux
+    cells are authoritative, and their limits fail the job. The macOS cells are
+    diagnostic: their figures are printed, an unreliable one named so, and none
+    fails the job. A run told nothing is authoritative, so the reference machine
+    is judged as Linux is. macOS stays in the functional CI matrix (above).
+    """
+
+    workflow = BENCHMARKS.read_text(encoding="utf-8")
+    assert _matrix(workflow, "os") == ["ubuntu-latest", "macos-latest"]
+    assert (
+        "        include:\n"
+        "          - os: ubuntu-latest\n"
+        "            role: authoritative\n"
+        "          - os: macos-latest\n"
+        "            role: diagnostic\n"
+    ) in workflow
+    assert "          ALPHALAB_BENCHMARK_ROLE: ${{ matrix.role }}\n" in workflow
+    capture = (ROOT / "benchmarks" / "benchmark_capture.py").read_text(encoding="utf-8")
+    assert 'os.environ.get("ALPHALAB_BENCHMARK_ROLE", "authoritative")' in capture
+    assert 'failures += ROLE == "authoritative" and bool(verdicts)' in capture
+    assert "UNRELIABLE MEASUREMENT" in capture
+    assert "MAX_SERIES_OVERHEAD = 0.10" in capture and "MAX_TRACED_OVERHEAD = 0.15" in capture

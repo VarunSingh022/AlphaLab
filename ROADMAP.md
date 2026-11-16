@@ -773,7 +773,11 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   budgeted 10 percent. The series alone costs 1 to 4 percent
   (`benchmarks/benchmark_capture.py`). The owner approved 15 percent as the
   ceiling (PC-07): the benchmark enforces it, and a result above it is a failed
-  gate. The trace is opt-in, and its cost is a fixed amount of work per step.
+  gate. PC-07 is judged on hosted Linux under CPython 3.12, 3.13 and 3.14, and
+  passed there at 7.41 to 9.92 percent. A fixed reference machine monitors
+  regressions, and hosted macOS timing is diagnostic only (the owner's decision,
+  2026-11-16). The trace is opt-in, and its cost is a fixed amount of work per
+  step.
 - **Selection statistics assume stationarity** (LIM-011): CSCV, the Reality
   Check and SPA treat a sample as stationary; a regime change inside it violates
   them, and the result states the assumption rather than testing it (ADR-0054).

@@ -273,6 +273,22 @@ None moves an identity made before; each is held by a test
 
     The benchmark now judges the median of each round's paired ratios. A figure
     that contradicts another fails as inconsistent (TD-36).
+  * **Where PC-07 is judged** (the owner's decision, 2026-11-16, TD-39).
+    * **Hosted Linux is authoritative.** Linux x86-64 under CPython 3.12, 3.13
+      and 3.14, by the paired median, on unrounded figures. A figure over 10
+      percent for the series, or over 15 for series and trace, fails.
+    * **The reference machine monitors.** A fixed, documented machine, an
+      Apple M2 under CPython 3.12.4, watches for regressions. It never stands
+      in for a failed Linux gate.
+    * **Hosted macOS is diagnostic.** It stays in the functional CI matrix. Its
+      timing is diagnostic: printed, with an unreliable figure named so and
+      never counted a pass.
+    * **Why Linux.** Hosted Linux has read consistently on every run, each
+      round within about two points. Hosted macOS read figures that cannot all
+      be true under every estimator, with rounds varying by 30 to 90 percent.
+  * **PC-07 passed.** In benchmarks run 43821336553 (`3a95cef`) every Linux
+    cell passed. Series and trace read 7.41 to 9.92 percent, and the series
+    alone 1.29 to 4.55.
 - **The grid's third member, a declared calendar's sessions, waits for the
   calendars.** Sessions come from ADR-0059's reference packs, which M3 begins.
   A grid from a pack is added when a pack can supply one. `EVERY_INSTANT` and

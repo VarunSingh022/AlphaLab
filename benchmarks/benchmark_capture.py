@@ -30,6 +30,9 @@ How it got there, every change output-identical (the pinned identities hold):
   to 8.0 percent on CPython 3.12, 8.2 to 10.5 on 3.13 and 7.0 to 9.5 on 3.14.
   Hosted macOS runners read 3.6 to 25.3, figures that cannot all be true (see
   below), as failed gates.
+* PC-07 passed on hosted Linux, by the paired median (run 43821336553,
+  ``3a95cef``). Series and trace read 7.41 to 9.92 percent on CPython 3.12, 3.13
+  and 3.14, and the series alone 1.29 to 4.55, every figure unrounded.
 
 The figures before the fourth change bear on what narrowing would buy: with a
 trade on every eighth record the trace cost 12.2 percent without the order
@@ -65,10 +68,37 @@ fails, as **INCONSISTENT**, beside any limit it is over: a series cheaper than
 no capture by more than two points, or series and trace cheaper than the series
 alone by more than two. The limits, the workload and what the trace covers are
 unchanged.
+
+Where PC-07 is judged (the owner's decision, 2026-11-16)
+---------------------------------------------------------
+* **Hosted Linux is authoritative.** Linux x86-64 under CPython 3.12, 3.13 and
+  3.14, by the paired median above, on unrounded figures. A figure over either
+  limit is a failure there. The benchmarks workflow sets
+  ``ALPHALAB_BENCHMARK_ROLE=authoritative`` on those cells, which is also what a
+  run told nothing does.
+* **The reference machine monitors.** A fixed machine, documented below, reads
+  the same benchmark for regressions and comparison, never in place of a failed
+  Linux gate.
+* **Hosted macOS is diagnostic.** Its cells set
+  ``ALPHALAB_BENCHMARK_ROLE=diagnostic``: every figure is printed and none fails
+  the job. A figure that contradicts another is reported as an **UNRELIABLE**
+  measurement, never as a pass. Hosted macOS stays in the functional CI matrix.
+  Its timing showed single back-to-back rounds varying by 30 to 90 percent, and
+  readings that cannot all be true under every estimator tried (TD-35, TD-36).
+
+The reference machine
+---------------------
+An Apple M2 (Mac14,2): eight cores, four performance and four efficiency, and
+16 GB of memory. It runs macOS 27.0.1 (build 26A434) and CPython 3.12.4
+(Anaconda's build, Clang 14.0.6). The configuration is this file's: 4,000
+records at four trade densities, nine rounds, CPU time, the collector paused.
+On 2026-11-16, at ``3a95cef``, it read series and trace at 7.5 to 8.7 percent,
+and the series alone at 1.2 to 3.6.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from collections.abc import Iterable
 from dataclasses import replace
@@ -114,6 +144,9 @@ DENSITIES = (1, 2, 4, 8)
 SAMPLES = 9
 #: How far a figure may contradict another before the measurement is refused.
 CONSISTENCY = 0.02
+#: Whether this run's verdicts fail it: hosted Linux and any run told nothing are
+#: ``authoritative``; hosted macOS is ``diagnostic`` (the owner's decision, 2026-11-16).
+ROLE = os.environ.get("ALPHALAB_BENCHMARK_ROLE", "authoritative")
 
 EXTRACTOR = ReturnExtractor(EVERY_INSTANT, Costs.NET, CashFlows.INCLUDED, "USD", Insolvency.REFUSE)
 SERIES = CaptureSpec(EXTRACTOR, trace=False)
@@ -169,7 +202,9 @@ def _ratio(table: list[list[float]], index: int) -> tuple[float, float, float]:
 
 
 def run_benchmark() -> int:
-    print(f"Starting Capture Benchmark ({RECORDS} records at four trade densities)...")
+    if ROLE not in ("authoritative", "diagnostic"):
+        raise SystemExit(f"ALPHALAB_BENCHMARK_ROLE is authoritative or diagnostic, not {ROLE!r}.")
+    print(f"Starting Capture Benchmark ({RECORDS} records at four trade densities, {ROLE})...")
     failures = 0
     for every in DENSITIES:
         strategy_id, asset_id = str(uuid4()), str(uuid4())
@@ -187,12 +222,22 @@ def run_benchmark() -> int:
         digest, _, _ = _ratio(table, 3)
         per_step = traced * run_time / (RECORDS + 2) * 1e6
         verdicts = []
-        if series > MAX_SERIES_OVERHEAD:
-            verdicts.append("OVER THE SERIES BUDGET")
-        if traced > MAX_TRACED_OVERHEAD:
-            verdicts.append("OVER PC-07's CEILING: a failed performance gate, for the owner")
-        if series < -CONSISTENCY or traced < series - CONSISTENCY:
-            verdicts.append("INCONSISTENT: the measurement contradicts itself, so proves nothing")
+        unreliable = series < -CONSISTENCY or traced < series - CONSISTENCY
+        if ROLE == "diagnostic":
+            if unreliable:
+                verdicts.append("UNRELIABLE MEASUREMENT: it contradicts itself")
+            if series > MAX_SERIES_OVERHEAD or traced > MAX_TRACED_OVERHEAD:
+                verdicts.append("over a limit")
+            verdicts.append("diagnostic, not judged: PC-07 is judged on hosted Linux")
+        else:
+            if series > MAX_SERIES_OVERHEAD:
+                verdicts.append("OVER THE SERIES BUDGET")
+            if traced > MAX_TRACED_OVERHEAD:
+                verdicts.append("OVER PC-07's CEILING: a failed performance gate")
+            if unreliable:
+                verdicts.append(
+                    "INCONSISTENT: the measurement contradicts itself, so proves nothing"
+                )
         print(
             f"  a trade every {every}: run {run_time:.3f}s, digest_run {digest:.0%} of it; "
             f"series {series:+.2%} (rounds {series_low:+.1%} to {series_high:+.1%}; budget "
@@ -200,7 +245,7 @@ def run_benchmark() -> int:
             f"{traced_low:+.1%} to {traced_high:+.1%}; PC-07: {MAX_TRACED_OVERHEAD:.0%}), "
             f"{per_step:.1f} us a step {'; '.join(verdicts) or 'ok'}"
         )
-        failures += bool(verdicts)
+        failures += ROLE == "authoritative" and bool(verdicts)
     print(
         f"  judged: CPU time, collector paused, the median of paired ratios over {SAMPLES} rounds"
     )

@@ -756,6 +756,19 @@
       "compatibility": "Additive. factor_library.decay is unchanged; OFE-007's ledger entry records the delivery.",
       "record": "docs/ADR/0074 (settled point 15); ledger OFE-007; CHANGELOG.",
       "tests": "tests/unit/econometrics/test_mean_reversion.py: recovery of known parameters; the 95 percent intervals' coverage over 60 samples; exact rational arithmetic and 50-digit formulas for every value; the half-life's standard error as a finite difference measures its derivative; every refusal; the identity."
+    },
+    {
+      "id": "TD-39",
+      "date": "2026-11-16",
+      "workstream": "WS-04",
+      "title": "PC-07 judged on hosted Linux; the reference machine monitors; hosted macOS timing diagnostic (owner's decision)",
+      "problem": "Hosted macOS could not measure the capture's cost under any estimator tried: the fastest of three, the fastest of nine, the median of nine paired ratios. It read figures that cannot all be true, and single rounds varied by 30 to 90 percent. Hosted Linux read consistently on every run, each round within about two points. Where PC-07 is judged was the owner's to decide.",
+      "alternatives": "(a) Hosted Linux and the reference machine, with hosted macOS reported but not gating. (b) A dedicated macOS performance runner. (c) Leave macOS gating, failing on noise.",
+      "decision": "The owner chose (a) on 2026-11-16, and no dedicated macOS runner at this stage. Hosted Linux x86-64 under CPython 3.12, 3.13 and 3.14 is authoritative, by the paired median, on unrounded figures. The limits are unchanged: the series at most 10 percent, series and trace at most 15. The reference machine monitors regressions and comparison only: an Apple M2 (Mac14,2; 4 performance and 4 efficiency cores; 16 GB) on macOS 27.0.1 (26A434), CPython 3.12.4 (Anaconda, Clang 14.0.6). Hosted macOS keeps every functional CI cell, and its benchmark cells run the capture benchmark as diagnostic.",
+      "rationale": "A gate must measure the code. Linux's measurements agree with themselves and with the reference machine; hosted macOS's contradict themselves. Diagnostic macOS figures are printed, never hidden, and an unreliable one is never counted a pass.",
+      "compatibility": "No code changes. The workflow names each benchmark cell's role and sets ALPHALAB_BENCHMARK_ROLE. The capture benchmark judges an authoritative run, and a run told nothing, as before. It reports a diagnostic run without failing it, naming an unreliable measurement UNRELIABLE.",
+      "record": "PR #22; plan change PC-07; ADR-0055 (departures); ledger LIM-013; ROADMAP; CHANGELOG; benchmarks/benchmark_capture.py (with the reference machine) and .github/workflows/benchmarks.yml.",
+      "tests": "tests/regression/test_release_gates_are_wired.py::test_pc07_is_judged_on_hosted_linux_and_hosted_macos_timing_is_diagnostic holds the roles, the environment variable, the default and the limits. The benchmark refuses an unknown role."
     }
   ],
   "plan_changes": [
@@ -804,7 +817,7 @@
     {
       "id": "PC-07",
       "date": "2026-11-15",
-      "decision": "Owner approved, 2026-11-15 (proposed under delegated authority, TD-17). On 2026-11-16 the owner approved the M6 output-identical change to the trace's writer (466d350, amended as ce20731 with its certificate corrected), the limits unchanged: the approval is of the change, and the gate passes only by a hosted measurement within the limits. A result above 15 percent stays a failed gate; the remedy is further output-identical optimisation, and a decision beyond the approved limits goes to the owner (TD-32).",
+      "decision": "Owner approved, 2026-11-15 (proposed under delegated authority, TD-17). On 2026-11-16 the owner approved the M6 output-identical change to the trace's writer (466d350, amended as ce20731 with its certificate corrected), the limits unchanged: the approval is of the change, and the gate passes only by a hosted measurement within the limits. A result above 15 percent stays a failed gate; the remedy is further output-identical optimisation, and a decision beyond the approved limits goes to the owner (TD-32). On 2026-11-16 the owner decided where it is judged (TD-39). Hosted Linux x86-64 under CPython 3.12, 3.13 and 3.14 is authoritative, by the paired-median method on unrounded figures, a figure over either limit a failure. A fixed, documented reference machine monitors regressions and never substitutes for a failed Linux gate. Hosted macOS stays in the functional CI matrix, its timing diagnostic only, an unreliable figure recorded as such and never as a pass. The limits are unchanged. PC-07 PASSED under this policy: benchmarks run 43821336553 on 3a95cef, the median of nine paired ratios, unrounded: CPython 3.12 series +1.84, +3.86, +3.43, +4.55% and series and trace +8.40, +9.92, +9.67, +9.56%; 3.13 series +1.63, +2.18, +2.72, +3.36% and series and trace +7.65, +7.58, +7.80, +8.09%; 3.14 series +1.29, +1.72, +2.88, +3.49% and series and trace +7.41, +6.30, +7.86, +8.05%, at a trade every 1, 2, 4 and 8 records.",
       "change": "Plan K.1 budgets the capture at 10 percent of the run's time; that target stays the plan's record. Approved limits: the return series alone at most 10 percent, and the series with its complete economic-history trace at most 15 percent, measured at several trade densities, sparse and dense. 15 percent is a ceiling, not a target: optimisation continues wherever it costs nothing in correctness or research integrity, and trace coverage, canonical form and reproducibility are never weakened to meet a budget. A combined result above 15 percent is a failed performance gate, brought to the owner for a new decision; the limit is never raised silently. benchmarks/benchmark_capture.py enforces both limits.",
       "reason": "Measured on a strategy that does no work of its own, the case where every ratio is largest: the series costs 1 to 4 percent of the run, and series and trace together 12.6 to 14.4 percent at a trade on every record and on every second, fourth and eighth, where digest_run costs 76 to 105 percent. Unlike PC-06, no design met 10 percent. The canonical serialization was made 2.7 times faster, byte for byte. Narrowing the trace would still miss: with a trade on every eighth record it costs 12.2 percent without the order events and 11.4 percent without the equity points, because most of its cost is the work it does every step. Covering less would make the trace identify less of the history. The cost is a fixed amount per step, so it is a smaller share of a run whose strategy computes anything (LIM-013)."
     }
@@ -914,7 +927,8 @@
         "Mutation series U (WS-13), 17 of 17 caught on the first run, each by: U01 (a change announced after it took effect is accepted): test_membership::test_a_change_announced_after_it_took_effect_is_refused; U02 (membership reads changes before they were announced): test_survivorship_is_caught::test_a_strategy_never_sees_a_change_before_it_is_announced; U03 (an asset is added while already a member): test_reference_packs::test_a_pack_whose_history_could_not_have_happened_is_refused_when_read; U04 (an asset changes membership twice at one instant): test_membership::test_a_history_that_could_not_have_happened_is_refused[changes3-twice at 5\\\\.0]; U05 (a bounded universe answers outside its coverage): test_reference_packs::test_a_universe_from_a_pack_carries_its_range_and_its_knowledge; U06 (a bounded universe answers as known after its horizon): test_reference_packs::test_a_universe_from_a_pack_carries_its_range_and_its_knowledge; U07 (a pack's universe loses the pack's bounds): test_reference_packs::test_a_universe_from_a_pack_carries_its_range_and_its_knowledge; U08 (a registry without universes writes an empty universes field): test_provenance_end_to_end::test_the_run_and_its_provenance_are_the_pinned_ones_on_this_host; U09 (a universe naming an unregistered asset is registered): test_membership::test_the_registry_carries_a_universe_whose_members_it_holds; U10 (a strategy reads membership as known at the instant it asks about): test_survivorship_is_caught::test_a_strategy_never_sees_a_change_before_it_is_announced; U11 (a missing universe is not refused): test_membership::test_a_strategy_reads_membership_as_known_at_its_own_instant; U12 (the review never names a trade before its announcement): test_survivorship_is_caught::test_the_survivorship_biased_control_is_named_by_its_trades; U13 (the review reports trades in members): test_survivorship_is_caught::test_the_point_in_time_run_trades_only_members_as_they_were_known; U14 (a pack's stated digest is not checked): test_reference_packs::test_a_pack_refuses_what_it_cannot_vouch_for[changed0-not the entries it states]; U15 (a pack's digest depends on its entries' order): test_reference_packs::test_the_digest_is_of_the_entries_canonical_text_whatever_their_order; U16 (a pack holds an entry announced after it was taken): test_reference_packs::test_a_pack_refuses_what_it_cannot_vouch_for[changed4-announced at 25.0, after it was taken]; U17 (a pack answers a missing universe as empty): test_reference_packs::test_a_missing_universe_is_refused_never_assumed_empty.",
         "Mutation baseline: 13,164 passed, 90 deselected (the tests that read a clock, and the certificate's source digest), docs/audit/scripts/mutation_v4_3.py over the working tree.",
         "Hosted CI: 553b150 (ADR-0055 and ADR-0059), 0649893 (the capture) and acf4ce4 (the universes) each passed all six quality-gate cells -- Linux and macOS, CPython 3.12, 3.13 and 3.14 -- and CodeQL. Release Preflight is skipped by design and not counted.",
-        "M3's close (a7f867f: the mutation series, PC-07 approved, the register) passed hosted CI: Continuous Integration 43697362374, all six quality-gate cells; CodeQL 43697362357."
+        "M3's close (a7f867f: the mutation series, PC-07 approved, the register) passed hosted CI: Continuous Integration 43697362374, all six quality-gate cells; CodeQL 43697362357.",
+        "PC-07, M3's capture limit as amended, passed on hosted Linux under the owner's Linux-and-reference policy (2026-11-16, TD-39): benchmarks run 43821336553 on 3a95cef, the median of nine paired ratios, unrounded: CPython 3.12 series +1.84, +3.86, +3.43, +4.55% and series and trace +8.40, +9.92, +9.67, +9.56%; 3.13 series +1.63, +2.18, +2.72, +3.36% and series and trace +7.65, +7.58, +7.80, +8.09%; 3.14 series +1.29, +1.72, +2.88, +3.49% and series and trace +7.41, +6.30, +7.86, +8.05%, at a trade every 1, 2, 4 and 8 records."
       ]
     },
     {
@@ -966,7 +980,8 @@
         "Mutation series VD (WS-24, WS-06), 36 mutations, each caught -- the history below says on which tree -- by: VD01 (the lockbox reused: a design splits the lockbox's instants into folds): test_walk_forward_over_backtests::test_a_designed_experiments_lockbox_is_held_back_from_every_trial_and_read_once (added for it); VD02 (the embargo off: a design's purge policy embargoes nothing): test_validation_designs::test_a_designs_purge_and_embargo_reach_every_trials_fit_window (added for it); VD03 (the warm-up scored: a window short of its warm-up scores what it warmed up on): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean; VD04 (a trial's warm-up starts an instant late): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean; VD05 (a window left one instant to score is accepted): test_validation_designs::test_a_design_that_cannot_split_the_sample_says_why; VD06 (a refit on train and validation fits the selection on train alone): test_walk_forward_over_backtests::test_refitting_on_train_and_validation_fits_the_selection_on_both; VD07 (a walk-forward fold selects on its test window): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean (the window line is shared by walk-forward and cross-validated designs); VD08 (a CPCV split's test groups are one trial): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample; VD09 (the warm-up leaves a walk-forward experiment's identity): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice (the walk-forward experiment's identity no longer moves with its warm-up, so its pin moves); VD10 (a purge boundary off by one: a CPCV test group's span begins at its second instant): test_experiment_assessment::test_a_cpcv_family_reads_the_named_path_when_paths_differ (a fitting runner's paths move with the purged fit windows); test_validation_designs' purge test, added for it, holds the boundary directly; VD11 (a CPCV split trains on its own test groups): test_experiment_assessment::test_a_cpcv_family_reads_the_named_path_when_paths_differ; VD12 (a CPCV path takes every group from the same split): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample; VD13 (CPCV's last group drops the remainder): test_combinatorial_cv::test_every_group_is_tested_c_n_minus_1_k_minus_1_times_and_every_path_covers_all[6-2]; VD14 (the warm-up scored: a trial's series keeps the periods of its warm-up): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample (the groups' series overlap, so no path joins); VD15 (a trial runs past its window's end): test_cv_and_cpcv_over_backtests::test_cross_validation_scores_every_candidate_on_every_fold_and_selects_by_the_mean; VD16 (a fold selects a candidate whose trial did not complete, but left a series): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice (a fold selected a strategy failure scoring as the squeeze candidate, first of equals); test_walk_forward_over_backtests::test_a_trial_that_failed_mid_window_is_never_selected_on_its_partial_series was added for it; VD17 (a fold's tie goes to the last candidate): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (added for it); VD18 (the mean selection's tie goes to the last candidate): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (added for it); VD19 (series that do not tile the sample are joined over the gap): test_experiment_assessment::test_windows_that_do_not_tile_the_sample_have_no_family[gaps]; VD20 (the out-of-sample series joins the folds' test windows in reverse): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice (no out-of-sample series joins, so the record's identity moves); VD21 (a candidate that did not complete in every fold is eligible): test_cv_and_cpcv_over_backtests::test_a_candidate_best_on_every_fold_it_completed_is_still_never_selected (added for it: the first run's test could not see it, the incomplete candidate's reduced mean falling below the selection's); VD22 (a CPCV path joins its groups out of order): test_cv_and_cpcv_over_backtests::test_cpcv_joins_each_candidates_groups_into_paths_over_the_whole_sample; VD23 (a full-sample record writes the selections it does not have): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice; VD24 (a spawned worker holds no test-window trial): test_walk_forward_over_backtests::test_a_spawned_walk_forward_experiment_is_the_sequential_one; VD25 (a member without a dispersion is given a Sharpe ratio): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (research refuses the flat member's Sharpe ratio); VD26 (SPA tests a member whose relative performance is constant): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (research refuses the constant member); VD27 (the deflation's N is one short of the members with a Sharpe ratio): test_event_driven_alt_data::test_the_search_is_assessed_and_promoted_only_on_selection_aware_evidence on the final tree (its N of 6), test_experiment_assessment::test_the_statistics_are_researchs_own_over_the_family on the first; VD28 (the assessment's identity leaves out the bootstrap's seed): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice; VD29 (the benchmark is not subtracted from the family): test_experiment_assessment::test_a_benchmark_that_is_a_candidates_own_leaves_that_candidate_out_of_spa; VD30 (a walk-forward family joins a candidate that failed in a fold): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (the joined history of a failed fold is refused); VD31 (a CPCV family reads the first path, whichever is named): test_experiment_assessment::test_a_cpcv_family_reads_the_named_path_when_paths_differ (added for it); VD32 (the assessment selects the last of equals): test_cv_and_cpcv_over_backtests::test_a_tie_goes_to_the_first_candidate_in_the_spaces_order (added for it); VD33 (EXPERIMENT evidence without its family count passes a policy): test_selection_aware_promotion::test_experiment_evidence_without_its_family_count_is_never_promoted[absent]; VD34 (a fractional family count passes): test_selection_aware_promotion::test_experiment_evidence_without_its_family_count_is_never_promoted[fraction]; VD35 (the family count leaves out the trials that did not complete): test_selection_aware_promotion::test_experiment_evidence_states_the_search_beside_its_statistics; VD36 (evidence is made from the assessment of another record): test_selection_aware_promotion::test_evidence_is_of_its_own_experiment_and_record.",
         "Mutation history: the first run caught 35 of 36 on the tree as it stood. VD21 survived: under it, the cross-validation test's incomplete candidate scored a reduced mean below the selection's, so the selection did not change. A candidate strongest on every fold it completed is now never selected, and VD21 and VD16 were run again: both caught. VD16 had been caught through the pinned walk-forward identity -- a fold selected a strategy failure tied with the squeeze candidate, first of equals -- and its direct test, a trial failing mid-window with the best partial series, was added beside it. The stated N then changed the assessment, so VD27 was retargeted and VD25 to VD32 were run on the final tree (8 of 8 caught, by the same tests as on the first run, except VD27's, now S-13's own). The other mutations target code unchanged since their run. Baselines: 13,360 and 13,367 passed, 90 deselected (the tests that read a clock, and the certificate's source digest).",
         "Hosted CI: d2e4359 (designs), f55e4a5 (walk-forward), cc52b7c (CV and CPCV), 46c947c (the assessment; its pins held on Linux and macOS), a2903ae (selection-aware evidence) and c02a6f5 (M5's close: S-13, the VD series, the stated N) each passed all six quality-gate cells -- Linux and macOS, CPython 3.12, 3.13 and 3.14 -- and CodeQL. Release Preflight is skipped by design and not counted.",
-        "WS-06 item 15 on hosted runners (the benchmarks workflow, dispatched at M5's checkpoint, run 43777238870): PBO with S = 16 over 100 trials of 2,520 periods took 1.85 and 6.41 CPU s on CPython 3.13 and 2.84 and 9.86 on 3.14, within 60. On 3.12 the job stopped at an earlier benchmark (capture, PC-07's ceiling: the log's open question), so it did not run there; that is not a pass."
+        "WS-06 item 15 on hosted runners (the benchmarks workflow, dispatched at M5's checkpoint, run 43777238870): PBO with S = 16 over 100 trials of 2,520 periods took 1.85 and 6.41 CPU s on CPython 3.13 and 2.84 and 9.86 on 3.14, within 60. On 3.12 the job stopped at an earlier benchmark (capture, PC-07's ceiling: the log's open question), so it did not run there; that is not a pass.",
+        "WS-06 item 15 completed on hosted CPython 3.12. At M5's checkpoint the job stopped before the benchmark, which was not a pass. Every benchmark now runs after a failure (TD-33), and hosted Linux 3.12 took PBO with S = 16 over 100 trials of 2,520 periods in 1.43 and 5.06 CPU s (run 43818953549, 0095775) and 2.06 and 7.34 (run 43821336553, 3a95cef), within 60. PC-07, read at M5's checkpoint, passed under the owner's policy (TD-39). M5's closure records are complete."
       ]
     },
     {
@@ -1340,12 +1355,17 @@
         {
           "milestone": "M3",
           "item": "PC-07's verdict on six cells: the capture benchmark judged on the fastest of nine samples, macOS running it alone (TD-35); limits and coverage unchanged",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M3",
           "item": "PC-07 judged on the median of paired ratios over nine rounds; a self-contradicting measurement fails as inconsistent (TD-36); reference machine 7.5 to 8.7 percent",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M3",
+          "item": "PC-07 passed under the owner's Linux-and-reference policy (TD-39): hosted Linux under CPython 3.12, 3.13 and 3.14, by the paired median on unrounded figures, series and trace 7.41 to 9.92 percent and the series 1.29 to 4.55 (run 43821336553); the reference machine documented; hosted macOS timing diagnostic",
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -1478,7 +1498,7 @@
         },
         {
           "milestone": "M5",
-          "item": "PBO's budget: benchmarks/benchmark_selection_statistics.py, S = 16 over 100 trials x 2,520 periods, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio against 60 s (ADR-0073 settled 18)",
+          "item": "PBO's budget: benchmarks/benchmark_selection_statistics.py, S = 16 over 100 trials x 2,520 periods, 1.68 CPU s by the mean and 5.65 by the Sharpe ratio against 60 s (ADR-0073 settled 18); hosted Linux CPython 3.12, the cell M5's checkpoint did not reach: 1.43 and 5.06 CPU s (run 43818953549), 2.06 and 7.34 (run 43821336553)",
           "status": "Hosted CI passed"
         },
         {
@@ -2762,7 +2782,7 @@
   },
   "state": {
     "updated": "2026-11-16",
-    "remote_head": "d52fd4b",
+    "remote_head": "185b118",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3280,10 +3300,64 @@
         "workflow": "CodeQL",
         "run": 43819848993,
         "result": "success"
+      },
+      {
+        "sha": "0095775",
+        "workflow": "Benchmarks",
+        "run": 43818953549,
+        "result": "the Linux cells completed after this was first read, every benchmark passing: CPython 3.12 series and trace +9.0, +8.5, +9.3, +9.5%; 3.13 +6.7, +8.4, +8.8, +9.7%; 3.14 +8.2, +9.2, +9.9, +10.6% (fastest of nine). The run failed on its macOS cells, diagnostic under TD-39"
+      },
+      {
+        "sha": "d52fd4b",
+        "workflow": "Continuous Integration",
+        "run": 43819848916,
+        "result": "success: all six quality-gate cells, carrying Engle-Granger"
+      },
+      {
+        "sha": "3a95cef",
+        "workflow": "Continuous Integration",
+        "run": 43821344684,
+        "result": "success: all six quality-gate cells"
+      },
+      {
+        "sha": "3a95cef",
+        "workflow": "CodeQL",
+        "run": 43821344688,
+        "result": "success"
+      },
+      {
+        "sha": "3a95cef",
+        "workflow": "Benchmarks",
+        "run": 43821336553,
+        "result": "Linux, authoritative under TD-39, every benchmark passing: PC-07 PASSED. Benchmarks run 43821336553 on 3a95cef, the median of nine paired ratios, unrounded: CPython 3.12 series +1.84, +3.86, +3.43, +4.55% and series and trace +8.40, +9.92, +9.67, +9.56%; 3.13 series +1.63, +2.18, +2.72, +3.36% and series and trace +7.65, +7.58, +7.80, +8.09%; 3.14 series +1.29, +1.72, +2.88, +3.49% and series and trace +7.41, +6.30, +7.86, +8.05%, at a trade every 1, 2, 4 and 8 records. macOS, diagnostic: 3.12 series and trace +7.41 to +12.95% with rounds from -13.9 to +45.5%; 3.13 +15.34% and +15.18% at two densities with rounds from -32.7 to +93.4%; 3.14 inconsistent at two densities (the series above series and trace). Every macOS figure is an unreliable measurement, not a result"
+      },
+      {
+        "sha": "11f4ee7",
+        "workflow": "Continuous Integration",
+        "run": 43822280086,
+        "result": "success: all six quality-gate cells, carrying Johansen's tests"
+      },
+      {
+        "sha": "11f4ee7",
+        "workflow": "CodeQL",
+        "run": 43822280352,
+        "result": "success"
+      },
+      {
+        "sha": "4ccc130",
+        "workflow": "Continuous Integration",
+        "run": 43823731357,
+        "result": "success: all six quality-gate cells, carrying the Ornstein-Uhlenbeck fit"
+      },
+      {
+        "sha": "4ccc130",
+        "workflow": "CodeQL",
+        "run": 43823731356,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "The capture benchmark judged on nine samples, macOS running it alone (TD-35): pushed, and the benchmarks dispatched on that exact commit, read cell by cell. M6: Engle-Granger committed; Johansen with MacKinnon, Haug and Michelis's published tables, verified from the paper; VECM, ARMA and VAR, the GARCH family, state space, OU and the half-life, regime models; Fama-MacBeth and PCA; S-02's screen.",
+    "next": "M6: the VAR (validated locally next), the GARCH family, the Kalman filter and RTS smoother, regime models (ADR-0075), Fama-MacBeth and PCA (WS-25), S-02's pairs screen, the econometrics guide and M6's mutation series; then M6's close on hosted CI. The benchmarks workflow is dispatched at each checkpoint, PC-07 read on its Linux cells.",
     "open_questions": []
   },
   "log": [
@@ -3546,6 +3620,10 @@
     {
       "date": "2026-11-16",
       "entry": "The VECM validated locally: one reduction now serves Johansen's test and the fit, with the test's pinned values unchanged. A pair's hedge ratio and constant are recovered; the deviating series corrects (t below -5) and the walk it is tied to does not. The second step matches exact rational least squares, and every value is pinned across CPython 3.12, 3.13 and 3.14."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "The owner decided where PC-07 is judged (TD-39). Hosted Linux under CPython 3.12, 3.13 and 3.14 is authoritative, by the paired median on unrounded figures, with the limits unchanged. A fixed, documented reference machine monitors regressions, and hosted macOS timing is diagnostic, with macOS kept in functional CI. PC-07 PASSED under that policy (run 43821336553, 3a95cef): series and trace 7.41 to 9.92 percent, the series 1.29 to 4.55. M5's remaining closure record is complete: WS-06's PBO budget on hosted CPython 3.12, 1.43 to 7.34 CPU s against 60. 4ccc130 (the OU fit) and 11f4ee7 (Johansen) passed all six cells and CodeQL; 185b118 (the VECM) was pushed."
     }
   ]
 }

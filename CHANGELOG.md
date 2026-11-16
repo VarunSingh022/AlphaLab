@@ -722,6 +722,19 @@ entry below says otherwise.
     another fails as INCONSISTENT, beside any limit it is over (TD-36). On the
     reference machine series and trace read 7.5 to 8.7 percent this way, and
     the series alone 1.2 to 3.6.
+  * **PC-07 passed, judged on hosted Linux** (the owner's decision,
+    2026-11-16).
+    * **Linux decides.** Hosted Linux x86-64 under CPython 3.12, 3.13 and 3.14
+      is authoritative, judged by the paired median on unrounded figures, with
+      the 10 and 15 percent limits unchanged.
+    * **The reference machine monitors.** A fixed, documented machine reads the
+      benchmark for regressions and comparison, never in place of a failed
+      Linux gate.
+    * **macOS reports only.** Its timing is diagnostic: printed, an unreliable
+      figure named so, never a pass. macOS stays in the functional CI matrix.
+    * **The result.** In benchmarks run 43821336553 (`3a95cef`) every Linux
+      cell passed. The series alone read at most 4.55 percent and series and
+      trace at most 9.92 (CPython 3.12, a trade every 2 records).
 
 ## Changed
 
