@@ -33,6 +33,8 @@ from alphalab.econometrics.regimes import (
     MINIMUM_REGIME_OBSERVATIONS,
     QuantileStart,
     RegimeFit,
+    _Parameters,
+    _viterbi,
     fit_gaussian_hmm,
     fit_markov_switching_regression,
 )
@@ -500,3 +502,16 @@ def test_what_a_markov_switching_regression_cannot_take_is_refused(
     }
     with pytest.raises(EconometricsInputError, match=match):
         fit_markov_switching_regression(**call)  # type: ignore[arg-type]
+
+
+def test_a_viterbi_tie_goes_to_the_lower_state() -> None:
+    """Two states alike in every density and transition: each step's tie goes to state 1."""
+
+    parameters = _Parameters(
+        coefficients=[[-1.0], [1.0]],
+        variances=[1.0, 1.0],
+        transition=[[0.5, 0.5], [0.5, 0.5]],
+        initial=[0.5, 0.5],
+    )
+    log_densities = [[-1.0, -1.0], [-2.0, -2.0], [-1.5, -1.5]]
+    assert _viterbi(log_densities, parameters) == (1, 1, 1)

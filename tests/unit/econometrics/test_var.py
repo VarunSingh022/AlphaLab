@@ -9,12 +9,13 @@
 
 from __future__ import annotations
 
+import math
 import random
 from fractions import Fraction
 
 import pytest
 
-from alphalab.common.linalg import IllConditionedError
+from alphalab.common.linalg import IllConditionedError, cholesky, least_squares
 from alphalab.econometrics.critical_values import Deterministic
 from alphalab.econometrics.exceptions import EconometricsInputError
 from alphalab.econometrics.series import system_identity
@@ -113,6 +114,59 @@ def test_bic_finds_a_var2s_order() -> None:
     assert fit.lags == 2 and fit.observations == 2498, "the chosen order fitted on all it leaves"
     settings = fit.equations[0].settings
     assert settings["lags"] == 2 and settings["lag_maximum"] == 6
+
+
+def _criterion(series: list[list[float]], lags: int, start: int, rule: LagCriterion) -> float:
+    """``T ln det(Sigma) + penalty`` for ``lags`` lags, regressed over the rows from ``start``."""
+
+    count, length = len(series), len(series[0])
+    rows = range(start, length)
+    design = [
+        [1.0, *(series[k][t - lag] for lag in range(1, lags + 1) for k in range(count))]
+        for t in rows
+    ]
+    residuals = [
+        least_squares(design, [series[i][t] for t in rows], CONDITION).residuals
+        for i in range(count)
+    ]
+    size = len(rows)
+    sigma = [
+        [
+            math.fsum(a * b for a, b in zip(residuals[i], residuals[k], strict=True)) / size
+            for k in range(count)
+        ]
+        for i in range(count)
+    ]
+    log_determinant = math.fsum(math.log(pivot) for pivot in cholesky(sigma).pivots)
+    width = len(design[0]) * count
+    penalty = 2 * width if rule is LagCriterion.AIC else width * math.log(size)
+    return size * log_determinant + penalty
+
+
+def test_each_criterion_chooses_its_least_value_over_the_maximums_sample() -> None:
+    """A series where AIC and BIC disagree, and where each candidate on its own sample would too."""
+
+    series = _simulate(
+        random.Random(0),
+        60,
+        [[[0.5, 0.1], [0.0, 0.4]], [[0.0, 0.0], [0.0, 0.0]], [[0.15, 0.0], [0.1, -0.15]]],
+        [0.0, 0.0],
+    )
+    most = 5
+    chosen = {}
+    for rule in (LagCriterion.AIC, LagCriterion.BIC):
+        by_hand = min(range(1, most + 1), key=lambda p: _criterion(series, p, most, rule))
+        fit = fit_var(
+            series,
+            deterministic=Deterministic.CONSTANT,
+            lags=SelectedLags(rule, most, None),
+            maximum_condition=CONDITION,
+        )
+        assert fit.lags == by_hand
+        chosen[rule] = by_hand
+    own_sample = min(range(1, most + 1), key=lambda p: _criterion(series, p, p, LagCriterion.AIC))
+    assert chosen[LagCriterion.AIC] != chosen[LagCriterion.BIC]
+    assert own_sample != chosen[LagCriterion.AIC]
 
 
 def test_the_fit_is_identified_by_its_system_and_every_choice() -> None:

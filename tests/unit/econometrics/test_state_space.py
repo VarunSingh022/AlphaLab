@@ -184,6 +184,25 @@ def _exact_sum(values: Iterable[Fraction]) -> Fraction:
     return sum(values, Fraction(0))
 
 
+def test_a_local_levels_filter_reaches_its_closed_form_steady_state() -> None:
+    """The predicted variance solves ``P = P r / (P + r) + q``: ``(q + sqrt(q² + 4 q r)) / 2``.
+
+    Whatever the start's variance, the filter's variances converge to the
+    Riccati equation's fixed point, and the gain to ``P / (P + r)`` (plan H.3).
+    """
+
+    q, r = 0.3, 0.7
+    steady = (q + math.sqrt(q * q + 4.0 * q * r)) / 2.0
+    for spread in (0.01, 50.0):
+        filtered = kalman_filter(
+            _local_level(q, r, 0.0, spread), [[y] for y in DYADIC * 10], [((1.0,),)] * 120
+        )
+        assert filtered.predicted_covariances[-1][0][0] == pytest.approx(steady, rel=1e-12)
+        assert filtered.filtered_covariances[-1][0][0] == pytest.approx(
+            steady * r / (steady + r), rel=1e-12
+        )
+
+
 def _solve(matrix: list[list[Fraction]], rhs: list[Fraction]) -> list[Fraction]:
     """Gauss-Jordan elimination, exactly."""
 

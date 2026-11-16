@@ -754,6 +754,20 @@ entry below says otherwise.
     structure; by the chi-square rows the theory gives; and by the authors'
     program's values, as independently transcribed, within 0.035 of each.
 
+* **M6's mutation series** [plan WS-07, WS-25, ADR-0074, ADR-0075].
+  `mutation_v4_3.py` gains the EC series: 40 mutations over every M6 module,
+  each caught by a test that exercises what it breaks.
+  * **Tests added with it.** They hold:
+    * a Viterbi tie going to the lower state;
+    * Fama-MacBeth's standard error as Newey and West's at the stated lag;
+    * the likelihood's curvature of a quadratic as its matrix inverted;
+    * each VAR criterion scored on the maximum order's sample;
+    * the local level's filter at its closed-form steady state.
+  * **An MA(2) recovered.** Flipping the MA polynomial's sign cannot move an
+    MA(1): it only mirrors the coordinate. An MA(2) with complex roots, whose
+    coefficients sum above one, is now among the recovery cases, and only the
+    right sign reaches it.
+
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
   percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's

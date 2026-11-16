@@ -8,7 +8,10 @@
 * **Least squares is the recursion**: the residuals are the recursion written
   out, and the conditional likelihood is their Gaussian one.
 * **Known parameters are recovered** within three standard errors by both
-  methods, with a mean and without.
+  methods, with a mean and without. One case is an MA(2) with complex roots
+  whose coefficients sum above one: only the MA polynomial's sign puts it in
+  the region. An MA(1) cannot test that sign, because flipping it only
+  mirrors the coordinate.
 * **An information criterion chooses the order**, every candidate scored on
   one sample, and the chosen order refitted on all the data it leaves.
 * **Every choice is stated, and what cannot be fitted is refused.**
@@ -149,6 +152,7 @@ CASES = [
     ("arma(1,1) about a mean", (1, 1), Deterministic.CONSTANT, 0.5, [0.6], [0.3]),
     ("ar(2) about zero", (2, 0), Deterministic.NONE, 0.0, [0.5, -0.3], []),
     ("ma(1) about zero", (0, 1), Deterministic.NONE, 0.0, [], [-0.4]),
+    ("ma(2) with complex roots", (0, 2), Deterministic.NONE, 0.0, [], [1.0, 0.5]),
 ]
 
 

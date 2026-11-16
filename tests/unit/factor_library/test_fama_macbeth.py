@@ -21,6 +21,7 @@ from fractions import Fraction
 import pytest
 
 from alphalab.common.estimate import NumericalClass
+from alphalab.common.statistics import newey_west_standard_error
 from alphalab.factor_library import (
     FactorInputError,
     FeatureDefinition,
@@ -166,6 +167,23 @@ def test_known_premiums_are_recovered_within_their_standard_errors() -> None:
         assert abs(estimate - truth) < 3.0 * error, (name, estimate, truth, error)
     assert result.t_statistics["momentum"] > 10.0
     assert result.factor_lineage == (momentum.lineage, value.lineage)
+
+
+def test_the_standard_error_is_newey_and_wests_at_the_stated_lag() -> None:
+    momentum, value, returns = _simulated(5, 60, 20)
+    result = fama_macbeth(
+        [momentum, value],
+        returns,
+        intercept=True,
+        minimum_assets=10,
+        newey_west_lag=3,
+        maximum_condition=CONDITION,
+    )
+
+    for position, name in enumerate(("intercept", "momentum", "value")):
+        series = [coefficients[position] for _, coefficients in result.per_instant]
+        assert result.estimate.standard_errors[name] == newey_west_standard_error(series, 3)
+        assert result.estimate.standard_errors[name] != newey_west_standard_error(series, 0)
 
 
 def test_a_cross_section_too_small_or_singular_is_skipped_and_counted() -> None:

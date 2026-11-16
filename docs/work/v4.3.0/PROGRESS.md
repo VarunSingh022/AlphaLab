@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `7b6bdc0` |
+| Remote head | `04b4e0f` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M6: the VAR (validated locally next), the GARCH family, the Kalman filter and RTS smoother, regime models (ADR-0075), Fama-MacBeth and PCA (WS-25), S-02's pairs screen, the econometrics guide and M6's mutation series; then M6's close on hosted CI. The benchmarks workflow is dispatched at each checkpoint, PC-07 read on its Linux cells. |
+| Next | M6's close on hosted CI, with the macOS cells re-run on 7b6bdc0 and 04b4e0f read once; the benchmarks workflow dispatched at M6's checkpoint, WS-07 item 15's hosted figures and PC-07 read on its Linux cells. Then M7 (WS-08, WS-09, WS-20): ADR-0057 and ADR-0064, the Model protocol and its artifacts, point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep, S-07, the ML guide and M7's mutation series. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -158,6 +158,14 @@ Never:
 | `a815c5e` | CodeQL | 43860720798 | success |
 | `1c55995` | Continuous Integration | 43864714988 | success: all six quality-gate cells, carrying state space |
 | `1c55995` | CodeQL | 43864714732 | success |
+| `5513213` | Continuous Integration | 43867178023 | success: all six quality-gate cells, carrying the regime models |
+| `5513213` | CodeQL | 43867178018 | success |
+| `50f9632` | Continuous Integration | 43868711067 | success: all six quality-gate cells, carrying Fama-MacBeth and principal components |
+| `50f9632` | CodeQL | 43868711095 | success |
+| `7b6bdc0` | Continuous Integration | 43910489150 | failure on attempt 1 with no test failing: the three Linux cells and macOS 3.14 passed; macOS 3.12 and 3.13 were never acquired by a hosted runner (GitHub's capacity notice for macOS arm64) and ended cancelled. The two were re-run as attempt 2, in progress at this record and not counted as passed |
+| `7b6bdc0` | CodeQL | 43910489046 | success |
+| `04b4e0f` | Continuous Integration | 43912097470 | failure on attempt 1 with no test failing: the three Linux cells and macOS 3.13 and 3.14 passed; macOS 3.12 was never acquired by a hosted runner and ended cancelled. It was re-run as attempt 2, in progress at this record and not counted as passed |
+| `04b4e0f` | CodeQL | 43912097311 | success |
 
 ## Continuation log
 
@@ -235,6 +243,7 @@ Never:
 - **2026-11-16** 5513213 (regime models) passed the full local gate and was pushed. WS-25's M6 part validated locally (TD-43): Fama-MacBeth's two passes in factor_library and principal-component factors in analytics, each class 2 and pinned across CPython 3.12, 3.13 and 3.14.
 - **2026-11-16** 50f9632 (WS-25) passed the full local gate and was pushed; 1c55995 (state space) passed hosted CI on all six cells and CodeQL. S-02's screening stage validated locally (TD-44): 200 candidate pairs screened under Holm's correction, the planted pairs alone selected, and the same 200 run as a ledgered experiment's trials in four spawned workers, every one recorded and each fitting its own window. The econometrics guide, docs/ECONOMETRICS.md, written and indexed.
 - **2026-11-16** ARMA validated locally (TD-45): conditional least squares, class 2, and the exact Gaussian likelihood, both in coordinates that keep every estimate stationary and invertible, the order chosen by AIC or BIC on one sample; the exact likelihood held to the joint density; known parameters recovered; pinned across CPython 3.12, 3.13 and 3.14.
+- **2026-11-16** 7b6bdc0 (S-02's screen and the guide) and 04b4e0f (ARMA) passed the full local gate and were pushed; 5513213 (regime models) and 50f9632 (WS-25) passed hosted CI on all six cells and CodeQL. On 7b6bdc0 and 04b4e0f CodeQL passed and so did every cell a runner took, but three macOS cells were never acquired by a hosted runner (GitHub's capacity notice for macOS arm64) and ended cancelled, so neither run counts as passed; the cancelled jobs were re-run and are read once at the next boundary. M6's close: the EC mutation series caught 39 of 40 on the first run; EC28, the MA polynomial's sign, cannot move an MA(1) -- flipping it only mirrors the coordinate -- so an MA(2) with complex roots joined the recovery cases and EC28 was caught when run again. GAP-11 closed; WS-25's characteristic portfolios and incremental evaluator recorded for M11.
 
 ## Milestones
 
@@ -247,7 +256,7 @@ Never:
 | M3 | Hosted CI passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Hosted CI passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Hosted CI passed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
-| M6 | In progress | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
+| M6 | Pushed | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Not started | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Not started | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
 | M9 | Not started | WS-12 | A rebalancing backtest with CVaR, certified |
@@ -933,9 +942,10 @@ Evidence:
 - [Hosted CI passed] M6: Vector autoregressions: least squares by equation with standard errors, the residual covariance over T, the lags fixed or chosen by AIC or BIC on the maximum's sample through Decimal logarithms of the residual determinant; known coefficients recovered, each equation exact against rational least squares, a VAR(2)'s order found by BIC, every value class 2 and pinned
 - [Hosted CI passed] M6: GARCH, GJR-GARCH and EGARCH by Gaussian likelihood in admissible coordinates (TD-40): every choice stated, standard errors from the curvature, class 3 with the convergence report; known parameters recovered for each model; hosts agreeing within 1e-4; 2,520 returns in 0.081 CPU s against the plan's 5 s
 - [Hosted CI passed] M6: State space (TD-41): the Kalman filter in Joseph's form and the RTS smoother back to the initial state, class 2 for given parameters with a class-3 log-likelihood; the local level and the time-varying beta (each beta a random walk, the intercept absent, fixed or drifting) fitted by likelihood from an exact diffuse start, standard errors from the curvature in the variances' logarithms; the filter held to the joint density, Bayesian least squares and the exact posterior in rationals, the start to a 10^30 prior's limit, known variances recovered, every refusal held; pinned across CPython 3.12, 3.13 and 3.14
-- [Local validation passed] M6: Regime models (ADR-0075, OFE-010 reopened and delivered, TD-42): the Gaussian HMM and the Markov-switching regression by EM through Hamilton's filter and Kim's smoother, scaled; QuantileStart or an explicit start; the ADR's labelling; standard errors from the observed information, structural zeros kept; filtered and smoothed probabilities and the Viterbi path, each held to exact fractions; two- and three-state chains, a switching regression and a switching autoregression recovered; a collapsing state, a flat transition and every malformed choice refused; pinned across CPython 3.12, 3.13 and 3.14
-- [Local validation passed] M6: S-02's screening stage (TD-44, ADR-0074 settled point 20): research.cointegration_screen tests every candidate pair on a stated sample with Engle and Granger's test and corrects the whole family by research.multiple_testing; a refused pair and a p-value bounded from below enter with one, a bound from above as its bound; screen_id over the pairs, the series' identities, the choices and the class-2 statistics; 200 candidates screened, the planted pairs alone selected under Holm; the same 200 a ledgered experiment's trials in spawned workers, each fitting its own window, every one recorded; the econometrics guide, docs/ECONOMETRICS.md; pinned across CPython 3.12, 3.13 and 3.14
-- [Local validation passed] M6: ARMA (TD-45, ADR-0074 settled point 21): conditional least squares (class 2) and the exact Gaussian likelihood by the Kalman filter from the stationary covariance (class 3), in partial-autocorrelation coordinates that keep every estimate stationary and invertible; Gauss-Newton and curvature standard errors; select_arma by AIC or BIC on one sample, Decimal logarithms under least squares; the recursion and its inverse, the exact likelihood held to the joint density, known parameters recovered by both methods; pinned across CPython 3.12, 3.13 and 3.14
+- [Hosted CI passed] M6: Regime models (ADR-0075, OFE-010 reopened and delivered, TD-42): the Gaussian HMM and the Markov-switching regression by EM through Hamilton's filter and Kim's smoother, scaled; QuantileStart or an explicit start; the ADR's labelling; standard errors from the observed information, structural zeros kept; filtered and smoothed probabilities and the Viterbi path, each held to exact fractions; two- and three-state chains, a switching regression and a switching autoregression recovered; a collapsing state, a flat transition and every malformed choice refused; pinned across CPython 3.12, 3.13 and 3.14
+- [Pushed] M6: S-02's screening stage (TD-44, ADR-0074 settled point 20): research.cointegration_screen tests every candidate pair on a stated sample with Engle and Granger's test and corrects the whole family by research.multiple_testing; a refused pair and a p-value bounded from below enter with one, a bound from above as its bound; screen_id over the pairs, the series' identities, the choices and the class-2 statistics; 200 candidates screened, the planted pairs alone selected under Holm; the same 200 a ledgered experiment's trials in spawned workers, each fitting its own window, every one recorded; the econometrics guide, docs/ECONOMETRICS.md; pinned across CPython 3.12, 3.13 and 3.14
+- [Pushed] M6: ARMA (TD-45, ADR-0074 settled point 21): conditional least squares (class 2) and the exact Gaussian likelihood by the Kalman filter from the stationary covariance (class 3), in partial-autocorrelation coordinates that keep every estimate stationary and invertible; Gauss-Newton and curvature standard errors; select_arma by AIC or BIC on one sample, Decimal logarithms under least squares; the recursion and its inverse, the exact likelihood held to the joint density, known parameters recovered by both methods; pinned across CPython 3.12, 3.13 and 3.14
+- [Pushed] M6: Mutation series EC (40): the unit-root tests and MacKinnon's tables, Engle-Granger, Johansen, the half-life, the VAR's criterion and sample, the GARCH family, the filter, smoother and diffuse start, the regime models, ARMA, the shared curvature, Fama-MacBeth, principal components and S-02's screen -- 40 of 40 caught, EC28 after the MA(2) case it asked for
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1001,8 +1011,9 @@ Evidence:
 
 ### WS-25: Factor and feature research
 
-- [Local validation passed] M6: Fama-MacBeth's two passes (TD-43): cross-sectional least squares at each instant over the assets every panel and the returns share, the premiums' means with Newey-West standard errors at a stated lag; too-small and ill-conditioned cross-sections skipped and counted; class 2 with a data identity over every value read; each cross-section and the standard error held to rationals, known premiums recovered, pinned across CPython 3.12, 3.13 and 3.14
-- [Local validation passed] M6: Principal-component factors (TD-43): a positive definite covariance's k largest components as a FactorStructure, eigenvector loadings, eigenvalue variances and the left-out components as specific variances; a singular covariance refused; the eigen-equation, orthonormality, each asset's variance kept and isotropic noise held; class 2, pinned across CPython 3.12, 3.13 and 3.14
+- [Hosted CI passed] M6: Fama-MacBeth's two passes (TD-43): cross-sectional least squares at each instant over the assets every panel and the returns share, the premiums' means with Newey-West standard errors at a stated lag; too-small and ill-conditioned cross-sections skipped and counted; class 2 with a data identity over every value read; each cross-section and the standard error held to rationals, known premiums recovered, pinned across CPython 3.12, 3.13 and 3.14
+- [Hosted CI passed] M6: Principal-component factors (TD-43): a positive definite covariance's k largest components as a FactorStructure, eigenvector loadings, eigenvalue variances and the left-out components as specific variances; a singular covariance refused; the eigen-equation, orthonormality, each asset's variance kept and isotropic noise held; class 2, pinned across CPython 3.12, 3.13 and 3.14
+- [Not started] M11: WS-25's remaining scope (plan H.4, WS-25 item 5): characteristic-portfolio returns and the incremental evaluator for rolling kinds (GAP-47), with the factor library's documented recipes; M6 delivered Fama-MacBeth and principal components
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
@@ -1020,7 +1031,7 @@ Evidence:
 
 ## Gaps
 
-37 open, 12 closed, 4 discarded.
+36 open, 13 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -1034,7 +1045,7 @@ Evidence:
 | GAP-08 | Return extraction; → retention trims equity | H/P0 | Closed at M3 (WS-04, ADR-0055, plan K.1): run_captured reads every trial's return series as the run records its equity, whatever it keeps, and keep_equity keeps a bounded run's whole curve; 16-variant PBO from bounded captures equals full history's exactly, on hosted CI (0649893, acf4ce4). | WS-04 | M3 |
 | GAP-09 | Selection statistics missing | C/P1 | Closed at M3 (WS-06, ADR-0054 and ADR-0055): the statistics delivered at M2 against their oracles, and connected to AlphaLab's own backtests through lifecycle.selection, whose 16-variant PBO equals full history's exactly; hosted CI passed on 0649893 and acf4ce4. | WS-06 | M2 (bridge M3) |
 | GAP-10 | No numerical foundation | C/P1 | Closed at M2's hosted exit gate (fe3c80b; WS-03, ADR-0058): distributions, linear algebra, optimisers, quadrature, the Estimate, each against its oracle. | WS-03 | M2 |
-| GAP-11 | No econometrics | H/P1 | Open | WS-07 | M6 |
+| GAP-11 | No econometrics | H/P1 | Closed at M6 (WS-07, ADR-0074, ADR-0075): the econometrics package -- unit roots with MacKinnon's tables, Engle-Granger, Johansen, the VECM, the OU half-life, ARMA, the VAR, the GARCH family, the Kalman filter and RTS smoother with the local level and the time-varying beta, the Gaussian HMM and the Markov-switching regression -- each returning an Estimate and recovering known parameters, with S-02's screen through the ledger; each estimator's commit passed the full local gate, and its hosted CI is recorded in the state's rows (M6's evidence). | WS-07 | M6 |
 | GAP-12 | No model protocol | C/P1 | Open | WS-08 | M7 |
 | GAP-13 | ML dataset not PIT | H/P1 | Open | WS-08 | M7 |
 | GAP-14 | Throughput | H/P2 | Open | WS-15 | M11 |

@@ -98,6 +98,24 @@ assessment, VD27 was retargeted, and the assessment's mutations (VD25 to VD32)
 were run on the final tree: 8 of 8 caught. The other mutations
 target code unchanged since their run. The test that caught each is recorded
 in the progress register, in M5's evidence.
+
+M6's series:
+
+* **EC** -- WS-07 and WS-25, ADR-0074 and ADR-0075: the unit-root tests and
+  MacKinnon's tables; Engle and Granger, Johansen and the half-life; the VAR's
+  criterion and sample; the GARCH family's recursions; the Kalman filter, the
+  smoother and the diffuse start; the regime models' recursions, labelling,
+  collapse and structural zeros; ARMA's coordinates and likelihood; the
+  curvature every likelihood fit shares; Fama-MacBeth; principal components;
+  and S-02's screen.
+
+M6's run caught 39 of 40 on the tree as it stood. EC28 survived: flipping the
+MA polynomial's sign only mirrors an MA(1)'s coordinate, exactly, so every
+case of MA order one or none fitted the same. An MA(2) with complex roots
+whose coefficients sum above one, outside the flipped region, was added to
+the recovery cases, and EC28 was run again: caught. No first failure read a
+clock. The test that caught each is recorded in the progress register, in
+M6's evidence.
 """
 
 from __future__ import annotations
@@ -1589,6 +1607,320 @@ V43_M5: tuple[Any, ...] = (
     ),
 )
 
+_UNIT_ROOT = "alphalab/econometrics/unit_root.py"
+_CRITICAL = "alphalab/econometrics/critical_values.py"
+_COINTEGRATION = "alphalab/econometrics/cointegration.py"
+_REVERSION = "alphalab/econometrics/mean_reversion.py"
+_VAR = "alphalab/econometrics/var.py"
+_VOLATILITY = "alphalab/econometrics/volatility.py"
+_STATE_SPACE = "alphalab/econometrics/state_space.py"
+_REGIMES = "alphalab/econometrics/regimes.py"
+_ARMA = "alphalab/econometrics/arma.py"
+_CURVATURE = "alphalab/econometrics/_likelihood.py"
+_FAMA_MACBETH = "alphalab/factor_library/fama_macbeth.py"
+_COMPONENTS = "alphalab/analytics/statistical_factors.py"
+_SCREEN = "alphalab/research/cointegration_screen.py"
+
+#: M6's behaviour, one rule each.
+V43_M6: tuple[Any, ...] = (
+    # --- EC: econometrics (WS-07, ADR-0074, ADR-0075), factor research (WS-25), S-02
+    Mutation(
+        "EC01",
+        "the ADF statistic reads the constant's t-ratio, not the level's",
+        _UNIT_ROOT,
+        "    statistic = fit.coefficients[level] / fit.standard_errors[level]\n",
+        "    statistic = fit.coefficients[0] / fit.standard_errors[0]\n",
+    ),
+    Mutation(
+        "EC02",
+        "a statistic below MacKinnon's table reports a bound from below",
+        _CRITICAL,
+        "        return PValue(_approximation(low, deterministic, "
+        "variables), PBound.AT_MOST, MACKINNON_1994)\n",
+        "        return PValue(_approximation(low, deterministic, "
+        "variables), PBound.AT_LEAST, MACKINNON_1994)\n",
+    ),
+    Mutation(
+        "EC03",
+        "MacKinnon's response surface drops its 1/T term",
+        _CRITICAL,
+        "            values[level] = asymptotic + u * (first + u * (second + u * third))\n",
+        "            values[level] = asymptotic + u * (u * (second + u * third))\n",
+    ),
+    Mutation(
+        "EC04",
+        "KPSS's long-run variance takes no lags",
+        _UNIT_ROOT,
+        "levels, maximum_condition\n    )\n    lam2 = long_run_variance(fit.residuals, lags)\n",
+        "levels, maximum_condition\n    )\n    lam2 = long_run_variance(fit.residuals, 0)\n",
+    ),
+    Mutation(
+        "EC05",
+        "Engle and Granger's residual regression takes a constant",
+        _COINTEGRATION,
+        "        shifted, padded, Deterministic.NONE, chosen, chosen + 1, maximum_condition\n",
+        "        shifted, padded, Deterministic.CONSTANT, chosen, chosen + 1, maximum_condition\n",
+    ),
+    Mutation(
+        "EC06",
+        "Engle and Granger's critical values count the regressors, not every series",
+        _COINTEGRATION,
+        "    variables = count + 1\n",
+        "    variables = count\n",
+    ),
+    Mutation(
+        "EC07",
+        "Johansen's trace leaves out the eigenvalue its null sets to zero",
+        _COINTEGRATION,
+        "        trace = _statistic(observations, logs[rank:])\n",
+        "        trace = _statistic(observations, logs[rank + 1 :])\n",
+    ),
+    Mutation(
+        "EC08",
+        "the half-life is 1 / theta, not ln 2 / theta",
+        _REVERSION,
+        "    half_life = _log(2.0) / theta\n",
+        "    half_life = 1.0 / theta\n",
+    ),
+    Mutation(
+        "EC09",
+        "an explosive coefficient, no mean reversion, is accepted",
+        _REVERSION,
+        "    if not 0.0 < b < 1.0:\n",
+        "    if not 0.0 < b:\n",
+    ),
+    Mutation(
+        "EC10",
+        "BIC's penalty is AIC's",
+        _VAR,
+        "                2 * coefficients if rule.criterion is "
+        "LagCriterion.AIC else coefficients * size.ln()\n",
+        "                2 * coefficients\n",
+    ),
+    Mutation(
+        "EC11",
+        "each VAR candidate is fitted on its own sample, not the maximum's",
+        _VAR,
+        "_design(xs, deterministic, candidate, rule.maximum)\n        residuals = [\n"
+        "            ordinary_least_squares(design, x[rule.maximum "
+        ":], maximum_condition).residuals\n",
+        "_design(xs, deterministic, candidate, candidate)\n        residuals = [\n"
+        "            ordinary_least_squares(design, x[candidate:], maximum_condition).residuals\n",
+    ),
+    Mutation(
+        "EC12",
+        "GJR's asymmetry moves the variance on good news",
+        _VOLATILITY,
+        "            weight = alpha + (gamma if last < 0.0 else 0.0)\n",
+        "            weight = alpha + (gamma if last > 0.0 else 0.0)\n",
+    ),
+    Mutation(
+        "EC13",
+        "EGARCH centres |z| at one, not at its expectation",
+        _VOLATILITY,
+        "                    + alpha * (abs(previous) - _EXPECTED_ABSOLUTE)\n",
+        "                    + alpha * (abs(previous) - 1.0)\n",
+    ),
+    Mutation(
+        "EC14",
+        "Joseph's form forgets the observation noise's term",
+        _STATE_SPACE,
+        "            noise = [[(k_i * r[0][0]) * k_j for k_j in k] for k_i in k]\n",
+        "            noise = [[0.0 for k_j in k] for k_i in k]\n",
+    ),
+    Mutation(
+        "EC15",
+        "a random walk's prediction leaves out its drift",
+        _STATE_SPACE,
+        "                tuple(p + w for p, w in zip(p_row, q_row, strict=True))\n",
+        "                tuple(p + 0.0 * w for p, w in zip(p_row, q_row, strict=True))\n",
+    ),
+    Mutation(
+        "EC16",
+        "the smoother's spread is against the filtered, not the predicted, covariance",
+        _STATE_SPACE,
+        "        spread = _minus(later_covariance, filtered.predicted_covariances[j])\n",
+        "        spread = _minus(later_covariance, filtered.filtered_covariances[j])\n",
+    ),
+    Mutation(
+        "EC17",
+        "the diffuse start counts one drift too many",
+        _STATE_SPACE,
+        "                (size - 1 - max(t, s))\n",
+        "                (size - max(t, s))\n",
+    ),
+    Mutation(
+        "EC18",
+        "a state-space variance's standard error drops the delta method's factor",
+        _STATE_SPACE,
+        "            name: variance * error\n",
+        "            name: error\n",
+    ),
+    Mutation(
+        "EC19",
+        "the backward recursion forgets the normaliser",
+        _REGIMES,
+        "        weighted = [scaled[t + 1][k] * backward[k] / "
+        "normalisers[t + 1] for k in states]\n",
+        "        weighted = [scaled[t + 1][k] * backward[k] for k in states]\n",
+    ),
+    Mutation(
+        "EC20",
+        "an HMM's states are ordered by descending mean",
+        _REGIMES,
+        "            states, key=lambda k: "
+        "(parameters.coefficients[k][0], parameters.variances[k])\n",
+        "            states, key=lambda k: "
+        "(-parameters.coefficients[k][0], parameters.variances[k])\n",
+    ),
+    Mutation(
+        "EC21",
+        "the initial distribution keeps an even start",
+        _REGIMES,
+        "    return _Parameters(coefficients, variances, transition, "
+        "list(posterior.smoothed[0]))\n",
+        "    return _Parameters(coefficients, variances, transition, [0.5] * len(variances))\n",
+    ),
+    Mutation(
+        "EC22",
+        "a state whose variance collapses to zero is accepted",
+        _REGIMES,
+        "        if not (math.isfinite(variance) and variance > 0.0):\n",
+        "        if not math.isfinite(variance):\n",
+    ),
+    Mutation(
+        "EC23",
+        "Viterbi's tie goes to the higher state",
+        _REGIMES,
+        "                if value > best:\n",
+        "                if value >= best:\n",
+    ),
+    Mutation(
+        "EC24",
+        "a structural zero is a free coordinate",
+        _REGIMES,
+        "        if k != references[j] and transition[j][k] > 0.0\n",
+        "        if k != references[j]\n",
+    ),
+    Mutation(
+        "EC25",
+        "EM stops at a change a thousand times its tolerance",
+        _REGIMES,
+        "        if change <= tolerance:\n",
+        "        if change <= 1e3 * tolerance:\n",
+    ),
+    Mutation(
+        "EC26",
+        "ARMA's coordinate map is not its inverse's",
+        _ARMA,
+        "    return u / math.sqrt(1.0 + u * u)\n",
+        "    return u / math.sqrt(0.25 + u * u)\n",
+    ),
+    Mutation(
+        "EC27",
+        "Durbin and Levinson's recursion adds where it subtracts",
+        _ARMA,
+        "        coefficients = [coefficients[j] - r * "
+        "coefficients[k - 2 - j] for j in range(k - 1)] + [r]\n",
+        "        coefficients = [coefficients[j] + r * "
+        "coefficients[k - 2 - j] for j in range(k - 1)] + [r]\n",
+    ),
+    Mutation(
+        "EC28",
+        "the MA polynomial keeps the recursion's sign",
+        _ARMA,
+        "        ma = [-a for a in _from_partial([_bounded(u) for u "
+        "in point[offset + self.p :]])]\n",
+        "        ma = [a for a in _from_partial([_bounded(u) for u "
+        "in point[offset + self.p :]])]\n",
+    ),
+    Mutation(
+        "EC29",
+        "Harvey's transition leaves the AR coefficients out",
+        _ARMA,
+        "        transition[i][0] = phi\n",
+        "        transition[i][0] = 0.0 * phi\n",
+    ),
+    Mutation(
+        "EC30",
+        "ARMA's variance error is over m, not 2 / m",
+        _ARMA,
+        '            "variance": variance * math.sqrt(2.0 / scored),\n',
+        '            "variance": variance * math.sqrt(1.0 / scored),\n',
+    ),
+    Mutation(
+        "EC31",
+        "ARMA's selection conditions every candidate on none",
+        _ARMA,
+        "    conditioned = most_ar if least_squares else 0\n",
+        "    conditioned = 0\n",
+    ),
+    Mutation(
+        "EC32",
+        "the curvature's off-diagonal is halved",
+        _CURVATURE,
+        "            ) / (4.0 * hi * hk)\n",
+        "            ) / (8.0 * hi * hk)\n",
+    ),
+    Mutation(
+        "EC33",
+        "Fama-MacBeth's standard error ignores the stated lag",
+        _FAMA_MACBETH,
+        "            errors[name] = newey_west_standard_error(series, lag)\n",
+        "            errors[name] = newey_west_standard_error(series, 0)\n",
+    ),
+    Mutation(
+        "EC34",
+        "a cross-section too small is regressed anyway",
+        _FAMA_MACBETH,
+        "        if len(assets) < minimum:\n",
+        "        if len(assets) < 2:\n",
+    ),
+    Mutation(
+        "EC35",
+        "Fama-MacBeth's data identity leaves out the values read",
+        _FAMA_MACBETH,
+        '            f"{asset}," + ",".join(map(repr, row)) + f",{value!r}"\n',
+        '            f"{asset},"\n',
+    ),
+    Mutation(
+        "EC36",
+        "the specific variances come from the components kept",
+        _COMPONENTS,
+        "        asset: math.fsum([eigenvalues[j] * vectors[j][i] ** "
+        "2 for j in range(factors, size)])\n",
+        "        asset: math.fsum([eigenvalues[j] * vectors[j][i] ** 2 for j in range(factors)])\n",
+    ),
+    Mutation(
+        "EC37",
+        "a singular covariance is decomposed",
+        _COMPONENTS,
+        '    covariance.require_positive_definite("Principal-component factors")\n',
+        "    covariance.definiteness()\n",
+    ),
+    Mutation(
+        "EC38",
+        "a refused pair leaves the screen's family",
+        _SCREEN,
+        "        {pair.hypothesis: pair.p_value for pair in screened}, correction, alpha\n",
+        "        {p.hypothesis: p.p_value for p in screened if p.test}, correction, alpha\n",
+    ),
+    Mutation(
+        "EC39",
+        "a p-value bounded from below enters the family as its bound",
+        _SCREEN,
+        "    if value is None or value.bound is PBound.AT_LEAST:\n",
+        "    if value is None:\n",
+    ),
+    Mutation(
+        "EC40",
+        "the screen's identity leaves out its sample",
+        _SCREEN,
+        '        f"sample=[{start}, {stop})",\n',
+        '        "sample",\n',
+    ),
+)
+
 MUTATIONS: tuple[Any, ...] = (
     tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS)
     + V43_M0
@@ -1597,6 +1929,7 @@ MUTATIONS: tuple[Any, ...] = (
     + V43_M3
     + V43_M4
     + V43_M5
+    + V43_M6
 )
 
 
