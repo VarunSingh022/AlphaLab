@@ -795,6 +795,19 @@
       "compatibility": "Additive: 12 new public names in alphalab.econometrics. The GARCH family's standard errors move to a shared private routine with the same arithmetic in the same order, so every value and pin is unchanged.",
       "record": "docs/ADR/0074 (settled point 19); CHANGELOG.",
       "tests": "tests/unit/econometrics/test_state_space.py: the filter's log-likelihood equals the joint Gaussian density for a random walk, a drifting regression and a two-value observation of a general transition; with nothing drifting the state is Bayesian least squares, held to rational arithmetic; each smoothed state, the initial one too, is the exact posterior; a fit's start is a 10^30 prior's limit, filtered in rationals; known variances recovered within three standard errors (a local level, a hedge ratio beside a price, a market beta with a drifting intercept); the smoothed hedge ratio tracks the truth better than the filtered; every choice in the estimate; a flat drift, an unfixed start and malformed models refused. tests/regression/test_econometrics_values_are_pinned.py: the filter and smoother pinned bit for bit, and the fits within 1e-4 with their identities exact, computed identically under CPython 3.12, 3.13 and 3.14."
+    },
+    {
+      "id": "TD-42",
+      "date": "2026-11-16",
+      "workstream": "WS-07",
+      "title": "Regime models: one expectation step, the ADR's labelling, and the observed information in coordinates the data fix",
+      "problem": "ADR-0075 decides two EM fits with a start rule, refusals and one labelling, and leaves their standard errors to implementation. The standard errors must be honest at the boundary, where a transition probability sits at zero and the initial distribution at a vertex, and the two models must not drift apart in their recursions.",
+      "alternatives": "The backward pass: Kim's smoother in its divided form, or Rabiner's scaled recursion. The standard errors: the outer product of gradients, Louis's missing information, or the observed information by central differences, in natural parameters (a step that crosses zero at small scales) or in coordinates the data's scale fixes. At the boundary: report what a flat curvature gives, drop parameters by a threshold, or refuse and let the caller state a structural zero.",
+      "decision": "One expectation step for both models: Hamilton's filter forward with each instant's densities scaled by their largest, and Rabiner's scaled recursion back, which is Kim's posterior without division by a predicted probability. The regression's M-step is M2's least squares on rows weighted by the square roots of the state's probabilities. QuantileStart takes the sorted values' entries floor((k + 1/2) n / K); an explicit start names every parameter, each distribution's exactly rounded sum one; a start whose states coincide is refused. EM stops on the log-likelihood's absolute change; a zero or vanishing state raises CollapsedStateError, a ConvergenceError naming the state. The states are ordered as ADR-0075 states. Standard errors are the observed information's, by the shared curvature routine, in each mean or coefficient over a data-fixed scale, each variance's logarithm and each transition's but its row's largest, mapped back by the delta method; structural zeros and the initial distribution are held, with none; an information that is not positive definite is refused, naming the smallest free transition. The two models are two functions returning a RegimeFit.",
+      "rationale": "One recursion is one set of numerical behaviours to test, and the scaled backward form needs no division by a probability a structural zero makes zero. The observed information is what ADR-0075 names. Coordinates the data's scale fixes keep the differences' step meaningful at any scale. Holding structural zeros and the initial distribution, and refusing a flat transition, keep every reported standard error one the curvature supports, with no hidden threshold.",
+      "compatibility": "Additive: 8 new public names in alphalab.econometrics (API manifest 3,012 exports). The shared curvature routine gains curvature_covariance in the same arithmetic, so the GARCH family's and the state-space fits' standard errors are unchanged.",
+      "record": "docs/ADR/0075 (settled at implementation); ledger OFE-010; ROADMAP; CHANGELOG.",
+      "tests": "tests/unit/econometrics/test_regimes.py: at a fit's parameters the filtered and smoothed probabilities, the likelihood and the Viterbi path agree with exact fractions; a two-state and a three-state chain, a Markov-switching regression and a switching autoregression recover their parameters within three standard errors, the path agreeing at 90 to 95 percent of instants; a start listing its states the other way reaches the same states and path; a structural zero is kept with no standard error; a flat transition, a collapsing state (CollapsedStateError, a ConvergenceError) and a fit short of its criterion are refused; every malformed choice is refused. tests/regression/test_econometrics_values_are_pinned.py: both fits agree within 1e-4 and their identities exactly, computed identically under CPython 3.12, 3.13 and 3.14."
     }
   ],
   "plan_changes": [
@@ -1594,6 +1607,11 @@
         {
           "milestone": "M6",
           "item": "State space (TD-41): the Kalman filter in Joseph's form and the RTS smoother back to the initial state, class 2 for given parameters with a class-3 log-likelihood; the local level and the time-varying beta (each beta a random walk, the intercept absent, fixed or drifting) fitted by likelihood from an exact diffuse start, standard errors from the curvature in the variances' logarithms; the filter held to the joint density, Bayesian least squares and the exact posterior in rationals, the start to a 10^30 prior's limit, known variances recovered, every refusal held; pinned across CPython 3.12, 3.13 and 3.14",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M6",
+          "item": "Regime models (ADR-0075, OFE-010 reopened and delivered, TD-42): the Gaussian HMM and the Markov-switching regression by EM through Hamilton's filter and Kim's smoother, scaled; QuantileStart or an explicit start; the ADR's labelling; standard errors from the observed information, structural zeros kept; filtered and smoothed probabilities and the Viterbi path, each held to exact fractions; two- and three-state chains, a switching regression and a switching autoregression recovered; a collapsing state, a flat transition and every malformed choice refused; pinned across CPython 3.12, 3.13 and 3.14",
           "status": "Local validation passed"
         }
       ],
@@ -2823,7 +2841,7 @@
   },
   "state": {
     "updated": "2026-11-16",
-    "remote_head": "a815c5e",
+    "remote_head": "1c55995",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3735,6 +3753,10 @@
     {
       "date": "2026-11-16",
       "entry": "State space validated locally (TD-41): the Kalman filter in Joseph's form and the RTS smoother back to the initial state; the local level and the time-varying beta fitted from an exact diffuse start. The filter is held to the joint density, to Bayesian least squares and to the exact posterior in rationals, and the start to a 10^30 prior's limit; known variances are recovered; every refusal holds; the values are pinned across CPython 3.12, 3.13 and 3.14."
+    },
+    {
+      "date": "2026-11-16",
+      "entry": "1c55995 (state space) passed the full local gate and was pushed. Regime models validated locally (TD-42, ADR-0075, OFE-010 delivered): the Gaussian HMM and the Markov-switching regression by EM, held to exact fractions at their parameters, recovering simulated chains within their standard errors, every refusal held, pinned across CPython 3.12, 3.13 and 3.14."
     }
   ]
 }

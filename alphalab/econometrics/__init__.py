@@ -35,6 +35,8 @@ Delivered so far
 * :mod:`~alphalab.econometrics.state_space`: the Kalman filter and the RTS
   smoother, and the local level and the time-varying beta fitted from a
   diffuse start.
+* :mod:`~alphalab.econometrics.regimes`: the Gaussian hidden Markov model and
+  the Markov-switching regression, fitted by EM (ADR-0075, OFE-010 reopened).
 
 Every choice is stated
 ----------------------
@@ -78,13 +80,26 @@ from alphalab.econometrics.critical_values import (
     mackinnon_critical_values,
     mackinnon_p_value,
 )
-from alphalab.econometrics.exceptions import EconometricsError, EconometricsInputError
+from alphalab.econometrics.exceptions import (
+    CollapsedStateError,
+    EconometricsError,
+    EconometricsInputError,
+)
 from alphalab.econometrics.mean_reversion import (
     MINIMUM_ORNSTEIN_UHLENBECK_OBSERVATIONS,
     ORNSTEIN_UHLENBECK_METHOD,
     ORNSTEIN_UHLENBECK_REGRESSION_METHOD,
     OrnsteinUhlenbeckFit,
     fit_ornstein_uhlenbeck,
+)
+from alphalab.econometrics.regimes import (
+    GAUSSIAN_HMM_METHOD,
+    MARKOV_SWITCHING_METHOD,
+    MINIMUM_REGIME_OBSERVATIONS,
+    QuantileStart,
+    RegimeFit,
+    fit_gaussian_hmm,
+    fit_markov_switching_regression,
 )
 from alphalab.econometrics.series import (
     SERIES_SCHEME,
@@ -139,6 +154,7 @@ __all__ = [
     "ADF_METHOD",
     "ENGLE_GRANGER_METHOD",
     "ENGLE_GRANGER_RESIDUAL_METHOD",
+    "GAUSSIAN_HMM_METHOD",
     "JOHANSEN_LEVELS",
     "JOHANSEN_METHOD",
     "KPSS_1992",
@@ -147,10 +163,12 @@ __all__ = [
     "LOCAL_LEVEL_METHOD",
     "MACKINNON_1994",
     "MACKINNON_2010",
+    "MARKOV_SWITCHING_METHOD",
     "MHM_1996",
     "MINIMUM_DICKEY_FULLER_OBSERVATIONS",
     "MINIMUM_JOHANSEN_OBSERVATIONS",
     "MINIMUM_ORNSTEIN_UHLENBECK_OBSERVATIONS",
+    "MINIMUM_REGIME_OBSERVATIONS",
     "MINIMUM_STATE_SPACE_OBSERVATIONS",
     "MINIMUM_VAR_OBSERVATIONS",
     "MINIMUM_VOLATILITY_OBSERVATIONS",
@@ -165,6 +183,7 @@ __all__ = [
     "VOLATILITY_METHOD",
     "Bandwidth",
     "CointegrationTest",
+    "CollapsedStateError",
     "CriticalValues",
     "Deterministic",
     "EconometricsError",
@@ -184,6 +203,8 @@ __all__ = [
     "OrnsteinUhlenbeckFit",
     "PBound",
     "PValue",
+    "QuantileStart",
+    "RegimeFit",
     "RtsSmoother",
     "SchwertBandwidth",
     "SelectedLags",
@@ -196,7 +217,9 @@ __all__ = [
     "VolatilityStart",
     "augmented_dickey_fuller",
     "engle_granger",
+    "fit_gaussian_hmm",
     "fit_local_level",
+    "fit_markov_switching_regression",
     "fit_ornstein_uhlenbeck",
     "fit_time_varying_beta",
     "fit_var",

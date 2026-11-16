@@ -112,6 +112,57 @@ the tolerance and the limit.
   forward–backward probabilities computed by hand in exact fractions, where
   the emissions allow.
 
+# Settled at implementation (2026-11-16)
+
+Building M6 settled these points, each held by a test
+(`tests/unit/econometrics/test_regimes.py`).
+
+1. **Two functions, the package's convention.** `regimes.fit_gaussian_hmm`
+   and `regimes.fit_markov_switching_regression` fit section 1's
+   `GaussianHMM` and `MarkovSwitchingRegression`. Each returns a `RegimeFit`:
+   the estimate, the log-likelihood, the filtered and smoothed
+   probabilities, and the Viterbi path.
+2. **One expectation step.** The scaled forward recursion is Hamilton's
+   filter. Rabiner's scaled backward recursion gives Kim's smoothed
+   probabilities without dividing by a predicted probability that may be
+   zero. Each instant's densities are scaled by their largest before `exp`,
+   so none underflows. The regression's M-step is M2's least squares on rows
+   weighted by the square roots of the state's probabilities, refused above a
+   stated condition number.
+3. **The start.** `QuantileStart(persistence)` is section 2's rule. Quantile
+   `k` of `K` is the sorted values' entry `floor((k + 1/2) n / K)`, a value of
+   the data. For the regression, which needs an intercept, each state's
+   intercept is the pooled intercept plus a quantile of the pooled residuals.
+   An explicit start names every parameter, each distribution's exactly
+   rounded sum one. A start whose states coincide is refused: EM cannot
+   separate them.
+4. **Convergence.** EM stops when the log-likelihood's absolute change is
+   within the tolerance. A state whose variance reaches zero, or that is left
+   with no observation, raises `CollapsedStateError`, a `ConvergenceError`
+   that names the state and the iteration. A fit short of its criterion
+   raises `ConvergenceError`, naming the log-likelihood and the smallest
+   variance.
+5. **Standard errors.** The observed information is the log-likelihood's
+   central-difference curvature, by the routine ADR-0074's fits share. Its
+   coordinates are each mean or coefficient over a scale the data fix, each
+   variance's logarithm, and the logarithm of each transition probability but
+   its row's largest; the delta method maps them back.
+   * **Structural zeros.** A transition at exactly zero is kept by EM and has
+     no standard error.
+   * **The initial distribution** is the first instant's posterior, at its
+     boundary as a rule: it is held, and has none.
+   * **A flat transition is refused.** An information that is not positive
+     definite is refused, naming the smallest free transition: a transition
+     the data do not show is stated as a structural zero in an explicit
+     start.
+
+   The differences' step is an argument, as ADR-0074's fits take it.
+6. **OFE-010 closed.** The two estimators deliver what section 1 reopened it
+   for; the ledger records the delivery.
+7. **Hosts agree.** Every value is class 3. Fits to series built bit for bit
+   alike agree to 1e-4, relatively, across CPython 3.12, 3.13 and 3.14, and
+   their identities exactly.
+
 # Compatibility
 
 - Additive: a module in ADR-0074's package.

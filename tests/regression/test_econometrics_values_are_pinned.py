@@ -40,6 +40,11 @@ from alphalab.econometrics import (
     phillips_perron,
 )
 from alphalab.econometrics.cointegration import engle_granger
+from alphalab.econometrics.regimes import (
+    QuantileStart,
+    fit_gaussian_hmm,
+    fit_markov_switching_regression,
+)
 from alphalab.econometrics.state_space import (
     Intercept,
     LinearGaussianModel,
@@ -422,4 +427,77 @@ def test_a_state_space_fit_agrees_across_hosts_within_its_stated_tolerance() -> 
     assert [level.estimate.estimate_id, beta.estimate.estimate_id] == [
         "f6f338e52aa088b3ef3bcfb9f39db423fcdbc4727442d862fab27d84d869fdbb",
         "8e64c6ada7d10ec341ee2ca46ee082a68f5a2496bada672f5c20cae56962a0c6",
+    ]
+
+
+def _regimes(count: int) -> tuple[list[float], list[float], list[float]]:
+    """A two-state chain by integer draws, its noise a sum of four uniforms: exact values."""
+
+    state = 77
+
+    def draw(modulus: int) -> int:
+        nonlocal state
+        state = (1103515245 * state + 12345) % 2**31
+        return (state >> 8) % modulus
+
+    regime, values, xs, ys = 0, [], [], []
+    for _ in range(count):
+        if draw(100) < (3 if regime == 0 else 5):
+            regime = 1 - regime
+        shock = sum(draw(1024) for _ in range(4)) / 512 - 4.0
+        values.append((0.5, -1.0)[regime] + (0.25, 1.0)[regime] * shock)
+        x = (draw(2048) - 1024) / 512
+        xs.append(x)
+        ys.append((0.0, 1.0)[regime] + (1.0, -0.5)[regime] * x + (0.25, 1.0)[regime] * shock)
+    return values, xs, ys
+
+
+def test_a_regime_fit_agrees_across_hosts_within_its_stated_tolerance() -> None:
+    """Class 3 (ADR-0075 section 5): every value is exp's and log's; the identity is exact."""
+
+    values, xs, ys = _regimes(400)
+    hmm = fit_gaussian_hmm(
+        values, states=2, start=QuantileStart(0.9), tolerance=1e-8, max_iterations=500, step=1e-5
+    )
+    regression = fit_markov_switching_regression(
+        ys,
+        [xs],
+        intercept=True,
+        states=2,
+        start=QuantileStart(0.9),
+        tolerance=1e-8,
+        max_iterations=500,
+        step=1e-5,
+        maximum_condition=CONDITION,
+    )
+
+    expected_hmm = {
+        "state_1_mean": -1.0939088311422966,
+        "state_1_variance": 1.2015081352383217,
+        "state_2_mean": 0.46272564777608255,
+        "state_2_variance": 0.0829480766732849,
+        "transition_1_1": 0.9592721483690574,
+        "transition_1_2": 0.04072785163094259,
+        "transition_2_1": 0.04362770647765761,
+        "transition_2_2": 0.9563722935223424,
+    }
+    expected_regression = {
+        "state_1_beta_1": 0.9840588900848486,
+        "state_1_intercept": -0.04069761879765738,
+        "state_1_variance": 0.0805013909341825,
+        "state_2_beta_1": -0.5809314489014361,
+        "state_2_intercept": 0.9201526909427418,
+        "state_2_variance": 1.2082266418845948,
+        "transition_1_1": 0.9565473871927482,
+        "transition_1_2": 0.043452612807251705,
+        "transition_2_1": 0.04157256237941942,
+        "transition_2_2": 0.9584274376205807,
+    }
+    for fit, expected in ((hmm, expected_hmm), (regression, expected_regression)):
+        fitted = {k: v for k, v in fit.estimate.parameters.items() if not k.startswith("initial")}
+        assert fitted == pytest.approx(expected, rel=1e-4, abs=1e-9)
+    assert hmm.log_likelihood == pytest.approx(-385.74489644201617, rel=1e-9)
+    assert [hmm.estimate.estimate_id, regression.estimate.estimate_id] == [
+        "3492a28282267dd83240021e272c30c09738cf35beb182af7958166e2c021a95",
+        "7ff73ff2c778287769e45f9ee4e2b4c621cc7b925a37851c62f19a035dc73bc7",
     ]

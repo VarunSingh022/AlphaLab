@@ -900,7 +900,10 @@ fit or a pairing as a measurement (OFE-007, OFE-018); per-strategy sub-ledgers
 in `PortfolioEngine`, whose question the contribution ledger already answers
 (OFE-015); process supervision, hot reload and hook timeouts, which are the
 host's (OFE-026) — strategy-API versioning, the part of that item a library can
-own, is held since v3.13 by the public API manifest.
+own, is held since v3.13 by the public API manifest. Once ADR-0058 gave an
+estimate an identity, v4.3 reopened and delivered two of them: OFE-007, as the
+Ornstein-Uhlenbeck fit (ADR-0074), and OFE-010, as the Gaussian hidden Markov
+model and the Markov-switching regression (ADR-0075).
 
 **External**: a vendor adapter package (OFE-008) — a venue's request shapes
 belong to the application that connects to it.

@@ -702,6 +702,18 @@ entry below says otherwise.
     with BFGS's report, and the filtered and smoothed states: a pair's
     hedge ratio, observation by observation. A drift the likelihood cannot
     inform is refused, to be stated fixed.
+  * **Regime models: the Gaussian HMM and the Markov-switching regression**
+    [OFE-010, reopened by ADR-0075]. `fit_gaussian_hmm` and
+    `fit_markov_switching_regression` fit `K` states by EM, through
+    Hamilton's filter and Kim's smoother, scaled. Each returns a `RegimeFit`:
+    * the estimate: means or coefficients, variances, the transition matrix
+      and the initial distribution, with standard errors from the observed
+      information;
+    * the filtered and smoothed probabilities, and the Viterbi path.
+
+    The states are ordered by mean, the regression's by variance. The start
+    is explicit or `QuantileStart`. A collapsing state is refused with
+    `CollapsedStateError`, which names it. Every value is class 3.
   * **Johansen's tables, verified.** `johansen_critical_values` and
     `johansen_p_value` read MacKinnon, Haug and Michelis (1996)'s Tables 1 to
     5, decoded from the paper's own text. They are held three ways: by their
