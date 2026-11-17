@@ -68,9 +68,9 @@
       "item": 5,
       "ref": "D-V4",
       "title": "Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0",
-      "status": "Delegated (2026-11-10): decided at its milestone",
+      "status": "Decided under delegation (2026-11-17)",
       "due": "Before M8",
-      "note": ""
+      "note": "TD-57, ADR-0060: FillTiming.NEXT_OPEN and the intraday opening rule in 4.3, opt-in; the default stays SAME_EVENT throughout 4.x; 5.0 makes fill_timing required."
     },
     {
       "item": 6,
@@ -990,6 +990,45 @@
       "compatibility": "Additive: two modules and two extras in a distribution that is not published; SklearnModel's behaviour and messages are unchanged. The workflow's cells are renamed from their scikit-learn version to their frameworks, which no ruleset requires by name.",
       "record": "docs/ADR/0057-optional-distributions-and-backend-protocols.md (settled point 6); docs/ADR/0064-research-model-protocol-and-artifacts.md (settled point 22); distributions/alphalab-models/README.md (installation, trust, what the bytes record, the compatibility matrix)",
       "tests": "distributions/alphalab-models/tests/test_xgboost_and_lightgbm.py (24): each classifier and regressor against the framework's own predictions and restored to the same bytes and predictions; the payload the framework's own format, read back unchanged; seeds and the 64-bit range; LightGBM's seed and threads in the bytes; the artifact store; parameters stated exactly and code refused; binary classifiers; every restore refusal. tests/test_s07.py (9): S-07 with scikit-learn's, XGBoost's and LightGBM's boosting classifiers. The suite's 48 tests pass at the lowest versions declared (scikit-learn 1.7.2, XGBoost 3.0.5, LightGBM 4.6.0) and the latest (1.9.1, 3.4.1, 4.7.0) on CPython 3.12."
+    },
+    {
+      "id": "TD-57",
+      "date": "2026-11-17",
+      "workstream": "WS-11",
+      "title": "ADR-0060 accepted: NEXT_OPEN fill timing with an intraday opening rule, RemainderPolicy, strict caps, latency pricing and conservative builders (D-V4)",
+      "problem": "GAP-18: NEXT_EVENT on bars fills at the next bar's close, and only an OPG order reaches an open. GAP-38: a partial fill's remainder is cancelled in the same step (ADR-0014 decision 3, AC-29), and a capped policy fills in full on an event with no size. GAP-19: latency moves only a timestamp. GAP-53: the defaults are optimistic, each stated, with nothing that states the conservative alternative in one place.",
+      "alternatives": "NEXT_OPEN stamped at the bar's open instant, or at the delivering event as an OPG fill is; a held limit's first turn judged against the open alone, or the resting turn over the whole bar NEXT_EVENT already gives it; the session rule always on, or only with a declared calendar; strict caps as a field on LiquidityCappedFill, or a new policy; latency priced at the latency-shifted event, or kept as a stamp; conservative defaults, or builders that state choices.",
+      "decision": "FillTiming.NEXT_OPEN appended: the order works as under NEXT_EVENT, and at a bar a market order fills at the open instead of the close -- the one change, since a held limit or stop already meets the next bar from its open under NEXT_EVENT; quotes, trades and ticks keep NEXT_EVENT's turn; the fill is stamped at the delivering event, as an OPG fill is. With a declared calendar, bars outside the venue's sessions pass a NEXT_OPEN order by. RemainderPolicy: CANCEL (default) or RestRemainder(events=n | seconds=s). StrictLiquidityCappedFill refuses an event with no size. LatencyPricing: STAMP (default) or POST_LATENCY_EVENT, whose first turn is the asset's first event at or after decision plus latency. conservative_execution states NEXT_OPEN, POST_LATENCY_EVENT and a strict cap, and requires costs, participation and latency. The default stays SAME_EVENT in 4.x (D-V4).",
+      "rationale": "The run keeps one clock, so no fill is stamped before an event already processed for another asset: OPG's precedent. A new field on an existing policy would change describe() for every capped run and move identities. A builder that invented costs would put numbers nobody chose into a run.",
+      "compatibility": "Opt-in throughout: a run declaring none keeps its result_id, configuration_id, snapshot bytes and certificate. M8's persisted additions share one pipeline schema step, 8 to 9, written only when declared.",
+      "record": "docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md",
+      "tests": "Hand-calculated NEXT_OPEN fills at daily and 1-minute bars across a session boundary; remainder policies; strict-cap refusal; latency longer than the bar interval filling at a later bar's price; the builder's choices in execution_assumptions; undeclared runs' pinned identities and the certificate unchanged."
+    },
+    {
+      "id": "TD-58",
+      "date": "2026-11-17",
+      "workstream": "WS-26",
+      "title": "ADR-0061 accepted: per-venue execution models (FUT-045), plans with queues, and ChildFillStrategyProtocol",
+      "problem": "GAP-17 / FUT-045: one ExecutionSimulator per run, so venue choice cannot be measured historically. GAP-44: queued_run refuses a queue model beside an execution plan. GAP-45: a child fill reaches the algorithm book, never the strategy.",
+      "alternatives": "Venue models keyed by listing venue only, or routed by order terms, a declared router or the listing; an unrouted order filled by a default model, or refused; one combined result type, or an optional-books field on an existing one; a child-fill hook on StrategyProtocol, or an optional protocol.",
+      "decision": "ExecutionPipelineConfig.venues maps venue codes to VenueExecution (the venue's simulator: costs and latency); every simulated order routes by OrderTerms.venue, then the declared router (CheapestVenue first), then the listing venue, else it is refused; the routed venue's model fills it; each routing decision is recorded and persisted; children route as their parents, queue levels are per venue; crypto venue specifications build venue models. Plans and queues compose, returning AlgorithmicQueuedResult with both books. ChildFillStrategyProtocol.on_child_fill is dispatched only to implementers, and the optional-protocol pattern is codified.",
+      "rationale": "FUT-045's three ledger criteria verbatim; refusing an unrouted order keeps a model nobody chose out of a run; AC-08 keeps driver books beside the run, and AC-35 extends the strategy boundary only by optional protocols.",
+      "compatibility": "Additive: empty defaults, an optional OrderTerms field written only when set, one result type, one optional protocol. One-model runs keep their identities; multi-venue runs are new identities by definition. Schema 8 to 9 shared with ADR-0060.",
+      "record": "docs/ADR/0061-per-venue-execution-plans-with-queues-and-child-fills.md",
+      "tests": "Fills by the routed venue's model; the routing record; the description in the configuration; a two-venue run reconciled per venue (GR-4); TWAP children in a queue; pause and resume of a plan-and-queue run byte-identical; a subscribed strategy receives child fills and others are unchanged; StrategyProtocol unchanged in the manifest."
+    },
+    {
+      "id": "TD-59",
+      "date": "2026-11-17",
+      "workstream": "WS-11",
+      "title": "ADR-0062 accepted: package intents -- a pair trades as one order, all legs or none, at one instant (N16)",
+      "problem": "GAP-26: every intent names one instrument, so a pair's legs are sized, approved and filled apart, and one can fill while the other is refused, capped or blocked.",
+      "alternatives": "A new intent type beside Intent (changing StrategyProtocol's return type) or an IntentKind with legs on Intent; legs netted with single-instrument intents or kept apart; legs filled at each asset's own event or together at a slice close; limit packages now or later.",
+      "decision": "IntentKind.PACKAGE and Intent.legs (Leg(instrument, ratio)); target is the signed number of packages; allocation nets packages with equal legs and terms, never with legs; risk approves or refuses the package whole against the book projected with every leg; the OMS holds linked leg orders, accepted and terminal together, never worked alone; execution fills every leg or none at a slice close in which every leg was priced, under the run's fill timing; costs and venues per leg; persisted in schema 9 only when a package was placed. Market packages first; others are refused.",
+      "rationale": "The engine knows two assets' prices together only at an instant both were observed, which is the slice it already closes. StrategyProtocol stays pinned.",
+      "compatibility": "Additive: an appended intent kind, a trailing field with an empty default, a Leg type and an optional package identifier; a run placing no package is unchanged.",
+      "record": "docs/ADR/0062-combo-and-multi-leg-intents.md",
+      "tests": "Leg atomicity under caps, blocks and refusals; a pair traded as one order; netting across strategies; risk refusing the package whole; the accounting differential test over packages."
     }
   ],
   "plan_changes": [
@@ -1041,6 +1080,13 @@
       "decision": "Owner approved, 2026-11-15 (proposed under delegated authority, TD-17). On 2026-11-16 the owner approved the M6 output-identical change to the trace's writer (466d350, amended as ce20731 with its certificate corrected), the limits unchanged: the approval is of the change, and the gate passes only by a hosted measurement within the limits. A result above 15 percent stays a failed gate; the remedy is further output-identical optimisation, and a decision beyond the approved limits goes to the owner (TD-32). On 2026-11-16 the owner decided where it is judged (TD-39). Hosted Linux x86-64 under CPython 3.12, 3.13 and 3.14 is authoritative, by the paired-median method on unrounded figures, a figure over either limit a failure. A fixed, documented reference machine monitors regressions and never substitutes for a failed Linux gate. Hosted macOS stays in the functional CI matrix, its timing diagnostic only, an unreliable figure recorded as such and never as a pass. The limits are unchanged. PC-07 PASSED under this policy: benchmarks run 43821336553 on 3a95cef, the median of nine paired ratios, unrounded: CPython 3.12 series +1.84, +3.86, +3.43, +4.55% and series and trace +8.40, +9.92, +9.67, +9.56%; 3.13 series +1.63, +2.18, +2.72, +3.36% and series and trace +7.65, +7.58, +7.80, +8.09%; 3.14 series +1.29, +1.72, +2.88, +3.49% and series and trace +7.41, +6.30, +7.86, +8.05%, at a trade every 1, 2, 4 and 8 records.",
       "change": "Plan K.1 budgets the capture at 10 percent of the run's time; that target stays the plan's record. Approved limits: the return series alone at most 10 percent, and the series with its complete economic-history trace at most 15 percent, measured at several trade densities, sparse and dense. 15 percent is a ceiling, not a target: optimisation continues wherever it costs nothing in correctness or research integrity, and trace coverage, canonical form and reproducibility are never weakened to meet a budget. A combined result above 15 percent is a failed performance gate, brought to the owner for a new decision; the limit is never raised silently. benchmarks/benchmark_capture.py enforces both limits.",
       "reason": "Measured on a strategy that does no work of its own, the case where every ratio is largest: the series costs 1 to 4 percent of the run, and series and trace together 12.6 to 14.4 percent at a trade on every record and on every second, fourth and eighth, where digest_run costs 76 to 105 percent. Unlike PC-06, no design met 10 percent. The canonical serialization was made 2.7 times faster, byte for byte. Narrowing the trace would still miss: with a trade on every eighth record it costs 12.2 percent without the order events and 11.4 percent without the equity points, because most of its cost is the work it does every step. Covering less would make the trace identify less of the history. The cost is a fixed amount per step, so it is a smaller share of a run whose strategy computes anything (LIM-013)."
+    },
+    {
+      "id": "PC-08",
+      "date": "2026-11-17",
+      "decision": "Delegated authority (TD-58)",
+      "change": "WS-10's strategy.compose helpers, typed-configuration templates and authoring guide are scheduled at M13, beside S-12, which needs them. Section S gives WS-10 to M8 for its child-fill protocol only, and assigns its other deliverables to no milestone.",
+      "reason": "S-12, M13's exit scenario, is a composite strategy authored from the guide, so the helpers and the guide must exist by M13. Placing them there records a commitment the milestone table left implicit, and moves nothing that was scheduled."
     }
   ],
   "milestones": [
@@ -1268,7 +1314,7 @@
       "deliverables": "`NEXT_OPEN`; intraday opening; `RemainderPolicy`; latency pricing; plan + queue; child fills; combos; per-venue models",
       "exit_gate": "S-09; GR-4; leg atomicity; certificate unchanged for default runs",
       "size": "XL",
-      "status": "Not started",
+      "status": "In progress",
       "evidence": []
     },
     {
@@ -1334,7 +1380,8 @@
         "WS-22",
         "WS-29",
         "WS-20",
-        "WS-01"
+        "WS-01",
+        "WS-10"
       ],
       "entry": "M5, M9, M10, M12",
       "deliverables": "`alphalab.lab`; FUT-044; release machinery; v4.3 fixtures frozen; re-certification; CHANGELOG; API history",
@@ -1880,17 +1927,17 @@
         {
           "milestone": "M7",
           "item": "GAP-48: ml's duplicate helpers and splitters deprecated in documentation, each docstring naming its replacement in common.linalg or research, kept until 5.0 (TD-55, ADR-0064 settled point 23)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M7",
           "item": "WS-08 item 15's budget: a point-in-time training set for 500 assets over 2,520 days in 15.2 CPU s against 60 (benchmarks/benchmark_ml_datasets.py)",
-          "status": "Local validation passed"
+          "status": "Pushed"
         },
         {
           "milestone": "M7",
           "item": "Mutation series ML (35): the training set's identity, the capture's checks, the reference models' arithmetic and refusals, labels, point-in-time panels, the samplers and successive halving, candidates' scores, and Feature Store's as-of reads -- 35 of 35 caught, ML08 and ML32 after the tests they asked for, ML20 restated",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": []
@@ -1927,7 +1974,7 @@
         {
           "milestone": "M7",
           "item": "XGBoost's and LightGBM's adapters (TD-56, ADR-0057 settled point 6, ADR-0064 settled point 22): each framework's own model format as the payload, parameters stated exactly, prediction through the loaded booster, S-07 with each framework's boosting classifier, and CI cells across the lowest and latest of every framework",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -1936,10 +1983,22 @@
       "id": "WS-10",
       "title": "Strategy authoring and safe extensibility",
       "milestones": [
-        "M8"
+        "M8",
+        "M13"
       ],
       "status": "Not started",
-      "items": [],
+      "items": [
+        {
+          "milestone": "M8",
+          "item": "ChildFillStrategyProtocol and the optional-protocol pattern codified (ADR-0061 section 3, GAP-45)",
+          "status": "Not started"
+        },
+        {
+          "milestone": "M13",
+          "item": "strategy.compose helpers, typed-configuration templates and the authoring guide: needed by S-12 at M13. The plan's milestone table gives WS-10 to M8 for its child-fill protocol only, so these are recorded here to be scheduled",
+          "status": "Not started"
+        }
+      ],
       "evidence": []
     },
     {
@@ -1948,8 +2007,19 @@
       "milestones": [
         "M8"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M8",
+          "item": "ADR-0060 accepted (TD-57): NEXT_OPEN and the intraday opening rule, RemainderPolicy, strict caps, latency pricing, conservative builders (D-V4)",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M8",
+          "item": "ADR-0062 accepted (TD-59): package intents, all legs or none at one instant (N16)",
+          "status": "Local validation passed"
+        }
+      ],
       "evidence": []
     },
     {
@@ -2098,7 +2168,7 @@
         {
           "milestone": "M7",
           "item": "The machine-learning guide, docs/ML.md (GAP-49's M7 part), indexed, with example 81",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": [
@@ -2254,8 +2324,14 @@
       "milestones": [
         "M8"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M8",
+          "item": "ADR-0061 accepted (TD-58): per-venue execution models and routing (FUT-045), plans with queues, child fills",
+          "status": "Local validation passed"
+        }
+      ],
       "evidence": []
     },
     {
@@ -3014,7 +3090,7 @@
       "plan_section": "§J",
       "workstream": "WS-11",
       "needed": "Before M8",
-      "status": "Not drafted in the repository"
+      "status": "Accepted (2026-11-17)"
     },
     {
       "id": "ADR-0061",
@@ -3022,7 +3098,7 @@
       "plan_section": "§J, §T",
       "workstream": "WS-26",
       "needed": "Before M8",
-      "status": "Not drafted in the repository"
+      "status": "Accepted (2026-11-17)"
     },
     {
       "id": "ADR-0062",
@@ -3030,7 +3106,7 @@
       "plan_section": "§J",
       "workstream": "WS-11",
       "needed": "Before M8",
-      "status": "Not drafted in the repository"
+      "status": "Accepted (2026-11-17)"
     },
     {
       "id": "ADR-0063",
@@ -3156,7 +3232,7 @@
   },
   "state": {
     "updated": "2026-11-17",
-    "remote_head": "575d48b",
+    "remote_head": "1f749f3",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4034,10 +4110,70 @@
         "workflow": "Optional Distributions",
         "run": 44085662467,
         "result": "success: alphalab-models on all four cells, S-07 with scikit-learn's gradient boosting among its tests"
+      },
+      {
+        "sha": "3379fc8",
+        "workflow": "Continuous Integration",
+        "run": 44108670690,
+        "result": "the three Linux cells passed; the three macOS cells were never acquired by a hosted runner and ended cancelled with no step run; re-run, in progress at this record, not counted as passed. Its code passed all six cells in 575d48b's run, which carries it"
+      },
+      {
+        "sha": "3379fc8",
+        "workflow": "CodeQL",
+        "run": 44108670279,
+        "result": "success"
+      },
+      {
+        "sha": "3379fc8",
+        "workflow": "Optional Distributions",
+        "run": 44108671608,
+        "result": "success, all four cells"
+      },
+      {
+        "sha": "575d48b",
+        "workflow": "Continuous Integration",
+        "run": 44110185663,
+        "result": "success: all six quality-gate cells, carrying XGBoost's and LightGBM's adapters and 3379fc8"
+      },
+      {
+        "sha": "575d48b",
+        "workflow": "CodeQL",
+        "run": 44110185678,
+        "result": "success"
+      },
+      {
+        "sha": "575d48b",
+        "workflow": "Optional Distributions",
+        "run": 44110185286,
+        "result": "success, its first run across every framework: the latest on CPython 3.12, 3.13 and 3.14 (scikit-learn 1.9.1, XGBoost 3.4.1, LightGBM 4.7.0) and the lowest on 3.12 (1.7.2, 3.0.5, 4.6.0), 48 tests each"
+      },
+      {
+        "sha": "1f749f3",
+        "workflow": "Continuous Integration",
+        "run": 44111739939,
+        "result": "five cells passed; macOS 3.14 was never acquired by a hosted runner and ended cancelled with no step run; re-run, queued at this record, not counted as passed"
+      },
+      {
+        "sha": "1f749f3",
+        "workflow": "CodeQL",
+        "run": 44111740061,
+        "result": "success"
+      },
+      {
+        "sha": "1f749f3",
+        "workflow": "Optional Distributions",
+        "run": 44111739963,
+        "result": "success, all four cells"
+      },
+      {
+        "sha": "1f749f3",
+        "workflow": "Benchmarks",
+        "run": 44136412090,
+        "result": "dispatched at M7's checkpoint; in progress at this record, not counted as passed"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M7 on hosted CI: the close's runs, Optional Distributions' first run across every framework, and the benchmarks workflow dispatched at M7's checkpoint, WS-08 item 15 read on its Linux cells. Then M8 (WS-11, WS-26): NEXT_OPEN, remainders, latency, plan and queue, child fills, combos and per-venue execution, with ADR-0060, ADR-0061 and ADR-0062.",
+    "next": "M8 (WS-11, WS-26, WS-10's child-fill protocol), in the plan's commit order: NEXT_OPEN and the intraday opening rule; RemainderPolicy and strict caps; latency pricing; plans with queues; child-fill feedback; package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide. M7's re-run macOS cells and the checkpoint benchmarks are read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -4384,6 +4520,14 @@
     {
       "date": "2026-11-17",
       "entry": "575d48b (XGBoost's and LightGBM's adapters, TD-56) passed the full gate (14,081 tests) and was pushed. M7's close: the ML series' 35 mutations caught, ML08 and ML32 after the tests they asked for and ML20 restated; WS-08 item 15's dataset budget at 15.2 CPU s against 60 on the reference machine; docs/ML.md; GAP-12 closed. M7 waits on hosted CI and the owner's acceptance."
+    },
+    {
+      "date": "2026-11-17",
+      "entry": "1f749f3 (M7's close) passed the full gate (14,084 tests) and was pushed, after 3379fc8 and 575d48b (each 14,081). Hosted CI: every Linux cell, CodeQL and every Optional Distributions cell passed on all three; 575d48b passed all six cells, and Optional Distributions' first run across every framework passed at both ends of each range. Four macOS cells, three on 3379fc8 and one on 1f749f3, were never acquired by a hosted runner; they were re-run and are not counted as passed. The benchmarks were dispatched at M7's checkpoint (44136412090)."
+    },
+    {
+      "date": "2026-11-17",
+      "entry": "M8 begun. Its scope was derived from the plan's WS-11, WS-26 and WS-10 sections, its section J rows, sections S and T and the register's gaps before any code. ADR-0060, ADR-0061 and ADR-0062 accepted under delegation (TD-57 to TD-59), and D-V4 decided: NEXT_OPEN opt-in in 4.3, the default unchanged until 5.0. WS-10's compose helpers, typed-configuration templates and authoring guide are recorded for M13's S-12, since the plan's milestone table gives WS-10 to M8 for its child-fill protocol only. Reading _fill_working_orders before the ADRs were pushed corrected ADR-0060's first section: under NEXT_EVENT a held limit or stop already takes a resting turn over the whole next bar, reading it from its open, so NEXT_OPEN changes only the price of a market order's turn."
     }
   ]
 }

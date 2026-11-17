@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `575d48b` |
+| Remote head | `1f749f3` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M7 on hosted CI: the close's runs, Optional Distributions' first run across every framework, and the benchmarks workflow dispatched at M7's checkpoint, WS-08 item 15 read on its Linux cells. Then M8 (WS-11, WS-26): NEXT_OPEN, remainders, latency, plan and queue, child fills, combos and per-venue execution, with ADR-0060, ADR-0061 and ADR-0062. |
+| Next | M8 (WS-11, WS-26, WS-10's child-fill protocol), in the plan's commit order: NEXT_OPEN and the intraday opening rule; RemainderPolicy and strict caps; latency pricing; plans with queues; child-fill feedback; package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide. M7's re-run macOS cells and the checkpoint benchmarks are read once at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -198,6 +198,16 @@ Never:
 | `3ef1780` | Continuous Integration | 44085662191 | success: all six quality-gate cells, carrying S-07 end to end |
 | `3ef1780` | CodeQL | 44085662633 | success |
 | `3ef1780` | Optional Distributions | 44085662467 | success: alphalab-models on all four cells, S-07 with scikit-learn's gradient boosting among its tests |
+| `3379fc8` | Continuous Integration | 44108670690 | the three Linux cells passed; the three macOS cells were never acquired by a hosted runner and ended cancelled with no step run; re-run, in progress at this record, not counted as passed. Its code passed all six cells in 575d48b's run, which carries it |
+| `3379fc8` | CodeQL | 44108670279 | success |
+| `3379fc8` | Optional Distributions | 44108671608 | success, all four cells |
+| `575d48b` | Continuous Integration | 44110185663 | success: all six quality-gate cells, carrying XGBoost's and LightGBM's adapters and 3379fc8 |
+| `575d48b` | CodeQL | 44110185678 | success |
+| `575d48b` | Optional Distributions | 44110185286 | success, its first run across every framework: the latest on CPython 3.12, 3.13 and 3.14 (scikit-learn 1.9.1, XGBoost 3.4.1, LightGBM 4.7.0) and the lowest on 3.12 (1.7.2, 3.0.5, 4.6.0), 48 tests each |
+| `1f749f3` | Continuous Integration | 44111739939 | five cells passed; macOS 3.14 was never acquired by a hosted runner and ended cancelled with no step run; re-run, queued at this record, not counted as passed |
+| `1f749f3` | CodeQL | 44111740061 | success |
+| `1f749f3` | Optional Distributions | 44111739963 | success, all four cells |
+| `1f749f3` | Benchmarks | 44136412090 | dispatched at M7's checkpoint; in progress at this record, not counted as passed |
 
 ## Continuation log
 
@@ -287,6 +297,8 @@ Never:
 - **2026-11-17** 3ef1780 (S-07) passed hosted CI on all six cells and CodeQL, and Optional Distributions on all four cells. M7's ML mutation series ran on the working tree: 33 of 35 caught, ML08 and ML32 surviving, and ML20's catch false (its mutant called a name labels.py never imports); each was answered, and the series' results are recorded at M7's close. Checking M7 against the plan's WS-08 and WS-09 before closing it found two deliverables open: GAP-48's deprecation of ml's duplicates, delivered here (TD-55), and ADR-0057's XGBoost and LightGBM adapters, next. The deprecation was first built to warn on call; the suite refused it, since the package raises no warning, and it is documented as the plan's migration register says.
 - **2026-11-17** 3379fc8 (GAP-48's deprecation, TD-55) passed the full gate (14,081 tests) and was pushed. XGBoost's and LightGBM's adapters validated locally (TD-56): their own model formats as payloads, parameters stated exactly because XGBoost's reloaded wrapper rewrites its own, and S-07 with each framework's boosting classifier. The distribution's 48 tests pass at the lowest and the latest of every framework. At the lowest, LightGBM 4.6's own estimator warned about feature names it had given a NumPy fit itself; the adapter predicts through the booster and never meets it.
 - **2026-11-17** 575d48b (XGBoost's and LightGBM's adapters, TD-56) passed the full gate (14,081 tests) and was pushed. M7's close: the ML series' 35 mutations caught, ML08 and ML32 after the tests they asked for and ML20 restated; WS-08 item 15's dataset budget at 15.2 CPU s against 60 on the reference machine; docs/ML.md; GAP-12 closed. M7 waits on hosted CI and the owner's acceptance.
+- **2026-11-17** 1f749f3 (M7's close) passed the full gate (14,084 tests) and was pushed, after 3379fc8 and 575d48b (each 14,081). Hosted CI: every Linux cell, CodeQL and every Optional Distributions cell passed on all three; 575d48b passed all six cells, and Optional Distributions' first run across every framework passed at both ends of each range. Four macOS cells, three on 3379fc8 and one on 1f749f3, were never acquired by a hosted runner; they were re-run and are not counted as passed. The benchmarks were dispatched at M7's checkpoint (44136412090).
+- **2026-11-17** M8 begun. Its scope was derived from the plan's WS-11, WS-26 and WS-10 sections, its section J rows, sections S and T and the register's gaps before any code. ADR-0060, ADR-0061 and ADR-0062 accepted under delegation (TD-57 to TD-59), and D-V4 decided: NEXT_OPEN opt-in in 4.3, the default unchanged until 5.0. WS-10's compose helpers, typed-configuration templates and authoring guide are recorded for M13's S-12, since the plan's milestone table gives WS-10 to M8 for its child-fill protocol only. Reading _fill_working_orders before the ADRs were pushed corrected ADR-0060's first section: under NEXT_EVENT a held limit or stop already takes a resting turn over the whole next bar, reading it from its open, so NEXT_OPEN changes only the price of a market order's turn.
 
 ## Milestones
 
@@ -301,12 +313,12 @@ Never:
 | M5 | Hosted CI passed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Hosted CI passed | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Pushed | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
-| M8 | Not started | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
+| M8 | In progress | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
 | M9 | Not started | WS-12 | A rebalancing backtest with CVaR, certified |
 | M10 | Not started | WS-13, WS-27, WS-14, WS-28 | S-03, S-04, S-05, S-06, S-14; GR-1, GR-3, GR-6 |
 | M11 | Not started | WS-15, WS-09, WS-25, WS-21 | Benchmarks; the 500-asset × 10-year run ≤ 5 minutes with the same `result_id` |
 | M12 | Not started | WS-16, WS-18, WS-20 | S-08; a stress family reproduced |
-| M13 | Not started | WS-19, WS-22, WS-29, WS-20, WS-01 | S-01, S-10, S-12; FUT-044 criteria; RQ-01..09 rehearsal |
+| M13 | Not started | WS-19, WS-22, WS-29, WS-20, WS-01, WS-10 | S-01, S-10, S-12; FUT-044 criteria; RQ-01..09 rehearsal |
 | After M13 | Not started | WS-17 | Depth oracles |
 
 - **G0:** Items 1-3 and the directions of 23-24 approved by the owner; the charter accepted as ADR-0056; the rest delegated on 2026-11-10 and decided at their milestones (PC-03).
@@ -321,7 +333,7 @@ Never:
 | 2 | D-V1 | Universal quantitative-engine charter revision | Approved | G0; its documents in M0 | Reconcile the five documents that state the product's direction -- ROADMAP.md, docs/VISION.md, nowandfuture.md, docs/ARCHITECTURE.md and docs/SYSTEM_DESIGN.md -- around one authoritative product vision, preserving the no-single-runtime architectural boundary. The charter ADR's number waits for item 16. Delivered as ADR-0056 (accepted 2026-11-10). |
 | 3 | D-V2 | Optional, separately installable research and computational dependencies | Approved | M7 | The AlphaLab core stays free of mandatory runtime dependencies; optional packages integrate through stable core interfaces (AC-38). |
 | 4 | D-V3 | Boundary reopenings (plan section P.2) | Delegated (2026-11-10): decided at its milestone | Each before its milestone (M2-M10) | Each reopening gets its own ADR before its milestone. Not to be assumed. Decided so far: OFE-007 (a fitted half-life) reopened by ADR-0074, and OFE-010 (statistical regime models) reopened by ADR-0075, both 2026-11-16 (TD-30, TD-31). |
-| 5 | D-V4 | Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0 | Delegated (2026-11-10): decided at its milestone | Before M8 | — |
+| 5 | D-V4 | Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0 | Decided under delegation (2026-11-17) | Before M8 | TD-57, ADR-0060: FillTiming.NEXT_OPEN and the intraday opening rule in 4.3, opt-in; the default stays SAME_EVENT throughout 4.x; 5.0 makes fill_timing required. |
 | 6 | ADR-0053 | ADR-0053 revised (R53-1..8, CR-53-1..9) | Decided under delegation (2026-11-10) | Before M1 | ADR-0053 revision 3 accepted: the draft's option C-e with R53-1 to R53-8 applied and CR-53-1 to CR-53-9 held, departing from R53-1's letter where TD-06 records. Implemented in M1. |
 | 7 | ADR-0054 | ADR-0054 split into 0054A and 0054B; D-54-5 revised | Delegated (2026-11-10): decided at its milestone | 0054A before M2; 0054B before M4 | 0054A accepted as ADR-0054 on 2026-11-14 (TD-10), applying R54-8, D-54-2, D-54-4 and D-54-12; 0054B, the experiment and trial ledger, is ADR-0072, before M4. |
 | 8 | ADR-0055 | Streaming capture and trace identity | Delegated (2026-11-10): decided at its milestone | Before M3 | — |
@@ -913,6 +925,36 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0057-optional-distributions-and-backend-protocols.md (settled point 6); docs/ADR/0064-research-model-protocol-and-artifacts.md (settled point 22); distributions/alphalab-models/README.md (installation, trust, what the bytes record, the compatibility matrix)
 - **Tests:** distributions/alphalab-models/tests/test_xgboost_and_lightgbm.py (24): each classifier and regressor against the framework's own predictions and restored to the same bytes and predictions; the payload the framework's own format, read back unchanged; seeds and the 64-bit range; LightGBM's seed and threads in the bytes; the artifact store; parameters stated exactly and code refused; binary classifiers; every restore refusal. tests/test_s07.py (9): S-07 with scikit-learn's, XGBoost's and LightGBM's boosting classifiers. The suite's 48 tests pass at the lowest versions declared (scikit-learn 1.7.2, XGBoost 3.0.5, LightGBM 4.6.0) and the latest (1.9.1, 3.4.1, 4.7.0) on CPython 3.12.
 
+### TD-57: ADR-0060 accepted: NEXT_OPEN fill timing with an intraday opening rule, RemainderPolicy, strict caps, latency pricing and conservative builders (D-V4) (WS-11, 2026-11-17)
+
+- **Problem:** GAP-18: NEXT_EVENT on bars fills at the next bar's close, and only an OPG order reaches an open. GAP-38: a partial fill's remainder is cancelled in the same step (ADR-0014 decision 3, AC-29), and a capped policy fills in full on an event with no size. GAP-19: latency moves only a timestamp. GAP-53: the defaults are optimistic, each stated, with nothing that states the conservative alternative in one place.
+- **Alternatives:** NEXT_OPEN stamped at the bar's open instant, or at the delivering event as an OPG fill is; a held limit's first turn judged against the open alone, or the resting turn over the whole bar NEXT_EVENT already gives it; the session rule always on, or only with a declared calendar; strict caps as a field on LiquidityCappedFill, or a new policy; latency priced at the latency-shifted event, or kept as a stamp; conservative defaults, or builders that state choices.
+- **Decision:** FillTiming.NEXT_OPEN appended: the order works as under NEXT_EVENT, and at a bar a market order fills at the open instead of the close -- the one change, since a held limit or stop already meets the next bar from its open under NEXT_EVENT; quotes, trades and ticks keep NEXT_EVENT's turn; the fill is stamped at the delivering event, as an OPG fill is. With a declared calendar, bars outside the venue's sessions pass a NEXT_OPEN order by. RemainderPolicy: CANCEL (default) or RestRemainder(events=n | seconds=s). StrictLiquidityCappedFill refuses an event with no size. LatencyPricing: STAMP (default) or POST_LATENCY_EVENT, whose first turn is the asset's first event at or after decision plus latency. conservative_execution states NEXT_OPEN, POST_LATENCY_EVENT and a strict cap, and requires costs, participation and latency. The default stays SAME_EVENT in 4.x (D-V4).
+- **Rationale:** The run keeps one clock, so no fill is stamped before an event already processed for another asset: OPG's precedent. A new field on an existing policy would change describe() for every capped run and move identities. A builder that invented costs would put numbers nobody chose into a run.
+- **Compatibility:** Opt-in throughout: a run declaring none keeps its result_id, configuration_id, snapshot bytes and certificate. M8's persisted additions share one pipeline schema step, 8 to 9, written only when declared.
+- **Recorded in:** docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md
+- **Tests:** Hand-calculated NEXT_OPEN fills at daily and 1-minute bars across a session boundary; remainder policies; strict-cap refusal; latency longer than the bar interval filling at a later bar's price; the builder's choices in execution_assumptions; undeclared runs' pinned identities and the certificate unchanged.
+
+### TD-58: ADR-0061 accepted: per-venue execution models (FUT-045), plans with queues, and ChildFillStrategyProtocol (WS-26, 2026-11-17)
+
+- **Problem:** GAP-17 / FUT-045: one ExecutionSimulator per run, so venue choice cannot be measured historically. GAP-44: queued_run refuses a queue model beside an execution plan. GAP-45: a child fill reaches the algorithm book, never the strategy.
+- **Alternatives:** Venue models keyed by listing venue only, or routed by order terms, a declared router or the listing; an unrouted order filled by a default model, or refused; one combined result type, or an optional-books field on an existing one; a child-fill hook on StrategyProtocol, or an optional protocol.
+- **Decision:** ExecutionPipelineConfig.venues maps venue codes to VenueExecution (the venue's simulator: costs and latency); every simulated order routes by OrderTerms.venue, then the declared router (CheapestVenue first), then the listing venue, else it is refused; the routed venue's model fills it; each routing decision is recorded and persisted; children route as their parents, queue levels are per venue; crypto venue specifications build venue models. Plans and queues compose, returning AlgorithmicQueuedResult with both books. ChildFillStrategyProtocol.on_child_fill is dispatched only to implementers, and the optional-protocol pattern is codified.
+- **Rationale:** FUT-045's three ledger criteria verbatim; refusing an unrouted order keeps a model nobody chose out of a run; AC-08 keeps driver books beside the run, and AC-35 extends the strategy boundary only by optional protocols.
+- **Compatibility:** Additive: empty defaults, an optional OrderTerms field written only when set, one result type, one optional protocol. One-model runs keep their identities; multi-venue runs are new identities by definition. Schema 8 to 9 shared with ADR-0060.
+- **Recorded in:** docs/ADR/0061-per-venue-execution-plans-with-queues-and-child-fills.md
+- **Tests:** Fills by the routed venue's model; the routing record; the description in the configuration; a two-venue run reconciled per venue (GR-4); TWAP children in a queue; pause and resume of a plan-and-queue run byte-identical; a subscribed strategy receives child fills and others are unchanged; StrategyProtocol unchanged in the manifest.
+
+### TD-59: ADR-0062 accepted: package intents -- a pair trades as one order, all legs or none, at one instant (N16) (WS-11, 2026-11-17)
+
+- **Problem:** GAP-26: every intent names one instrument, so a pair's legs are sized, approved and filled apart, and one can fill while the other is refused, capped or blocked.
+- **Alternatives:** A new intent type beside Intent (changing StrategyProtocol's return type) or an IntentKind with legs on Intent; legs netted with single-instrument intents or kept apart; legs filled at each asset's own event or together at a slice close; limit packages now or later.
+- **Decision:** IntentKind.PACKAGE and Intent.legs (Leg(instrument, ratio)); target is the signed number of packages; allocation nets packages with equal legs and terms, never with legs; risk approves or refuses the package whole against the book projected with every leg; the OMS holds linked leg orders, accepted and terminal together, never worked alone; execution fills every leg or none at a slice close in which every leg was priced, under the run's fill timing; costs and venues per leg; persisted in schema 9 only when a package was placed. Market packages first; others are refused.
+- **Rationale:** The engine knows two assets' prices together only at an instant both were observed, which is the slice it already closes. StrategyProtocol stays pinned.
+- **Compatibility:** Additive: an appended intent kind, a trailing field with an empty default, a Leg type and an optional package identifier; a run placing no package is unchanged.
+- **Recorded in:** docs/ADR/0062-combo-and-multi-leg-intents.md
+- **Tests:** Leg atomicity under caps, blocks and refusals; a pair traded as one order; netting across strategies; risk refusing the package whole; the accounting differential test over packages.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -924,6 +966,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | PC-05 | 2026-11-14 | Delegated authority (TD-12) | WS-03's M2 item 'ml.linalg and ml's splits delegate (GAP-48)' delivers one authority on every path outside ml -- the duplicates documented, kept unchanged, and held off every other module by a regression test -- and GAP-48's deprecation, with the replacements a deprecation must name, moves to M7, GAP-48's own milestone, with WS-08's work on ml's public surface. Removal stays 5.0. | Delegation would change what the duplicates return to their callers. ml's splitters split sample indices and give the last fold the remainder; the research splitters split timestamps with a validation window, purging and no partial fold. ml.linalg's matrix_inverse refuses at an absolute pivot of 1e-12, and common.linalg has no general inverse, nor any matmul, transpose or identity to name as a replacement. ADR-0015 section 9 requires a deprecation to name its replacement and removal release, and the charter forbids a breaking change for convenience; the plan itself holds GAP-48 at M7 in its gap register. |
 | PC-06 | 2026-11-14 | Delegated authority (TD-11) | Plan H.1 names cyclic Jacobi as the symmetric eigensystem's algorithm. common.linalg.symmetric_eigensystem is Householder tridiagonalization and implicit QL (Bowdler, Martin, Reinsch and Wilkinson's tql2) instead; the thin SVD stays one-sided Jacobi as H.1 names it. H.1's validation -- reconstruction bounds, orthogonality, known matrices -- and WS-03's budget are kept. | The two parts of the plan could not both hold: cyclic Jacobi was written first and measured at 147.5 s for a 500 x 500 eigensystem against WS-03's 30 s budget; Householder and implicit QL, equally backward stable with orthonormal vectors, measured 20.7 s. Of an algorithm and a budget, the budget is the acceptance criterion. |
 | PC-07 | 2026-11-15 | Owner approved, 2026-11-15 (proposed under delegated authority, TD-17). On 2026-11-16 the owner approved the M6 output-identical change to the trace's writer (466d350, amended as ce20731 with its certificate corrected), the limits unchanged: the approval is of the change, and the gate passes only by a hosted measurement within the limits. A result above 15 percent stays a failed gate; the remedy is further output-identical optimisation, and a decision beyond the approved limits goes to the owner (TD-32). On 2026-11-16 the owner decided where it is judged (TD-39). Hosted Linux x86-64 under CPython 3.12, 3.13 and 3.14 is authoritative, by the paired-median method on unrounded figures, a figure over either limit a failure. A fixed, documented reference machine monitors regressions and never substitutes for a failed Linux gate. Hosted macOS stays in the functional CI matrix, its timing diagnostic only, an unreliable figure recorded as such and never as a pass. The limits are unchanged. PC-07 PASSED under this policy: benchmarks run 43821336553 on 3a95cef, the median of nine paired ratios, unrounded: CPython 3.12 series +1.84, +3.86, +3.43, +4.55% and series and trace +8.40, +9.92, +9.67, +9.56%; 3.13 series +1.63, +2.18, +2.72, +3.36% and series and trace +7.65, +7.58, +7.80, +8.09%; 3.14 series +1.29, +1.72, +2.88, +3.49% and series and trace +7.41, +6.30, +7.86, +8.05%, at a trade every 1, 2, 4 and 8 records. | Plan K.1 budgets the capture at 10 percent of the run's time; that target stays the plan's record. Approved limits: the return series alone at most 10 percent, and the series with its complete economic-history trace at most 15 percent, measured at several trade densities, sparse and dense. 15 percent is a ceiling, not a target: optimisation continues wherever it costs nothing in correctness or research integrity, and trace coverage, canonical form and reproducibility are never weakened to meet a budget. A combined result above 15 percent is a failed performance gate, brought to the owner for a new decision; the limit is never raised silently. benchmarks/benchmark_capture.py enforces both limits. | Measured on a strategy that does no work of its own, the case where every ratio is largest: the series costs 1 to 4 percent of the run, and series and trace together 12.6 to 14.4 percent at a trade on every record and on every second, fourth and eighth, where digest_run costs 76 to 105 percent. Unlike PC-06, no design met 10 percent. The canonical serialization was made 2.7 times faster, byte for byte. Narrowing the trace would still miss: with a trade on every eighth record it costs 12.2 percent without the order events and 11.4 percent without the equity points, because most of its cost is the work it does every step. Covering less would make the trace identify less of the history. The cost is a fixed amount per step, so it is a smaller share of a run whose strategy computes anything (LIM-013). |
+| PC-08 | 2026-11-17 | Delegated authority (TD-58) | WS-10's strategy.compose helpers, typed-configuration templates and authoring guide are scheduled at M13, beside S-12, which needs them. Section S gives WS-10 to M8 for its child-fill protocol only, and assigns its other deliverables to no milestone. | S-12, M13's exit scenario, is a composite strategy authored from the guide, so the helpers and the guide must exist by M13. Placing them there records a commitment the milestone table left implicit, and moves nothing that was scheduled. |
 
 ## Workstreams
 
@@ -939,8 +982,8 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-07 | Econometrics and time series | M6 | Hosted CI passed |
 | WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | In progress |
 | WS-09 | Optional distributions and backends | M7, M11 | In progress |
-| WS-10 | Strategy authoring and safe extensibility | M8 | Not started |
-| WS-11 | Execution realism: fills, partial fills, latency, plan+queue, combos | M8 | Not started |
+| WS-10 | Strategy authoring and safe extensibility | M8, M13 | Not started |
+| WS-11 | Execution realism: fills, partial fills, latency, plan+queue, combos | M8 | In progress |
 | WS-12 | Portfolio construction and rebalancing | M9 | Not started |
 | WS-13 | Global conventions, reference data and historical universes | M2, M3, M10 | In progress |
 | WS-14 | Fixed income and rates | M10 | Not started |
@@ -955,7 +998,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-23 | Security and trust boundaries | M0, M4 | In progress |
 | WS-24 | Validation over actual backtests | M5 | In progress |
 | WS-25 | Factor and feature research | M6, M11 | In progress |
-| WS-26 | Per-venue execution (FUT-045) | M8 | Not started |
+| WS-26 | Per-venue execution (FUT-045) | M8 | In progress |
 | WS-27 | FX and multi-currency correctness | M10 | Not started |
 | WS-28 | Options and futures depth | M10 | Not started |
 | WS-29 | Release engineering and v4.3.0 artifacts | M0, M13 | In progress |
@@ -1108,9 +1151,9 @@ Evidence:
 - [Hosted CI passed] M7: Searches beyond the grid (TD-50, ADR-0064 settled points 16 to 18): random and Latin hypercube spaces drawn by SHA-256 of their seed, and successive halving whose rounds are child experiments, every configuration a counted trial
 - [Hosted CI passed] M7: Feature Store reads as of an instant (TD-51, ADR-0064 settled point 19): a timeline of every write with when it was known, value_as_of, and ml.build_dataset_as_of, held by the counterfactual-future test; GAP-13 closed
 - [Hosted CI passed] M7: S-07 end to end (TD-54, ADR-0064 settled point 21): example 81 and its test with the core's ensemble -- 33 counted trials over purged CV, the lockbox read once, the model traded by its artifact and restored byte for byte, INPUTS_DIFFER for another artifact -- and the rule that a runner takes only labels known before the lockbox
-- [Pushed] M7: GAP-48: ml's duplicate helpers and splitters deprecated in documentation, each docstring naming its replacement in common.linalg or research, kept until 5.0 (TD-55, ADR-0064 settled point 23)
-- [Local validation passed] M7: WS-08 item 15's budget: a point-in-time training set for 500 assets over 2,520 days in 15.2 CPU s against 60 (benchmarks/benchmark_ml_datasets.py)
-- [Local validation passed] M7: Mutation series ML (35): the training set's identity, the capture's checks, the reference models' arithmetic and refusals, labels, point-in-time panels, the samplers and successive halving, candidates' scores, and Feature Store's as-of reads -- 35 of 35 caught, ML08 and ML32 after the tests they asked for, ML20 restated
+- [Hosted CI passed] M7: GAP-48: ml's duplicate helpers and splitters deprecated in documentation, each docstring naming its replacement in common.linalg or research, kept until 5.0 (TD-55, ADR-0064 settled point 23)
+- [Pushed] M7: WS-08 item 15's budget: a point-in-time training set for 500 assets over 2,520 days in 15.2 CPU s against 60 (benchmarks/benchmark_ml_datasets.py)
+- [Pushed] M7: Mutation series ML (35): the training set's identity, the capture's checks, the reference models' arithmetic and refusals, labels, point-in-time panels, the samplers and successive halving, candidates' scores, and Feature Store's as-of reads -- 35 of 35 caught, ML08 and ML32 after the tests they asked for, ML20 restated
 
 ### WS-09: Optional distributions and backends
 
@@ -1118,7 +1161,17 @@ Evidence:
 - [Hosted CI passed] M7: AC-38 held by an AST sweep over every module (TD-52, ADR-0057 settled points 1 and 2), and tzdata's version read as data, never imported
 - [Hosted CI passed] M7: alphalab-models with the scikit-learn adapter (TD-53, ADR-0057 settled points 3 to 5, ADR-0064 settled point 20), in CI cells of its own: optional-distributions.yml, CPython 3.12 to 3.14 and scikit-learn 1.7 to latest
 - [Hosted CI passed] M7: S-07 with a boosting adapter (TD-54, ADR-0064 settled point 20): the same scenario with scikit-learn's GradientBoostingClassifier in alphalab-models' suite; the seed entering modulo 2**32 and sample weights asked about with has_fit_parameter
-- [Pushed] M7: XGBoost's and LightGBM's adapters (TD-56, ADR-0057 settled point 6, ADR-0064 settled point 22): each framework's own model format as the payload, parameters stated exactly, prediction through the loaded booster, S-07 with each framework's boosting classifier, and CI cells across the lowest and latest of every framework
+- [Hosted CI passed] M7: XGBoost's and LightGBM's adapters (TD-56, ADR-0057 settled point 6, ADR-0064 settled point 22): each framework's own model format as the payload, parameters stated exactly, prediction through the loaded booster, S-07 with each framework's boosting classifier, and CI cells across the lowest and latest of every framework
+
+### WS-10: Strategy authoring and safe extensibility
+
+- [Not started] M8: ChildFillStrategyProtocol and the optional-protocol pattern codified (ADR-0061 section 3, GAP-45)
+- [Not started] M13: strategy.compose helpers, typed-configuration templates and the authoring guide: needed by S-12 at M13. The plan's milestone table gives WS-10 to M8 for its child-fill protocol only, so these are recorded here to be scheduled
+
+### WS-11: Execution realism: fills, partial fills, latency, plan+queue, combos
+
+- [Local validation passed] M8: ADR-0060 accepted (TD-57): NEXT_OPEN and the intraday opening rule, RemainderPolicy, strict caps, latency pricing, conservative builders (D-V4)
+- [Local validation passed] M8: ADR-0062 accepted (TD-59): package intents, all legs or none at one instant (N16)
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1141,7 +1194,7 @@ Evidence:
 ### WS-20: Documentation, guides and examples
 
 - [Hosted CI passed] M0: High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15
-- [Local validation passed] M7: The machine-learning guide, docs/ML.md (GAP-49's M7 part), indexed, with example 81
+- [Pushed] M7: The machine-learning guide, docs/ML.md (GAP-49's M7 part), indexed, with example 81
 
 Evidence:
 
@@ -1188,6 +1241,10 @@ Evidence:
 - [Hosted CI passed] M6: Fama-MacBeth's two passes (TD-43): cross-sectional least squares at each instant over the assets every panel and the returns share, the premiums' means with Newey-West standard errors at a stated lag; too-small and ill-conditioned cross-sections skipped and counted; class 2 with a data identity over every value read; each cross-section and the standard error held to rationals, known premiums recovered, pinned across CPython 3.12, 3.13 and 3.14
 - [Hosted CI passed] M6: Principal-component factors (TD-43): a positive definite covariance's k largest components as a FactorStructure, eigenvector loadings, eigenvalue variances and the left-out components as specific variances; a singular covariance refused; the eigen-equation, orthonormality, each asset's variance kept and isotropic noise held; class 2, pinned across CPython 3.12, 3.13 and 3.14
 - [Not started] M11: WS-25's remaining scope (plan H.4, WS-25 item 5): characteristic-portfolio returns and the incremental evaluator for rolling kinds (GAP-47), with the factor library's documented recipes; M6 delivered Fama-MacBeth and principal components
+
+### WS-26: Per-venue execution (FUT-045)
+
+- [Local validation passed] M8: ADR-0061 accepted (TD-58): per-venue execution models and routing (FUT-045), plans with queues, child fills
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
@@ -1277,9 +1334,9 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | ADR-0057 | Optional distributions and backend protocols (D-V2); includes the screening evaluator (B9) | WS-09 | G0 | Accepted (2026-11-16) |
 | ADR-0058 | Numerical foundation, record-path host independence, estimation identity (reopens OFE-007, OFE-010 under identity) | WS-03 | Before M2 | Accepted (2026-11-14) |
 | ADR-0059 | Historical universes and reference-data packs (reopens BDY-013 "permanently") | WS-13 | Before M3 | Accepted (2026-11-14) |
-| ADR-0060 | Fill timing `NEXT_OPEN`, intraday opening, `RemainderPolicy`, latency pricing (D-V4) | WS-11 | Before M8 | Not drafted in the repository |
-| ADR-0061 | Per-venue execution (FUT-045) and plan+queue composition | WS-26 | Before M8 | Not drafted in the repository |
-| ADR-0062 | Combo and multi-leg intents (N16) | WS-11 | Before M8 | Not drafted in the repository |
+| ADR-0060 | Fill timing `NEXT_OPEN`, intraday opening, `RemainderPolicy`, latency pricing (D-V4) | WS-11 | Before M8 | Accepted (2026-11-17) |
+| ADR-0061 | Per-venue execution (FUT-045) and plan+queue composition | WS-26 | Before M8 | Accepted (2026-11-17) |
+| ADR-0062 | Combo and multi-leg intents (N16) | WS-11 | Before M8 | Accepted (2026-11-17) |
 | ADR-0063 | Rebalancing bridge and certified additional solvers (reopens ADR-0043's non-goal and §19) | WS-12 | Before M9 | Not drafted in the repository |
 | ADR-0064 | Research model protocol and artifacts (N8) | WS-08 | Before M7 | Accepted (2026-11-16) |
 | ADR-0065 | Fixed income and rates (reopens BDY-014) | WS-14 | Before M10 | Not drafted in the repository |
