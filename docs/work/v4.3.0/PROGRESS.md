@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `6bc417e` |
+| Remote head | `cf8639d` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M7 (WS-08, WS-09, WS-20), after the Model protocol: point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. 13c437c's re-run macOS cell is read once at the next boundary. |
@@ -173,6 +173,9 @@ Never:
 | `13c437c` | Benchmarks | 43928771613 | success on every cell, dispatched at M6's checkpoint. Linux, authoritative, on CPython 3.12, 3.13 and 3.14: Johansen 0.085, 0.090 and 0.093 CPU s against 2; GARCH(1, 1) on 2,520 returns 0.158, 0.172 and 0.179 CPU s against 5; PC-07's series 1.17 to 3.97 percent against 10, and series and trace 6.67 to 8.88 against 15. macOS diagnostic |
 | `6bc417e` | Continuous Integration | 43930430840 | success: all six quality-gate cells, carrying ADR-0057, ADR-0064 and M6's close's code and tests |
 | `6bc417e` | CodeQL | 43930430883 | success |
+| `13c437c` | Continuous Integration | 43928758566 | success on attempt 2: macOS 3.14, never acquired on attempt 1, was re-run and passed, so all six cells passed, carrying M6's close |
+| `cf8639d` | CodeQL | 44041183455 | success |
+| `cf8639d` | Continuous Integration | 44041183473 | in progress at this record, not counted as passed |
 
 ## Continuation log
 
@@ -253,6 +256,7 @@ Never:
 - **2026-11-16** 7b6bdc0 (S-02's screen and the guide) and 04b4e0f (ARMA) passed the full local gate and were pushed; 5513213 (regime models) and 50f9632 (WS-25) passed hosted CI on all six cells and CodeQL. On 7b6bdc0 and 04b4e0f CodeQL passed and so did every cell a runner took, but three macOS cells were never acquired by a hosted runner (GitHub's capacity notice for macOS arm64) and ended cancelled, so neither run counts as passed; the cancelled jobs were re-run and are read once at the next boundary. M6's close: the EC mutation series caught 39 of 40 on the first run; EC28, the MA polynomial's sign, cannot move an MA(1) -- flipping it only mirrors the coordinate -- so an MA(2) with complex roots joined the recovery cases and EC28 was caught when run again. GAP-11 closed; WS-25's characteristic portfolios and incremental evaluator recorded for M11.
 - **2026-11-16** M6's close (13c437c) passed the full gate (13,904 tests) and was pushed; the benchmarks workflow was dispatched at M6's checkpoint (run 43928771613), and PR #22's description records M6's state, the cancelled macOS cells included. M7 begins: ADR-0057 (optional distributions beside a dependency-free core, D-V2) and ADR-0064 (the research model protocol, a trained model's identity as its artifact) accepted (TD-46, TD-47). Measured for ADR-0057: no alphalab module imports a third-party package by an import statement; lifecycle.environment imports tzdata by name, and is to read its version as data instead (AC-38).
 - **2026-11-17** 6bc417e (ADR-0057 and ADR-0064) passed the full gate (13,904 tests) and was pushed, and passed hosted CI on all six cells and CodeQL. The re-run macOS cells of 7b6bdc0 and 04b4e0f passed, so both passed all six cells. 13c437c (M6's close) lost macOS 3.14 to runner capacity and was re-run; its code and tests passed all six cells in 6bc417e's run, so M6 and WS-07 passed hosted CI. The benchmarks dispatched at M6's checkpoint passed every cell: on Linux, Johansen 0.085 to 0.093 CPU s against 2, GARCH 0.158 to 0.179 against 5, and PC-07's series and trace 6.67 to 8.88 percent against 15. The host restarted during a network outage; /private/tmp was cleared and the scratch toolchain rebuilt (a CPython 3.12.4 venv; uv's 3.13.18 and 3.14.10) and checked against the checkout. One uncommitted test edit had been reverted on disk before the restart and was re-applied. The Model protocol validated locally (TD-48): ml.protocol and ml.models, the three reference models pinned under CPython 3.12, 3.13 and 3.14.
+- **2026-11-17** The protocol commit's first gate failed on one test: a tree node named Split brought back ml.Split, which v3.13 renamed TrainTestSplit without an alias (API-001). The nodes became TreeSplit and TreeLeaf, the unpushed commit was amended to cf8639d, and it passed the full gate (13,989 tests) and was pushed. 13c437c's re-run macOS 3.14 cell passed, so M6's close passed all six cells on its own commit. Point-in-time labels and panels validated locally (TD-49): a panel's identity first named its label set's, which covers later labels, so a panel known by an instant moved with the prices after it; it now names the labels' method and source, and the counterfactual-future test holds it.
 
 ## Milestones
 
@@ -799,6 +803,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md (settled points 1 to 10)
 - **Tests:** tests/unit/ml/test_model_protocol.py: conformance of every reference model, the training set's identity and refusals, canonical capture, the binding through memory and file stores, altered bytes refused. tests/unit/ml/test_reference_models.py: the ridge against its normal equations solved exactly, the logistic regression's closed form and score equations, the trees against hand computation. tests/regression/test_model_artifacts_are_pinned.py: digests and values pinned under CPython 3.12, 3.13 and 3.14.
 
+### TD-49: Point-in-time labels and panels (ADR-0064's settled points 11 to 15) (WS-08, 2026-11-17)
+
+- **Problem:** GAP-13: ml's dataset builder reads feature_store.latest_value, so nothing in ml builds a training set from what was knowable. The plan (I.3) asks for point-in-time panels from the factor library, label makers with declared barriers and a declared volatility, weights by label uniqueness, research's purged splits, and a counterfactual-future test for every dataset builder.
+- **Alternatives:** Labels as bare values, or labels carrying their start and end. Uniqueness over every label a maker produced, or over the rows a training set holds. A panel's lineage naming its label set's identity, or the labels' method and source. A splitter in ml, or research's splits fed the panel's label ends. A module ml/datasets.py beside ml/dataset.py, or a name of its own.
+- **Decision:** ml.labels: FixedHorizon, TripleBarrier with a declared RollingVolatility (the sample deviation of the window's simple returns ending at the event), and meta_labels with the barriers oriented by a primary side. Every label carries its start, end and return, and what cannot be labelled is counted by reason. average_uniqueness is computed over the rows given. ml.point_in_time: PointInTimePanel joins feature panels to labels event by event, dropping and counting an event a feature has no value for at its start. Its identity is its lineage (definitions, dataset versions, the labels' method and source) and its rows. known_by and at take rows; purge_policy gives research each instant's latest label end. All class 2.
+- **Rationale:** A label is known only when its outcome is, so a training set built at an instant may hold only labels ending before it, and its weights may count only those labels: a later label's end is the future. A lineage naming the full label set would make a past panel's identity move with future prices. One authority for splits keeps purging defined in one place.
+- **Compatibility:** Additive: ml.labels and ml.point_in_time, and 15 names in alphalab.ml (3,068 exports). build_dataset_from_feature_store is kept, and is not point-in-time.
+- **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md (settled points 11 to 15)
+- **Tests:** tests/unit/ml/test_labels.py: each barrier's outcome on hand-built paths, the volatility against exact rational arithmetic, the counted events, meta-labels for both sides, uniqueness against a hand count. tests/unit/ml/test_point_in_time.py: rows against the panels and labels they join, the counterfactual future, research's purged folds, rows taken and weighed, the identity, refusals.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -989,7 +1003,8 @@ Evidence:
 ### WS-08: Research model interfaces, ML datasets, hyperparameter search
 
 - [Hosted CI passed] M7: ADR-0064 accepted (TD-47): the Model protocol, a trained model's identity as its artifact, the reference models and the adapters' place
-- [Local validation passed] M7: The Model protocol and its artifacts (TD-48, ADR-0064 settled points 1 to 10): ml.protocol's Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore; RidgeRegression (class 2), LogisticRegression (class 3) and GradientBoostedTrees (class 2 with the squared loss), each pinned under CPython 3.12, 3.13 and 3.14
+- [Pushed] M7: The Model protocol and its artifacts (TD-48, ADR-0064 settled points 1 to 10): ml.protocol's Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore; RidgeRegression (class 2), LogisticRegression (class 3) and GradientBoostedTrees (class 2 with the squared loss), each pinned under CPython 3.12, 3.13 and 3.14
+- [Local validation passed] M7: Point-in-time labels and panels (TD-49, ADR-0064 settled points 11 to 15): fixed-horizon, triple-barrier and meta-labels carrying their ends, weights by uniqueness among the rows taken, and PointInTimePanel joining the factor library's panels for research's purged splits, held by the counterfactual-future test
 
 ### WS-09: Optional distributions and backends
 

@@ -8,7 +8,13 @@ models implement it in pure Python: :class:`RidgeRegression`,
 :class:`LogisticRegression` and :class:`GradientBoostedTrees`. Adapters for
 external frameworks live outside the core, in ``alphalab-models`` (ADR-0057).
 
-Beside the protocol: feature pipelines (built directly from Feature Store, not
+Point-in-time research data (plan I.3): label makers -- a fixed horizon, a
+triple barrier, meta-labels -- whose every label knows when it became known,
+weights by label uniqueness, and :class:`PointInTimePanel`, which joins the
+factor library's feature panels to labels, event by event, for research's
+purged splits.
+
+Beside them: feature pipelines (built directly from Feature Store, not
 point-in-time), linear and logistic regression, k-fold and walk-forward
 cross-validation, and regression/classification evaluation metrics.
 
@@ -35,6 +41,19 @@ from alphalab.ml.evaluation import (
     root_mean_squared_error,
 )
 from alphalab.ml.exceptions import MLComputationError, MLError, MLInputError
+from alphalab.ml.labels import (
+    LABEL_SET_SCHEME,
+    FixedHorizon,
+    Label,
+    LabelSet,
+    RollingVolatility,
+    TripleBarrier,
+    VerticalOutcome,
+    average_uniqueness,
+    fixed_horizon_labels,
+    meta_labels,
+    triple_barrier_labels,
+)
 from alphalab.ml.linalg import Matrix, identity, matmul, matrix_inverse, transpose
 from alphalab.ml.linear_regression import (
     LinearRegressionModel,
@@ -60,6 +79,12 @@ from alphalab.ml.models import (
     TreeLeaf,
     TreeSplit,
 )
+from alphalab.ml.point_in_time import (
+    PANEL_SCHEME,
+    PointInTimePanel,
+    SampleWeights,
+    point_in_time_panel,
+)
 from alphalab.ml.protocol import (
     MODEL_SCHEME,
     TRAINING_SET_SCHEME,
@@ -78,8 +103,10 @@ from alphalab.ml.protocol import (
 
 __all__ = [
     "GRADIENT_BOOSTED_TREES_KIND",
+    "LABEL_SET_SCHEME",
     "LOGISTIC_KIND",
     "MODEL_SCHEME",
+    "PANEL_SCHEME",
     "RIDGE_KIND",
     "TRAINING_SET_SCHEME",
     "BoostingLoss",
@@ -88,7 +115,10 @@ __all__ = [
     "Dataset",
     "FeatureMatrix",
     "FeatureSpec",
+    "FixedHorizon",
     "GradientBoostedTrees",
+    "Label",
+    "LabelSet",
     "LinearModelFit",
     "LinearRegressionModel",
     "LogisticRegression",
@@ -98,25 +128,34 @@ __all__ = [
     "MLInputError",
     "Matrix",
     "Model",
+    "PointInTimePanel",
     "RidgeRegression",
+    "RollingVolatility",
+    "SampleWeights",
     "TrainTestSplit",
     "TrainingRecord",
     "TrainingSet",
     "TreeEnsembleFit",
     "TreeLeaf",
     "TreeSplit",
+    "TripleBarrier",
+    "VerticalOutcome",
     "accuracy",
+    "average_uniqueness",
     "build_dataset_from_feature_store",
     "canonical_capture",
     "confusion_matrix",
     "f1_score",
     "file_model",
+    "fixed_horizon_labels",
     "identity",
     "k_fold_split",
     "matmul",
     "matrix_inverse",
     "mean_absolute_error",
     "mean_squared_error",
+    "meta_labels",
+    "point_in_time_panel",
     "precision",
     "predict_linear",
     "predict_logistic",
@@ -131,5 +170,6 @@ __all__ = [
     "train_logistic_regression",
     "train_model",
     "transpose",
+    "triple_barrier_labels",
     "walk_forward_split",
 ]

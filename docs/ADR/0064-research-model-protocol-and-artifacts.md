@@ -180,6 +180,42 @@ Building the protocol settled these points, each held by a test
     index split, to `TrainTestSplit` without an alias (ledger API-001), and
     the removed name stays removed.
 
+Building the point-in-time data settled these points
+(`tests/unit/ml/test_labels.py`, `tests/unit/ml/test_point_in_time.py`).
+
+11. **`ml.labels`: three makers, every choice stated.**
+    - `FixedHorizon(horizon, threshold)` gives the return, or its sign beyond
+      a dead zone.
+    - `TripleBarrier(horizon, upper, lower, volatility, at_vertical)` takes a
+      declared `RollingVolatility(window)`: the sample standard deviation of
+      the window's simple returns, ending at the event.
+    - `meta_labels` orients the barriers by a primary side.
+
+    A barrier is touched when the return reaches it. Every label carries its
+    start, its end and its return. An event that cannot be labelled is
+    counted by reason: warm-up, flat or unresolved. Labels are class 2.
+12. **Uniqueness among the rows taken.** `average_uniqueness` counts, at each
+    observation, the rows on its subject that span it. A row's weight is the
+    mean of one over that count across what it spans. It is computed over
+    the rows a training set holds, never over a label set's later labels,
+    whose ends are the future.
+13. **`ml.point_in_time`, not `ml.datasets`.** The plan names
+    `ml/datasets.py`, but `ml/dataset.py` already holds the feature-store
+    builder, and two modules a letter apart would be read for each other. A
+    `PointInTimePanel` row is an event's features at its start beside its
+    label. An event a feature has no value for there is left out, kept in
+    `dropped` and counted.
+14. **A panel's identity never names the future.** Its lineage states each
+    feature's definition and dataset version and the labels' method and
+    source. It does not name a label set's identity, which covers labels
+    that a panel known by an instant does not hold. So a panel known by an
+    instant is the same panel whatever the prices after that instant (the
+    counterfactual-future test).
+15. **Splits have one authority.** `purge_policy` gives research's purging
+    each instant's latest label end, and `at` takes a split's instants. So
+    research's `cross_validation_splits` and `combinatorial_purged_splits`
+    purge a panel as they purge any series.
+
 # Compatibility
 
 - Additive: two modules, `ml.protocol` and `ml.models`, and new names.

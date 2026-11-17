@@ -794,6 +794,24 @@ entry below says otherwise.
     Their artifacts are pinned under CPython 3.12, 3.13 and 3.14
     (`tests/regression/test_model_artifacts_are_pinned.py`).
 
+* **Point-in-time labels and panels** [plan WS-08, I.3, GAP-13, ADR-0064].
+  * **Labels that know when they became known.**
+    * `ml.fixed_horizon_labels`.
+    * `ml.triple_barrier_labels`: declared barriers on a declared rolling
+      volatility.
+    * `ml.meta_labels`: the barriers oriented by a primary side.
+
+    Each label carries its start, its end and its return. What cannot be
+    labelled is counted, never invented.
+  * **`ml.average_uniqueness`** weighs labels by how much of what they span
+    they share with no other label, among the rows a training set holds.
+  * **`ml.point_in_time_panel`** joins the factor library's feature panels to
+    labels, event by event.
+    * `known_by` and `at` take rows point-in-time.
+    * `purge_policy` gives research's splitters the label ends.
+    * Changing every price after a boundary changes nothing in the panel
+      known by it (`tests/unit/ml/test_point_in_time.py`).
+
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
   percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's
