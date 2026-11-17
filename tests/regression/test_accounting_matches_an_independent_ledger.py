@@ -25,7 +25,8 @@ What it holds the engine to, on every seed:
   shares of a whole-share order.
 
 Since v4.3 the same ledger holds daily bars too, under ``SAME_EVENT``,
-``NEXT_EVENT`` and ``NEXT_OPEN`` (ADR-0060), with gapped opens. Each fill's
+``NEXT_EVENT`` and ``NEXT_OPEN`` and under each remainder policy -- cancelled,
+resting two events, resting three days -- (ADR-0060), with gapped opens. Each fill's
 price is also held to its timing: the deciding bar's close, the next bar's
 close, or the next bar's open. A fill priced away from its event's mark -- at
 an open -- values its position at the fill price until the next event of any
@@ -49,7 +50,7 @@ from alphalab.backtesting import BacktestEngine, ImmediateFill, LiquidityCappedF
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.state import BacktestResult
 from alphalab.execution.commission import PerShareCommission
-from alphalab.execution.policy import FillPolicy, FillTiming
+from alphalab.execution.policy import FillPolicy, FillTiming, RestRemainder
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.market.bar import Bar, TimeFrame
 from alphalab.market.quote import Quote
@@ -293,6 +294,9 @@ def _bar_scenario(seed: int) -> tuple[list[Bar], dict[tuple[str, float], Decimal
         "policy": rng.choice(policies),
         "timing": rng.choice(list(FillTiming)),
     }
+    # Drawn last, so every earlier choice of a seed is what it was (ADR-0060).
+    remainders = (None, RestRemainder(events=2), RestRemainder(seconds=3 * DAY))
+    choices["remainder"] = rng.choice(remainders)
     return bars, plan, choices
 
 
@@ -310,6 +314,7 @@ def test_the_engine_books_what_an_independent_ledger_books_on_bars(seed: int) ->
         pipeline=replace(
             config.pipeline,
             fill_timing=choices["timing"],
+            remainder=choices["remainder"],
             allocation_constraints=AllocationConstraints(
                 allow_shorting=True, enforce_integer_quantities=True
             ),

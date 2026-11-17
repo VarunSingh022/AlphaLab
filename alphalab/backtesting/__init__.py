@@ -147,7 +147,9 @@ from alphalab.execution.policy import (
     ImmediateFill,
     LiquidityCappedFill,
     LiquidityContext,
+    RestRemainder,
     StaticFill,
+    StrictLiquidityCappedFill,
 )
 from alphalab.execution.queue import PriceTimeQueue, QueueBook, QueueModel
 from alphalab.runtime.execution_pipeline import UnpricedAsset, UnpricedReason
@@ -214,6 +216,7 @@ __all__ = [
     "ReplayBacktest",
     "ReplayProgress",
     "ReplayResult",
+    "RestRemainder",
     "ReturnExtractor",
     "RunConfig",
     "RunProvenance",
@@ -234,6 +237,7 @@ __all__ = [
     "ScheduledSettlement",
     "ScheduledSplit",
     "StaticFill",
+    "StrictLiquidityCappedFill",
     "TraceCounts",
     "UnpricedAsset",
     "UnpricedReason",

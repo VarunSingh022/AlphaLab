@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `ec1ca9b` |
+| Remote head | `baaa305` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M8 (WS-11, WS-26, WS-10's child-fill protocol), in the plan's commit order: NEXT_OPEN and the intraday opening rule; RemainderPolicy and strict caps; latency pricing; plans with queues; child-fill feedback; package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide. M7's re-run macOS cells and the checkpoint benchmarks are read once at the next boundary. |
@@ -208,6 +208,12 @@ Never:
 | `1f749f3` | CodeQL | 44111740061 | success |
 | `1f749f3` | Optional Distributions | 44111739963 | success, all four cells |
 | `1f749f3` | Benchmarks | 44136412090 | dispatched at M7's checkpoint; in progress at this record, not counted as passed |
+| `3379fc8` | Continuous Integration | 44108670690 | success on attempt 2: the three macOS cells, never acquired by a runner on attempt 1, were re-run and passed; all six cells passed |
+| `1f749f3` | Continuous Integration | 44111739939 | success on attempt 2: macOS 3.14, never acquired by a runner on attempt 1, was re-run and passed; all six cells passed |
+| `1f749f3` | Benchmarks | 44136412090 | every authoritative Linux cell passed; WS-08 item 15's dataset in 28.6, 29.3 and 31.9 CPU s against 60 (CPython 3.12, 3.13, 3.14); the three diagnostic macOS cells were never acquired by a runner and ended cancelled, not counted |
+| `ec1ca9b` | Continuous Integration | 44140689034 | four cells passed; macOS 3.12 and 3.14 were never acquired by a runner; re-run, queued at this record, not counted as passed |
+| `ec1ca9b` | CodeQL | 44140689043 | success |
+| `ec1ca9b` | Optional Distributions | 44140688986 | success, all four cells |
 
 ## Continuation log
 
@@ -300,6 +306,7 @@ Never:
 - **2026-11-17** 1f749f3 (M7's close) passed the full gate (14,084 tests) and was pushed, after 3379fc8 and 575d48b (each 14,081). Hosted CI: every Linux cell, CodeQL and every Optional Distributions cell passed on all three; 575d48b passed all six cells, and Optional Distributions' first run across every framework passed at both ends of each range. Four macOS cells, three on 3379fc8 and one on 1f749f3, were never acquired by a hosted runner; they were re-run and are not counted as passed. The benchmarks were dispatched at M7's checkpoint (44136412090).
 - **2026-11-17** M8 begun. Its scope was derived from the plan's WS-11, WS-26 and WS-10 sections, its section J rows, sections S and T and the register's gaps before any code. ADR-0060, ADR-0061 and ADR-0062 accepted under delegation (TD-57 to TD-59), and D-V4 decided: NEXT_OPEN opt-in in 4.3, the default unchanged until 5.0. WS-10's compose helpers, typed-configuration templates and authoring guide are recorded for M13's S-12, since the plan's milestone table gives WS-10 to M8 for its child-fill protocol only. Reading _fill_working_orders before the ADRs were pushed corrected ADR-0060's first section: under NEXT_EVENT a held limit or stop already takes a resting turn over the whole next bar, reading it from its open, so NEXT_OPEN changes only the price of a market order's turn.
 - **2026-11-17** ec1ca9b (M8's ADRs) passed the full gate (14,084 tests) and was pushed. NEXT_OPEN and the intraday opening rule validated locally (TD-60), with the pipeline snapshot's version 9 written only when declared and read strictly. The new bar ledger found the book's lazy mark: a fill at the open values its position at the open until the next event re-marks it. A resting limit's and an OPG fill's position already behave so, and changing it would move existing runs' identities, so it is documented, not changed. The commit's first gate failed: mypy and ten tests found pins of the pipeline schema the first search had missed -- three documents' schema tables, four more test assertions, and three scanners that count every constant named *_SCHEMA, which the new _UNDECLARED_SCHEMA matched. The constant was renamed _UNDECLARED, as the checkpoint's is _UNBOUND, the documents state 9 with a note that it is written only when declared, and the pins assert what they meant.
+- **2026-11-17** baaa305 (NEXT_OPEN, TD-60) passed the full gate (14,128 tests) and was pushed. M7's re-run macOS cells passed, so every M7 commit passed all six cells: M7 and WS-08 are Hosted CI passed. At M7's checkpoint the authoritative Linux benchmarks built WS-08's 500-asset training set in 28.6 to 31.9 CPU s against 60. RestRemainder and StrictLiquidityCappedFill validated locally (TD-61), each order's allowance kept in its metadata through an event-less OMS transition, as trigger is. The commit's first gate failed on three tests. The pinned reference experiment's identity and an assessment's had moved, because ExecutionAssumptions had gained a remainder field and every experiment's identity holds the assumptions whole. A third test required the changed ExecutionAssumptions to be named in the CHANGELOG. The field was removed and the remainder folded into the fill policy's description only when declared, so every pin holds.
 
 ## Milestones
 
@@ -313,7 +320,7 @@ Never:
 | M4 | Hosted CI passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Hosted CI passed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Hosted CI passed | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
-| M7 | Pushed | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
+| M7 | Hosted CI passed | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | In progress | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
 | M9 | Not started | WS-12 | A rebalancing backtest with CVaR, certified |
 | M10 | Not started | WS-13, WS-27, WS-14, WS-28 | S-03, S-04, S-05, S-06, S-14; GR-1, GR-3, GR-6 |
@@ -966,6 +973,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md (settled point 1); CHANGELOG
 - **Tests:** tests/regression/test_next_open.py (12): hand-calculated fills at daily and one-minute bars across a session boundary, with and without a calendar; limit and quote turns identical to NEXT_EVENT's; expiry on an out-of-session bar; the assumptions; the lazy mark; a resume at version 9. tests/regression/test_pipeline_snapshot.py: the version a capture declares, and both disagreeing payloads refused. tests/regression/test_accounting_matches_an_independent_ledger.py: 30 bar scenarios across all three timings, each fill's price held to its timing.
 
+### TD-61: RestRemainder and StrictLiquidityCappedFill: a remainder rests by events or seconds, its allowance on the order; a strict cap refuses size-less events (ADR-0060 settled point 2, GAP-38) (WS-11, 2026-11-17)
+
+- **Problem:** ADR-0060 section 3 needs a partial fill's remainder to keep working for a stated while, which means per-order state, and its section 4 a cap that refuses an event with no size. ExecutionPipelineState's field count is pinned (ADR-0030's budget), the OMS had no transition to annotate a working order, and a new field on LiquidityCappedFill would move every capped run's description.
+- **Alternatives:** The allowance as a new pipeline-state map, in the order's expire_at (EXPIRED rather than cancelled, and only for seconds), or in the order's metadata through an event-less OMS transition. Strict caps as a field, a flag on the run, or a new class. A seconds rest's end checked after each turn, or before.
+- **Decision:** ExecutionPipelineConfig.remainder: RestRemainder | None, None taking today's code path. At the first partial fill the allowance is recorded in the order's metadata (remainder_turns or remainder_until) through OMSEngine.annotate, event-less as trigger is. Every later turn spends an events rest, a turn that fills nothing included, and the remainder is cancelled when it is spent. A seconds rest is checked before each turn, so an event at or after its end withdraws the remainder without a turn. Immediate orders are excluded. StrictLiquidityCappedFill is a new class that validates its rate and raises ExecutionValidationError on an event with no size. The configuration record writes remainder only when declared, which makes the payload version 9. execution_assumptions appends the policy to the fill policy's description only when declared, as a maker commission is to the costs, and ExecutionAssumptions gains no field.
+- **Rationale:** The order already carries its metadata through the OMS snapshot, so no schema moves and no state field is added. A new class is the only way to strictness that keeps every capped run's identity. Cancelling at the end keeps one terminal status for every remainder, the one ADR-0014 already gives. ExecutionAssumptions is held whole in every experiment's identity (canonical_experiment_key), so a new field -- even one defaulting to None -- moves every experiment.
+- **Compatibility:** Additive: a configuration field defaulting to today's rule, two exported classes (four exports), an OMS transition, and a description appended only when declared. A run declaring none keeps its payloads and identities.
+- **Recorded in:** docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md (settled point 2); CHANGELOG
+- **Tests:** tests/regression/test_remainders_and_strict_caps.py (22): hand-calculated fills -- 30 under cancel, 90 resting two events, 60 resting 1.5 seconds; a turn that fills nothing; an immediate order; the rest's validation; the strict refusal and its equality with the lenient cap where there is size; the descriptions only when declared; a resume at version 9; an undeclared payload unchanged. The bar ledger draws each remainder policy.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -991,7 +1008,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-05 | Experiment and trial ledger, executor, runner registry | M4 | In progress |
 | WS-06 | Statistical research functions | M2, M3, M5 | In progress |
 | WS-07 | Econometrics and time series | M6 | Hosted CI passed |
-| WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | In progress |
+| WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | Hosted CI passed |
 | WS-09 | Optional distributions and backends | M7, M11 | In progress |
 | WS-10 | Strategy authoring and safe extensibility | M8, M13 | Not started |
 | WS-11 | Execution realism: fills, partial fills, latency, plan+queue, combos | M8 | In progress |
@@ -1163,8 +1180,8 @@ Evidence:
 - [Hosted CI passed] M7: Feature Store reads as of an instant (TD-51, ADR-0064 settled point 19): a timeline of every write with when it was known, value_as_of, and ml.build_dataset_as_of, held by the counterfactual-future test; GAP-13 closed
 - [Hosted CI passed] M7: S-07 end to end (TD-54, ADR-0064 settled point 21): example 81 and its test with the core's ensemble -- 33 counted trials over purged CV, the lockbox read once, the model traded by its artifact and restored byte for byte, INPUTS_DIFFER for another artifact -- and the rule that a runner takes only labels known before the lockbox
 - [Hosted CI passed] M7: GAP-48: ml's duplicate helpers and splitters deprecated in documentation, each docstring naming its replacement in common.linalg or research, kept until 5.0 (TD-55, ADR-0064 settled point 23)
-- [Pushed] M7: WS-08 item 15's budget: a point-in-time training set for 500 assets over 2,520 days in 15.2 CPU s against 60 (benchmarks/benchmark_ml_datasets.py)
-- [Pushed] M7: Mutation series ML (35): the training set's identity, the capture's checks, the reference models' arithmetic and refusals, labels, point-in-time panels, the samplers and successive halving, candidates' scores, and Feature Store's as-of reads -- 35 of 35 caught, ML08 and ML32 after the tests they asked for, ML20 restated
+- [Hosted CI passed] M7: WS-08 item 15's budget: a point-in-time training set for 500 assets over 2,520 days in 15.2 CPU s against 60 (benchmarks/benchmark_ml_datasets.py)
+- [Hosted CI passed] M7: Mutation series ML (35): the training set's identity, the capture's checks, the reference models' arithmetic and refusals, labels, point-in-time panels, the samplers and successive halving, candidates' scores, and Feature Store's as-of reads -- 35 of 35 caught, ML08 and ML32 after the tests they asked for, ML20 restated
 
 ### WS-09: Optional distributions and backends
 
@@ -1183,7 +1200,8 @@ Evidence:
 
 - [Pushed] M8: ADR-0060 accepted (TD-57): NEXT_OPEN and the intraday opening rule, RemainderPolicy, strict caps, latency pricing, conservative builders (D-V4)
 - [Pushed] M8: ADR-0062 accepted (TD-59): package intents, all legs or none at one instant (N16)
-- [Local validation passed] M8: FillTiming.NEXT_OPEN and the intraday opening rule (TD-60, ADR-0060 settled point 1, GAP-18): a market order's turn at a bar fills at the open, stamped at the delivering event; a declared calendar's pre- and post-market bars give no turn; pipeline schema 9 written only when declared and read strictly; hand-calculated fills at daily and one-minute bars
+- [Pushed] M8: FillTiming.NEXT_OPEN and the intraday opening rule (TD-60, ADR-0060 settled point 1, GAP-18): a market order's turn at a bar fills at the open, stamped at the delivering event; a declared calendar's pre- and post-market bars give no turn; pipeline schema 9 written only when declared and read strictly; hand-calculated fills at daily and one-minute bars
+- [Local validation passed] M8: RestRemainder and StrictLiquidityCappedFill (TD-61, ADR-0060 settled point 2, GAP-38): a market turn's remainder rests for events or seconds, its allowance on the order through OMSEngine.annotate, and is cancelled when the rest ends; a strict cap refuses an event with no size; version 9 when declared
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1206,7 +1224,7 @@ Evidence:
 ### WS-20: Documentation, guides and examples
 
 - [Hosted CI passed] M0: High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15
-- [Pushed] M7: The machine-learning guide, docs/ML.md (GAP-49's M7 part), indexed, with example 81
+- [Hosted CI passed] M7: The machine-learning guide, docs/ML.md (GAP-49's M7 part), indexed, with example 81
 
 Evidence:
 
@@ -1274,7 +1292,7 @@ Evidence:
 
 ## Gaps
 
-32 open, 17 closed, 4 discarded.
+31 open, 18 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -1315,7 +1333,7 @@ Evidence:
 | GAP-35 | Windows untested | M/P2 | Open | WS-21 | M11 [OD] |
 | GAP-36 | US-centric day counts | H/P1 | Closed at M2's hosted exit gate (fe3c80b; N21, TD-14): the world's bond and swap day counts, each by its published definition, an instrument's terms explicit; GR-2's published worked examples matched. N21's other conventions in plan G.3 -- business-day conventions and FX value dates -- are where plan G.2 places them, at M10 with WS-14 (GR-6) and WS-27 (GR-3). | WS-13 | M2 |
 | GAP-37 | Closed construction objectives; one solver | M/P2 | Open (D-V3) | WS-12 | M9 |
-| GAP-38 | Remainders cancelled; size-less fills | M/P2 | Open | WS-11 | M8 |
+| GAP-38 | Remainders cancelled; size-less fills | M/P2 | Closed at M8 (WS-11, ADR-0060, TD-61): RestRemainder keeps a partial fill's remainder working for a stated number of events or seconds, then cancels it; StrictLiquidityCappedFill refuses an event with no size instead of filling in full. Both opt-in; a run declaring neither is unchanged. | WS-11 | M8 |
 | GAP-39 | (candidate) silent zero fill | — | Discarded | — | — |
 | GAP-40 | (candidate) no history accessor | — | Discarded | — | — |
 | GAP-41 | (candidate) no fill or order hooks | — | Discarded | — | — |

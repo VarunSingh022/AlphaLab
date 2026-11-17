@@ -1042,6 +1042,19 @@
       "compatibility": "No identity, digest or persisted byte moves for a run without NEXT_OPEN; the certificate moved only its source and manifest digests.",
       "record": "docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md (settled point 1); CHANGELOG",
       "tests": "tests/regression/test_next_open.py (12): hand-calculated fills at daily and one-minute bars across a session boundary, with and without a calendar; limit and quote turns identical to NEXT_EVENT's; expiry on an out-of-session bar; the assumptions; the lazy mark; a resume at version 9. tests/regression/test_pipeline_snapshot.py: the version a capture declares, and both disagreeing payloads refused. tests/regression/test_accounting_matches_an_independent_ledger.py: 30 bar scenarios across all three timings, each fill's price held to its timing."
+    },
+    {
+      "id": "TD-61",
+      "date": "2026-11-17",
+      "workstream": "WS-11",
+      "title": "RestRemainder and StrictLiquidityCappedFill: a remainder rests by events or seconds, its allowance on the order; a strict cap refuses size-less events (ADR-0060 settled point 2, GAP-38)",
+      "problem": "ADR-0060 section 3 needs a partial fill's remainder to keep working for a stated while, which means per-order state, and its section 4 a cap that refuses an event with no size. ExecutionPipelineState's field count is pinned (ADR-0030's budget), the OMS had no transition to annotate a working order, and a new field on LiquidityCappedFill would move every capped run's description.",
+      "alternatives": "The allowance as a new pipeline-state map, in the order's expire_at (EXPIRED rather than cancelled, and only for seconds), or in the order's metadata through an event-less OMS transition. Strict caps as a field, a flag on the run, or a new class. A seconds rest's end checked after each turn, or before.",
+      "decision": "ExecutionPipelineConfig.remainder: RestRemainder | None, None taking today's code path. At the first partial fill the allowance is recorded in the order's metadata (remainder_turns or remainder_until) through OMSEngine.annotate, event-less as trigger is. Every later turn spends an events rest, a turn that fills nothing included, and the remainder is cancelled when it is spent. A seconds rest is checked before each turn, so an event at or after its end withdraws the remainder without a turn. Immediate orders are excluded. StrictLiquidityCappedFill is a new class that validates its rate and raises ExecutionValidationError on an event with no size. The configuration record writes remainder only when declared, which makes the payload version 9. execution_assumptions appends the policy to the fill policy's description only when declared, as a maker commission is to the costs, and ExecutionAssumptions gains no field.",
+      "rationale": "The order already carries its metadata through the OMS snapshot, so no schema moves and no state field is added. A new class is the only way to strictness that keeps every capped run's identity. Cancelling at the end keeps one terminal status for every remainder, the one ADR-0014 already gives. ExecutionAssumptions is held whole in every experiment's identity (canonical_experiment_key), so a new field -- even one defaulting to None -- moves every experiment.",
+      "compatibility": "Additive: a configuration field defaulting to today's rule, two exported classes (four exports), an OMS transition, and a description appended only when declared. A run declaring none keeps its payloads and identities.",
+      "record": "docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md (settled point 2); CHANGELOG",
+      "tests": "tests/regression/test_remainders_and_strict_caps.py (22): hand-calculated fills -- 30 under cancel, 90 resting two events, 60 resting 1.5 seconds; a turn that fills nothing; an immediate order; the rest's validation; the strict refusal and its equality with the lenient cap where there is size; the descriptions only when declared; a resume at version 9; an undeclared payload unchanged. The bar ledger draws each remainder policy."
     }
   ],
   "plan_changes": [
@@ -1299,7 +1312,7 @@
       "deliverables": "Model protocol and artifacts; PIT datasets and labels; HPO samplers; adapters",
       "exit_gate": "S-07 with a boosting adapter; counterfactual tests",
       "size": "L",
-      "status": "Pushed",
+      "status": "Hosted CI passed",
       "evidence": [
         "Exit gate, S-07 with a boosting adapter: examples/81_search_train_and_trade_a_model.py searches the core's gradient-boosted classifier by successive halving over purged cross-validated backtests -- 33 trials over 6 configurations in three rounds, each round a child experiment, every trial counted, the lockbox held back from all of them -- then trains the selection on every label known before the lockbox, files it by its bytes, trades it by its artifact id, restores it byte for byte and reads the lockbox once. Another artifact is INPUTS_DIFFER, the same one's rerun REPRODUCED (tests/integration/test_supervised_research_end_to_end.py). The same scenario runs with each boosting adapter's classifier -- scikit-learn's, XGBoost's and LightGBM's -- in alphalab-models' suite (distributions/alphalab-models/tests/test_s07.py).",
         "Exit gate, counterfactual tests: every dataset builder is held by one. Moving every close from the lockbox on changes nothing the panel known before it holds -- no feature, label, end, weight or training set (test_supervised_research_end_to_end); a panel known by a boundary has the same rows and identity whatever comes after it (tests/unit/ml/test_point_in_time.py); and a backfill written late never answers a read as of an earlier instant, nor reaches ml.build_dataset_as_of (tests/unit/feature_store/test_value_as_of.py).",
@@ -1313,7 +1326,7 @@
         "Defects M7 found, each fixed with the test that found it: S-07's three -- the example's first runner fitting labels realized inside the lockbox, the adapter passing 64-bit seeds to scikit-learn unchanged, and a parameter error read as a missing sample weight; a panel's identity that named its label set's, which covers labels realized after the panel, found before its commit; and a tree node named Split, which revived the removed ml.Split (API-001), caught by the gate before cf8639d. The mutation harness's own ML20 was a false catch, restated.",
         "Mutation series ML (WS-08, WS-09, ADR-0064), 35 mutations, each caught -- the history below says on which tree -- by: ML01 (a training set's identity leaves out its labels): test_model_artifacts_are_pinned::test_a_ridge_and_a_squared_loss_ensemble_are_pinned_byte_for_byte; ML02 (a restore keeps bytes that are not the model's own capture): test_model_protocol::test_bytes_that_are_not_the_models_canonical_capture_are_refused[ridge]; ML03 (a capture of another kind is read): test_model_protocol::test_another_kinds_bytes_are_refused -- by the refusal's reason: without the kind check the hyperparameter check still refuses another kind's bytes, naming the wrong difference; ML04 (rows naming the features in another order are predicted from): test_model_protocol::test_rows_naming_other_features_or_another_order_are_refused[ridge]; ML05 (the ridge penalizes the intercept too): test_model_artifacts_are_pinned::test_a_ridge_and_a_squared_loss_ensemble_are_pinned_byte_for_byte; ML06 (a row's weight is ignored): test_model_artifacts_are_pinned::test_the_logistic_models_agree_across_hosts_within_their_stated_tolerance; ML07 (logistic regression's working response flips its residual): test_model_artifacts_are_pinned::test_the_logistic_models_agree_across_hosts_within_their_stated_tolerance -- the flipped residual drives the fit into the separated-classes refusal; ML08 (logistic regression stops at a change a thousand times its tolerance): test_reference_models::test_a_logistic_fit_stops_at_the_first_newton_step_within_its_tolerance (added for it); ML09 (separated classes are fitted on): test_reference_models::test_separated_classes_are_refused_without_a_penalty_and_fitted_with_one -- a ZeroDivisionError where the refusal was; ML10 (a split's threshold is the midpoint of the values beside it): test_model_artifacts_are_pinned::test_a_ridge_and_a_squared_loss_ensemble_are_pinned_byte_for_byte; ML11 (a tie between splits goes to the later feature): test_reference_models::test_a_tie_between_features_goes_to_the_first; ML12 (a leaf may hold fewer rows than minimum_leaf): test_model_artifacts_are_pinned::test_a_ridge_and_a_squared_loss_ensemble_are_pinned_byte_for_byte; ML13 (a tree's subsample ignores the seed): test_supervised_research_end_to_end::test_another_artifact_is_another_runs_inputs; ML14 (a leaf ignores the learning rate): test_model_artifacts_are_pinned::test_a_ridge_and_a_squared_loss_ensemble_are_pinned_byte_for_byte; ML15 (a logistic ensemble starts from even odds, not the labels' log-odds): test_model_artifacts_are_pinned::test_the_logistic_models_agree_across_hosts_within_their_stated_tolerance; ML16 (a barrier is touched only when passed, not when reached): test_labels::test_a_path_resolves_at_its_first_barrier[path0-1.0-expected0]; ML17 (a vertical outcome of zero is read as the return's sign): test_labels::test_a_vertical_outcome_of_zero_ignores_the_returns_sign; ML18 (the volatility window reaches one observation past its event): test_supervised_research_end_to_end::test_the_panel_known_before_the_lockbox_ignores_every_close_in_it -- the panel's IndexError, the mutant reading a close past the series' last; and by value, test_labels::test_the_volatility_estimate_is_the_exact_sample_deviation_of_its_returns (extended for it); ML19 (a meta-label ignores the primary side): test_labels::test_a_path_resolves_at_its_first_barrier[path4--1.0-expected4]; ML20 (uniqueness counts the event's own observation): test_labels::test_average_uniqueness_is_a_hand_count_of_overlaps_per_subject (restated: its first form called bisect_left, which labels.py never imports); ML21 (a fixed-horizon label ends one observation early): test_labels::test_a_fixed_horizon_is_the_return_ahead_and_its_end_that_observation; ML22 (known_by keeps rows by their start, not their label's end): test_supervised_research_end_to_end::test_the_panel_known_before_the_lockbox_ignores_every_close_in_it; ML23 (an instant's label end is its last row's, not its latest): test_point_in_time::test_a_purged_split_from_research_leaves_no_training_label_reaching_its_validation; ML24 (a panel's lineage names its label set's identity): test_point_in_time::test_each_row_is_an_events_features_at_its_start_beside_its_label, and test_point_in_time::test_the_counterfactual_future_moves_nothing_known_by_the_boundary; ML25 (a training set by uniqueness is given no weights): test_point_in_time::test_a_training_set_weighs_rows_equally_or_by_their_uniqueness_among_themselves; ML26 (successive halving's tie goes to the later candidate): test_successive_halving_through_the_ledger::test_each_round_keeps_the_best_half_and_the_search_selects_the_last_rounds_best; ML27 (successive halving keeps the floor of its fraction): test_successive_halving_through_the_ledger::test_every_round_is_a_child_experiment_and_every_trial_is_counted; ML28 (a random space passes a repeated candidate on): test_sampling::test_a_random_space_never_repeats_and_refuses_more_than_its_axes_hold -- the space's own refusal of a repeat; ML29 (a Latin hypercube deals its strata in order): test_sampling::test_a_drawn_space_is_its_seeds_on_every_host[latin_hypercube_space-7cdef0bf93d03958af85a529dac599f6ddf4606c76266921a13fc954df5ae01b]; ML30 (a later round's parent is the search's, not the round before): test_successive_halving_through_the_ledger::test_every_round_is_a_child_experiment_and_every_trial_is_counted; ML31 (a search's record counts its last round only): test_successive_halving_through_the_ledger::test_every_round_is_a_child_experiment_and_every_trial_is_counted; ML32 (a candidate that failed a fold still has a score): test_successive_halving_through_the_ledger::test_a_candidate_that_failed_one_fold_has_no_score_and_moves_no_other (added for it); ML33 (an as-of read answers by when a value was computed, not when it was known): test_value_as_of::test_a_read_at_an_instant_returns_the_last_value_known_by_it; ML34 (an as-of read's tie goes to the earlier write): test_value_as_of::test_a_read_at_an_instant_returns_the_last_value_known_by_it; ML35 (a value is known from its computation alone, whenever it was written): test_value_as_of::test_a_read_at_an_instant_returns_the_last_value_known_by_it.",
         "Mutation history: the first run (ML01 to ML35) caught 33 of 35 on the working tree. ML20's catch was false: its mutant called bisect_left, which labels.py never imports, so every test it failed raised a NameError. It was restated in the module's own names, and a sweep of all 497 mutations for names their modules lack found no other. ML08 survived: Newton's method converges quadratically, so at the suite's tolerance of 1e-12 a stop at a thousand times it fell on the same step; a test now pins the step a fit stops at, reading each step's change from the refusal of a fit one step short. ML32 survived: every candidate the suite failed, failed in every fold, so the mean over the folds it completed was still none; a runner failing one candidate in one fold was added. ML08, ML20 and ML32 were run again: all caught. Every first failure was replayed alone under its mutation and read: each is the mutation's own effect, and none read a clock. Baselines: 13,984 and 13,987 passed, 90 deselected (the tests that read a clock, and the certificate's source digest).",
-        "Hosted CI: every M7 commit through 3ef1780 passed all six cells and CodeQL, and alphalab-models' cells passed on bcc36a2 (44050812298) and 3ef1780 (44085662467). 3379fc8, 575d48b and this close are read at the next boundary."
+        "Hosted CI: every M7 commit passed all six cells and CodeQL, and alphalab-models' cells passed throughout, Optional Distributions' first run across every framework on 575d48b included (44110185286). Four macOS cells GitHub never acquired a runner for -- three on 3379fc8, one on 1f749f3 -- were re-run and passed (44108670690 and 44111739939, attempt 2). At M7's checkpoint (benchmarks run 44136412090) every authoritative Linux cell passed, and WS-08 item 15's 500-asset, 2,520-day point-in-time training set took 28.6, 29.3 and 31.9 CPU s against 60 under CPython 3.12, 3.13 and 3.14; the diagnostic macOS cells were never acquired by a runner."
       ]
     },
     {
@@ -1905,7 +1918,7 @@
       "milestones": [
         "M7"
       ],
-      "status": "In progress",
+      "status": "Hosted CI passed",
       "items": [
         {
           "milestone": "M7",
@@ -1945,12 +1958,12 @@
         {
           "milestone": "M7",
           "item": "WS-08 item 15's budget: a point-in-time training set for 500 assets over 2,520 days in 15.2 CPU s against 60 (benchmarks/benchmark_ml_datasets.py)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M7",
           "item": "Mutation series ML (35): the training set's identity, the capture's checks, the reference models' arithmetic and refusals, labels, point-in-time panels, the samplers and successive halving, candidates' scores, and Feature Store's as-of reads -- 35 of 35 caught, ML08 and ML32 after the tests they asked for, ML20 restated",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -2035,6 +2048,11 @@
         {
           "milestone": "M8",
           "item": "FillTiming.NEXT_OPEN and the intraday opening rule (TD-60, ADR-0060 settled point 1, GAP-18): a market order's turn at a bar fills at the open, stamped at the delivering event; a declared calendar's pre- and post-market bars give no turn; pipeline schema 9 written only when declared and read strictly; hand-calculated fills at daily and one-minute bars",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M8",
+          "item": "RestRemainder and StrictLiquidityCappedFill (TD-61, ADR-0060 settled point 2, GAP-38): a market turn's remainder rests for events or seconds, its allowance on the order through OMSEngine.annotate, and is cancelled when the rest ends; a strict cap refuses an event with no size; version 9 when declared",
           "status": "Local validation passed"
         }
       ],
@@ -2186,7 +2204,7 @@
         {
           "milestone": "M7",
           "item": "The machine-learning guide, docs/ML.md (GAP-49's M7 part), indexed, with example 81",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": [
@@ -2851,8 +2869,8 @@
       "id": "GAP-38",
       "problem": "Remainders cancelled; size-less fills",
       "severity": "M/P2",
-      "status": "Open",
-      "status_note": "",
+      "status": "Closed",
+      "status_note": "Closed at M8 (WS-11, ADR-0060, TD-61): RestRemainder keeps a partial fill's remainder working for a stated number of events or seconds, then cancels it; StrictLiquidityCappedFill refuses an event with no size instead of filling in full. Both opt-in; a run declaring neither is unchanged.",
       "workstreams": [
         "WS-11"
       ],
@@ -3250,7 +3268,7 @@
   },
   "state": {
     "updated": "2026-11-17",
-    "remote_head": "ec1ca9b",
+    "remote_head": "baaa305",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4188,6 +4206,42 @@
         "workflow": "Benchmarks",
         "run": 44136412090,
         "result": "dispatched at M7's checkpoint; in progress at this record, not counted as passed"
+      },
+      {
+        "sha": "3379fc8",
+        "workflow": "Continuous Integration",
+        "run": 44108670690,
+        "result": "success on attempt 2: the three macOS cells, never acquired by a runner on attempt 1, were re-run and passed; all six cells passed"
+      },
+      {
+        "sha": "1f749f3",
+        "workflow": "Continuous Integration",
+        "run": 44111739939,
+        "result": "success on attempt 2: macOS 3.14, never acquired by a runner on attempt 1, was re-run and passed; all six cells passed"
+      },
+      {
+        "sha": "1f749f3",
+        "workflow": "Benchmarks",
+        "run": 44136412090,
+        "result": "every authoritative Linux cell passed; WS-08 item 15's dataset in 28.6, 29.3 and 31.9 CPU s against 60 (CPython 3.12, 3.13, 3.14); the three diagnostic macOS cells were never acquired by a runner and ended cancelled, not counted"
+      },
+      {
+        "sha": "ec1ca9b",
+        "workflow": "Continuous Integration",
+        "run": 44140689034,
+        "result": "four cells passed; macOS 3.12 and 3.14 were never acquired by a runner; re-run, queued at this record, not counted as passed"
+      },
+      {
+        "sha": "ec1ca9b",
+        "workflow": "CodeQL",
+        "run": 44140689043,
+        "result": "success"
+      },
+      {
+        "sha": "ec1ca9b",
+        "workflow": "Optional Distributions",
+        "run": 44140688986,
+        "result": "success, all four cells"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
@@ -4550,6 +4604,10 @@
     {
       "date": "2026-11-17",
       "entry": "ec1ca9b (M8's ADRs) passed the full gate (14,084 tests) and was pushed. NEXT_OPEN and the intraday opening rule validated locally (TD-60), with the pipeline snapshot's version 9 written only when declared and read strictly. The new bar ledger found the book's lazy mark: a fill at the open values its position at the open until the next event re-marks it. A resting limit's and an OPG fill's position already behave so, and changing it would move existing runs' identities, so it is documented, not changed. The commit's first gate failed: mypy and ten tests found pins of the pipeline schema the first search had missed -- three documents' schema tables, four more test assertions, and three scanners that count every constant named *_SCHEMA, which the new _UNDECLARED_SCHEMA matched. The constant was renamed _UNDECLARED, as the checkpoint's is _UNBOUND, the documents state 9 with a note that it is written only when declared, and the pins assert what they meant."
+    },
+    {
+      "date": "2026-11-17",
+      "entry": "baaa305 (NEXT_OPEN, TD-60) passed the full gate (14,128 tests) and was pushed. M7's re-run macOS cells passed, so every M7 commit passed all six cells: M7 and WS-08 are Hosted CI passed. At M7's checkpoint the authoritative Linux benchmarks built WS-08's 500-asset training set in 28.6 to 31.9 CPU s against 60. RestRemainder and StrictLiquidityCappedFill validated locally (TD-61), each order's allowance kept in its metadata through an event-less OMS transition, as trigger is. The commit's first gate failed on three tests. The pinned reference experiment's identity and an assessment's had moved, because ExecutionAssumptions had gained a remainder field and every experiment's identity holds the assumptions whole. A third test required the changed ExecutionAssumptions to be named in the CHANGELOG. The field was removed and the remainder folded into the fill policy's description only when declared, so every pin holds."
     }
   ]
 }

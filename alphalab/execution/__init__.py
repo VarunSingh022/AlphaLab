@@ -104,7 +104,9 @@ from alphalab.execution.policy import (
     ImmediateFill,
     LiquidityCappedFill,
     LiquidityContext,
+    RestRemainder,
     StaticFill,
+    StrictLiquidityCappedFill,
 )
 from alphalab.execution.quality import (
     EXECUTION_QUALITY_SCHEME,
@@ -266,6 +268,7 @@ __all__ = [
     "QuotedHalfSpread",
     "ReferencePrice",
     "RejectionRate",
+    "RestRemainder",
     "RouteCandidate",
     "RouteDecision",
     "RouteLeg",
@@ -284,6 +287,7 @@ __all__ = [
     "SpreadModel",
     "SquareRootImpact",
     "StaticFill",
+    "StrictLiquidityCappedFill",
     "TaxModel",
     "TimelineMark",
     "TrancheRandomization",

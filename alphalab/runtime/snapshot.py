@@ -122,8 +122,9 @@ from alphalab.execution.events import (
     ExecutionRejected,
     ExecutionSubmitted,
 )
+from alphalab.execution.exceptions import ExecutionValidationError
 from alphalab.execution.fill import FillStatus
-from alphalab.execution.policy import FillTiming
+from alphalab.execution.policy import FillTiming, RestRemainder
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.state import ExecutionState
 from alphalab.instrument.controls import (
@@ -989,6 +990,34 @@ class ConfigRecord:
     retention: RetentionPolicy
     sizing_model_description: str | None
     simulator_description: str | None
+    #: What a partial fill leaves (ADR-0060). Written only when a run declares
+    #: a resting remainder, so every other payload keeps its form and its
+    #: identity, and one written before reads as none.
+    remainder: RestRemainder | None = None
+
+    def __serializable__(self) -> dict[str, Any]:
+        """The record's fields, ``remainder`` among them only when it is declared."""
+
+        return {
+            "account": self.account,
+            "starting_cash": self.starting_cash,
+            "budget": self.budget,
+            "allocation_constraints": self.allocation_constraints,
+            "risk_limits": self.risk_limits,
+            "venue": self.venue,
+            "currency": self.currency,
+            "also_settles": self.also_settles,
+            "routing": self.routing,
+            "sizing_model_type": self.sizing_model_type,
+            "simulator_type": self.simulator_type,
+            "instruments_type": self.instruments_type,
+            "fill_timing": self.fill_timing,
+            "calendars": self.calendars,
+            "retention": self.retention,
+            "sizing_model_description": self.sizing_model_description,
+            "simulator_description": self.simulator_description,
+            **({"remainder": self.remainder} if self.remainder is not None else {}),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -1226,6 +1255,7 @@ def _capture_config(config: ExecutionPipelineConfig) -> ConfigRecord:
         retention=config.retention,
         sizing_model_description=describe(config.sizing_model),
         simulator_description=describe(config.simulator),
+        remainder=config.remainder,
     )
 
 
@@ -1381,11 +1411,11 @@ def _written_version(config: ConfigRecord) -> int:
     """The schema version a pipeline configured as ``config`` is written at (ADR-0060).
 
     :data:`PIPELINE_SNAPSHOT_SCHEMA` when the run declares one of M8's execution
-    options -- a ``NEXT_OPEN`` fill timing -- and version 8 otherwise, so a run
-    declaring none is written as it was before they existed.
+    options -- a ``NEXT_OPEN`` fill timing, a resting remainder -- and version 8
+    otherwise, so a run declaring none is written as it was before they existed.
     """
 
-    if config.fill_timing is FillTiming.NEXT_OPEN:
+    if config.fill_timing is FillTiming.NEXT_OPEN or config.remainder is not None:
         return PIPELINE_SNAPSHOT_SCHEMA
     return _UNDECLARED
 
@@ -1536,6 +1566,7 @@ def _restore_config(record: ConfigRecord, objects: RuntimeObjects) -> ExecutionP
         fill_timing=record.fill_timing,
         calendars=record.calendars,
         retention=record.retention,
+        remainder=record.remainder,
     )
 
 
@@ -2436,7 +2467,26 @@ def _config(value: Any) -> ConfigRecord:
         simulator_description=as_optional_str(
             require(payload, "simulator_description"), f"{where}.simulator_description"
         ),
+        # Absent from every payload but a version-9 one declaring it (ADR-0060).
+        remainder=_rest_remainder(payload.get("remainder"), f"{where}.remainder"),
     )
+
+
+def _rest_remainder(value: Any, where: str) -> RestRemainder | None:
+    """A declared resting remainder, or ``None`` for the default cancel (ADR-0060)."""
+
+    if value is None:
+        return None
+    payload = as_mapping(value, where)
+    events = payload.get("events")
+    seconds = payload.get("seconds")
+    try:
+        return RestRemainder(
+            events=None if events is None else as_int(events, f"{where}.events"),
+            seconds=None if seconds is None else as_float(seconds, f"{where}.seconds"),
+        )
+    except ExecutionValidationError as refusal:
+        raise StateDecodeError(f"{where}: {refusal}") from refusal
 
 
 def _retention(value: Any, where: str) -> RetentionPolicy:

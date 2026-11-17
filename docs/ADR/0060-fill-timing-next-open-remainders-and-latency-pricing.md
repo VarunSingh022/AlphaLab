@@ -200,6 +200,51 @@ empty for its output.
      The independent ledger now holds daily bars under all three timings, each
      fill's price held to its timing's rule
      (`tests/regression/test_accounting_matches_an_independent_ledger.py`).
+2. **Resting remainders and strict caps.**
+   - **The configuration.** `ExecutionPipelineConfig.remainder` is a
+     `RestRemainder` or `None`. `None` is section 3's `CANCEL`, today's rule,
+     taken by the same code path as before.
+   - **The allowance lives on the order.** At the first partial fill it is
+     recorded in the order's metadata: the turns left, or the instant the rest
+     ends. It is written through `OMSEngine.annotate`, which logs no event, as
+     `trigger` logs none: it is not a lifecycle transition. The OMS snapshot
+     already carries an order's metadata, and the keys appear only in a run
+     that declares the policy, so no OMS schema moves.
+   - **Spending it.** Every later turn spends one turn of an events-bounded
+     rest, whether it fills partly or not at all. A turn that fills nothing
+     keeps the remainder working instead of closing it, until the rest is
+     spent. A seconds-bounded rest is checked before the turn. An event at or
+     after its end withdraws the remainder without a turn. Either way the
+     remainder is then cancelled, as section 3 says, and its reservation is
+     freed.
+   - **Who rests.** Only a market turn's remainder rests. An
+     immediate-or-cancel or fill-or-kill order is withdrawn after its first
+     turn, and a limit order's remainder rests at its limit, as before.
+   - **Strict caps.** `StrictLiquidityCappedFill` is its own class, validating
+     its rate as a `Decimal` in (0, 1]. A quote, bar, trade or tick always
+     shows a size, so the refusal meets the events that show none, such as
+     book updates. It is held at the policy itself.
+   - **What is recorded.** The configuration record writes `remainder` only
+     when declared, so a run declaring none keeps its payload. A declared one
+     makes the payload version 9.
+   - **Section 7's "gains `remainder`" is settled differently.**
+     `ExecutionAssumptions` gains no field. The remainder is appended to the
+     fill policy's description only when declared, as a maker commission is
+     appended to the costs'. An experiment's identity holds its
+     `ExecutionAssumptions` whole (`canonical_experiment_key`). A new field,
+     even one defaulting to `None`, moved the pinned reference experiment's
+     identity and an assessment's in the commit's first gate. The same holds
+     for every execution option this ADR and ADR-0061 add.
+   - **Tests.** `tests/regression/test_remainders_and_strict_caps.py` holds
+     hand-calculated fills: 30 under `CANCEL`, 90 resting two events, and 60
+     resting 1.5 seconds. They also cover:
+     - a turn that fills nothing;
+     - an immediate order;
+     - the strict refusal;
+     - the descriptions;
+     - a resume at version 9.
+
+     The bar ledger draws each remainder policy too.
 
 # Compatibility
 

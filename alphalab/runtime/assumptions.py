@@ -213,10 +213,17 @@ def execution_assumptions(
         # of the model the run's evidence was measured under, so part of what
         # identifies it; absent when not set, so every other run reads as it did.
         costs = f"{costs}; maker_commission={describe(simulator.maker_commission_model)}"
+    policy = describe(fill_policy)
+    if pipeline.remainder is not None:
+        # What a partial fill leaves is part of the fill model the evidence was
+        # measured under (ADR-0060). Appended only when declared, as a maker
+        # commission is to the costs: the assumptions keep their shape, and
+        # every experiment identity that holds them stays what it was.
+        policy = f"{policy}; remainder={describe(pipeline.remainder)}"
     return ExecutionAssumptions(
         routing=pipeline.routing,
         fill_timing=pipeline.fill_timing,
-        fill_policy=describe(fill_policy),
+        fill_policy=policy,
         costs=costs,
         latency=describe(simulator.latency_model),
         frictionless=simulator.is_frictionless,

@@ -1029,6 +1029,31 @@ entry below says otherwise.
     independent accounting ledger now holds daily bars under every fill timing,
     each fill's price checked against its timing's rule.
 
+* **A remainder can keep working, and a cap can refuse data without sizes**
+  [plan WS-11, GAP-38, ADR-0060].
+  * **`RestRemainder`.** It is declared on `ExecutionPipelineConfig.remainder`
+    as `RestRemainder(events=n)` or `RestRemainder(seconds=s)`. What a partial
+    fill leaves of a market order then keeps working, a market attempt at each
+    of its asset's following events, for `n` of them or `s` seconds. A turn
+    that fills nothing counts against the rest. When the rest ends, the
+    remainder is cancelled and its reservation freed.
+  * **What does not change.** Without the policy, a remainder is cancelled in
+    the step that partially filled it, as before (ADR-0014 decision 3). An
+    immediate-or-cancel or fill-or-kill order is withdrawn after its first turn
+    whatever the policy.
+  * **What is recorded.** Each order's allowance lives in its metadata, which
+    the OMS snapshot already carries, through `OMSEngine.annotate`. That
+    transition logs no event. `execution_assumptions` appends the policy to the
+    fill policy's description only when declared, so every experiment identity
+    holds.
+  * **`StrictLiquidityCappedFill`.** `LiquidityCappedFill`'s cap, refusing an
+    event that shows no size with an `ExecutionValidationError` that names the
+    asset and instant, where the lenient cap fills in full. It is a new class,
+    since a new field on `LiquidityCappedFill` would move every capped run's
+    identity.
+  * **The tests.** `tests/regression/test_remainders_and_strict_caps.py` holds
+    hand-calculated fills. The independent ledger draws each remainder policy.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

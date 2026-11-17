@@ -53,6 +53,7 @@ from alphalab.execution.policy import (
     FillPolicy,
     FillTiming,
     LiquidityContext,
+    RestRemainder,
     StaticFill,
 )
 from alphalab.execution.queue import QueueBook, QueueObservation, QueuePosition, QueueTurn
@@ -339,6 +340,13 @@ class ExecutionPipelineConfig:
             cash, orders or anything else a step computes from. Carried by the
             pipeline snapshot. See :mod:`alphalab.runtime.retention` (ledger
             PRF-004).
+        remainder: What a partial fill leaves of a simulated order that would
+            otherwise be cancelled for it: ``None``, the default, cancels it in
+            the step that partially filled it, as every run before v4.3 did
+            (ADR-0014 decision 3); a
+            :class:`~alphalab.execution.policy.RestRemainder` keeps it working
+            for a stated number of its asset's events or seconds (ADR-0060).
+            Carried by the pipeline snapshot, and only when declared.
     """
 
     account: Account
@@ -356,6 +364,7 @@ class ExecutionPipelineConfig:
     fill_timing: FillTiming = FillTiming.SAME_EVENT
     calendars: VenueCalendars = field(default_factory=VenueCalendars)
     retention: RetentionPolicy = field(default_factory=RetentionPolicy)
+    remainder: RestRemainder | None = None
 
     def __post_init__(self) -> None:
         if not self.currency:
@@ -6526,6 +6535,10 @@ def _simulate_fill(
     # terminal by the time _release_if_terminal is asked, which is what lets
     # that one function serve every terminal transition.
     if not reports and decision.status in _NON_TRADING_STATUSES:
+        if decision.status is FillStatus.NO_FILL and _resting(order):
+            # A resting remainder's turn that filled nothing: it counts against
+            # the rest, and the remainder works on until its rest ends (ADR-0060).
+            return _spend_turn(current, order, event.timestamp), (), (), ()
         current = evolve(
             current,
             oms=_close_unfilled_order(current.oms, order, decision.status, event.timestamp),
@@ -6533,8 +6546,75 @@ def _simulate_fill(
         current = _release_if_terminal(current, order.order_id, event.timestamp)
 
     current, fills, trades = _apply_reports(current, order, reports, rates)
-    current = _withdraw_partial_remainder(current, order, event.timestamp)
+    current = _after_turn(current, order, event.timestamp)
     return current, reports, fills, trades
+
+
+#: Where a resting remainder's allowance is kept, in its order's metadata
+#: (ADR-0060): the turns it may still take, or the instant its rest ends.
+_REST_TURNS: Final = "remainder_turns"
+_REST_UNTIL: Final = "remainder_until"
+
+
+def _resting(order: OMSOrder) -> bool:
+    """Whether ``order`` is a remainder resting under a declared ``RestRemainder``."""
+
+    return _REST_TURNS in order.metadata or _REST_UNTIL in order.metadata
+
+
+def _after_turn(
+    state: ExecutionPipelineState, order: OMSOrder, timestamp: float
+) -> ExecutionPipelineState:
+    """What a market turn leaves: withdrawn, unless the run rests remainders (ADR-0060).
+
+    Under ``RestRemainder`` the first partial fill starts the remainder's rest,
+    recorded on the order, and every later turn spends it. An immediate order
+    is withdrawn after its first turn whatever the policy.
+    """
+
+    rest = state.config.remainder
+    if rest is None or order.time_in_force in _IMMEDIATE:
+        return _withdraw_partial_remainder(state, order, timestamp)
+    current = state.oms.orders.find(order.order_id)
+    if current.status is not OrderStatus.PARTIALLY_FILLED:
+        return state
+    if _resting(current):
+        return _spend_turn(state, current, timestamp)
+    if rest.events is not None:
+        entry = {_REST_TURNS: str(rest.events)}
+    else:
+        assert rest.seconds is not None  # a RestRemainder states exactly one
+        entry = {_REST_UNTIL: repr(timestamp + rest.seconds)}
+    return evolve(state, oms=OMSEngine.annotate(state.oms, order.order_id, entry))
+
+
+def _spend_turn(
+    state: ExecutionPipelineState, order: OMSOrder, timestamp: float
+) -> ExecutionPipelineState:
+    """Spend one of a resting remainder's turns; withdraw it when its rest is over."""
+
+    current = state.oms.orders.find(order.order_id)
+    turns = current.metadata.get(_REST_TURNS)
+    if turns is not None:
+        left = int(turns) - 1
+        if left <= 0:
+            return _withdraw_partial_remainder(state, current, timestamp)
+        return evolve(
+            state, oms=OMSEngine.annotate(state.oms, current.order_id, {_REST_TURNS: str(left)})
+        )
+    return state
+
+
+def _rest_over(order: OMSOrder, timestamp: float) -> bool:
+    """Whether a remainder resting by seconds reached its end before this turn."""
+
+    until = order.metadata.get(_REST_UNTIL)
+    return until is not None and timestamp >= float(until)
+
+
+#: Times in force whose orders end at their first attempt, whatever a
+#: ``RestRemainder`` says (ADR-0060).
+_IMMEDIATE: Final = frozenset({TimeInForce.IOC, TimeInForce.FOK})
 
 
 #: The daily-or-longer interval units: a bar of one of these opens and closes a
@@ -6935,6 +7015,10 @@ def _work_order(
     terms = order.terms
     if order.expire_at is not None and timestamp >= order.expire_at:
         return _expire(state, order, timestamp), (), (), ()
+    if _rest_over(order, timestamp):
+        # A remainder resting by seconds whose rest ended before this event:
+        # withdrawn without a turn (ADR-0060).
+        return _withdraw_partial_remainder(state, order, timestamp), (), (), ()
     market_price = state.market_prices[order.asset_id]
     one_shot = terms.is_immediate
     if _venue_blocks(state, order.asset_id, timestamp, market_price):
