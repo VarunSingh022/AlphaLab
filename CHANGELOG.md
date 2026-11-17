@@ -840,6 +840,15 @@ entry below says otherwise.
   * **The old builder.** `build_dataset_from_feature_store`, unchanged, reads
     the latest writes and is now documented as not point-in-time.
 
+* **The core imports no third-party package** [plan WS-09, AC-38, ADR-0057].
+  * **The sweep.** An AST sweep over every module of `alphalab` holds each
+    import statement, and each import by a name written in the source, to
+    the standard library or AlphaLab itself.
+  * **`tzdata` read as data.** The environment's record of the `tzdata`
+    package's version, the one name the core imported for itself, is now read
+    from the package's source without executing it. The recorded version is
+    the same.
+
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
   percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's

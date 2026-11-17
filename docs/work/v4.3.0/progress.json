@@ -925,6 +925,19 @@
       "compatibility": "Additive: a trailing FeatureStoreState field with a default, and four names (3,084 exports). FeatureStoreState is not persisted; latest_value and build_dataset_from_feature_store behave as before.",
       "record": "docs/ADR/0064-research-model-protocol-and-artifacts.md (settled point 19)",
       "tests": "tests/unit/feature_store/test_value_as_of.py: reads at each instant, a late backfill, a value computed after the read, ties, the timeline's approved writes only and an untouched earlier state; the counterfactual future, under which the as-of dataset is unchanged while the latest-value builder moves; refusals."
+    },
+    {
+      "id": "TD-52",
+      "date": "2026-11-17",
+      "workstream": "WS-09",
+      "title": "AC-38 held by an AST sweep, and tzdata's version read as data (ADR-0057's settled points 1 and 2)",
+      "problem": "ADR-0057 makes AC-38 a rule: no alphalab module imports a third-party package or an optional distribution. Nothing measured it, and lifecycle.environment imported tzdata by name to record its version.",
+      "alternatives": "A sweep of import statements only, or of import statements and imports by a written name. tzdata kept as the one exception the sweep allows, or located with find_spec and its version read from its source.",
+      "decision": "tests/regression/test_the_core_imports_no_third_party_package.py reads every module's syntax tree: every import statement, and every literal passed to importlib.import_module or __import__, names the standard library, alphalab or __future__; a planted import of each kind is caught. lifecycle.environment locates tzdata with importlib.util.find_spec and parses the string its __init__.py assigns to IANA_VERSION, so the recorded version is the same and no third-party code runs. A name now becomes code in two places, both a module the researcher names.",
+      "rationale": "A dependency-free core is a charter principle (ADR-0056); a rule nothing measures erodes. An exception in the sweep would be the first third-party import the core keeps, where reading a version as text needs none.",
+      "compatibility": "None for the API: no name or signature moves, and EngineBuild.tz_database records the same version.",
+      "record": "docs/ADR/0057-optional-distributions-and-backend-protocols.md (settled points 1 and 2)",
+      "tests": "tests/regression/test_the_core_imports_no_third_party_package.py; tests/unit/lifecycle/test_engine_build.py (a tzdata whose __init__.py raises if executed, read as data); tests/regression/test_one_executor_path.py (two import sites)."
     }
   ],
   "plan_changes": [
@@ -1791,7 +1804,7 @@
         {
           "milestone": "M7",
           "item": "Feature Store reads as of an instant (TD-51, ADR-0064 settled point 19): a timeline of every write with when it was known, value_as_of, and ml.build_dataset_as_of, held by the counterfactual-future test; GAP-13 closed",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": []
@@ -1809,6 +1822,11 @@
           "milestone": "M7",
           "item": "ADR-0057 accepted (TD-46): optional distributions under distributions/, AC-38 enforced by an AST sweep, tzdata read as data, discovery explicit",
           "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M7",
+          "item": "AC-38 held by an AST sweep over every module (TD-52, ADR-0057 settled points 1 and 2), and tzdata's version read as data, never imported",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -3032,7 +3050,7 @@
   },
   "state": {
     "updated": "2026-11-17",
-    "remote_head": "da8083d",
+    "remote_head": "0f9b285",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3802,6 +3820,30 @@
         "workflow": "Continuous Integration",
         "run": 44044118399,
         "result": "success: all six quality-gate cells, carrying point-in-time labels and panels"
+      },
+      {
+        "sha": "da8083d",
+        "workflow": "CodeQL",
+        "run": 44046474739,
+        "result": "success"
+      },
+      {
+        "sha": "da8083d",
+        "workflow": "Continuous Integration",
+        "run": 44046474955,
+        "result": "in progress at this record, not counted as passed"
+      },
+      {
+        "sha": "0f9b285",
+        "workflow": "Continuous Integration",
+        "run": 44047767031,
+        "result": "in progress at this record, not counted as passed"
+      },
+      {
+        "sha": "0f9b285",
+        "workflow": "CodeQL",
+        "run": 44047767062,
+        "result": "in progress at this record, not counted as passed"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
@@ -4128,6 +4170,10 @@
     {
       "date": "2026-11-17",
       "entry": "da8083d (drawn spaces and successive halving) passed the full gate (14,056 tests) and was pushed; 0984bf1 (labels and panels) passed hosted CI on all six cells and CodeQL. Feature Store's as-of reads validated locally (TD-51): every write kept in a timeline with when it was known, value_as_of and ml.build_dataset_as_of, held by the counterfactual-future test. GAP-13 closed, both ways the plan offers."
+    },
+    {
+      "date": "2026-11-17",
+      "entry": "0f9b285 (Feature Store's as-of reads, GAP-13 closed) passed the full gate (14,060 tests) and was pushed; da8083d's and 0f9b285's hosted runs were still in progress when read. AC-38 validated locally (TD-52): an AST sweep holds every import statement and every import by a written name in alphalab to the standard library or alphalab, and tzdata's version is read as data, so the core imports no third-party package at all."
     }
   ]
 }

@@ -114,6 +114,25 @@ How the optional distributions are released -- as separate tagged releases or
 as extra assets -- is the owner's decision D-W3. They do not change the core
 release's contract: four verified assets (RQ-01 to RQ-09, ADR-0071).
 
+# Settled at implementation (2026-11-17)
+
+1. **AC-38's sweep.** `tests/regression/test_the_core_imports_no_third_party_package.py`
+   reads every module's syntax tree.
+   - Every import statement names the standard library
+     (`sys.stdlib_module_names`), `alphalab` or `__future__`.
+   - So does every import by a name written in the source: a literal passed
+     to `importlib.import_module` or `__import__`.
+   - A planted import of each kind is caught, so the sweep checks itself.
+   - A name passed at run time is the researcher's module, loaded at the two
+     sites `tests/regression/test_one_executor_path.py` pins.
+2. **`tzdata` is located, then read.** `importlib.util.find_spec` locates the
+   top-level package without importing it. The version is the string literal
+   its `__init__.py` assigns to `IANA_VERSION`, parsed with `ast`: the value
+   the package's attribute holds, so the recorded version is unchanged.
+   `tests/unit/lifecycle/test_engine_build.py` proves the read never runs the
+   package: it plants a `tzdata` whose `__init__.py` raises if executed. A
+   name now becomes code in two places, not three.
+
 # Compatibility
 
 - None for the core: no name, signature, identity or persisted format moves.

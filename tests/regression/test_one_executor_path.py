@@ -10,10 +10,11 @@ says so, and these tests measure what it says:
   stay on the standalone list: nothing imports either;
 * nothing in any of the four imports ``lifecycle``, which composes them;
 * one class is the registry a name is looked up in;
-* a name becomes code in three places, each for its stated reason, and in no
+* a name becomes code in two places, each for its stated reason, and in no
   other: AlphaLab's worker loads the definition its executor was told, in code;
-  the environment reads the ``tzdata`` distribution's version; and
-  ``cloud_research.resolve_task``, superseded and kept until 5.0 (D-54-6).
+  and ``cloud_research.resolve_task``, superseded and kept until 5.0 (D-54-6).
+  The environment reads the ``tzdata`` package's version as data, never
+  importing it (v4.3, ADR-0057, AC-38).
 """
 
 from __future__ import annotations
@@ -105,5 +106,4 @@ def test_a_name_becomes_code_in_three_places_each_for_its_stated_reason() -> Non
     assert calls == [
         "cloud_research/task.py",  # resolve_task: superseded, kept until 5.0 (BDY-028)
         "lifecycle/_trial_worker.py",  # the definition its executor names in code (BDY-029)
-        "lifecycle/environment.py",  # the literal "tzdata", for its version
     ]

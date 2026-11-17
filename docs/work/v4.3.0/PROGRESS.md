@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `da8083d` |
+| Remote head | `0f9b285` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M7 (WS-08, WS-09, WS-20), after the Model protocol: point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. 13c437c's re-run macOS cell is read once at the next boundary. |
@@ -180,6 +180,10 @@ Never:
 | `0984bf1` | CodeQL | 44044118375 | success |
 | `0984bf1` | Continuous Integration | 44044118399 | in progress at this record, not counted as passed |
 | `0984bf1` | Continuous Integration | 44044118399 | success: all six quality-gate cells, carrying point-in-time labels and panels |
+| `da8083d` | CodeQL | 44046474739 | success |
+| `da8083d` | Continuous Integration | 44046474955 | in progress at this record, not counted as passed |
+| `0f9b285` | Continuous Integration | 44047767031 | in progress at this record, not counted as passed |
+| `0f9b285` | CodeQL | 44047767062 | in progress at this record, not counted as passed |
 
 ## Continuation log
 
@@ -263,6 +267,7 @@ Never:
 - **2026-11-17** The protocol commit's first gate failed on one test: a tree node named Split brought back ml.Split, which v3.13 renamed TrainTestSplit without an alias (API-001). The nodes became TreeSplit and TreeLeaf, the unpushed commit was amended to cf8639d, and it passed the full gate (13,989 tests) and was pushed. 13c437c's re-run macOS 3.14 cell passed, so M6's close passed all six cells on its own commit. Point-in-time labels and panels validated locally (TD-49): a panel's identity first named its label set's, which covers later labels, so a panel known by an instant moved with the prices after it; it now names the labels' method and source, and the counterfactual-future test holds it.
 - **2026-11-17** 0984bf1 (point-in-time labels and panels) passed the full gate (14,026 tests) and was pushed; cf8639d (the Model protocol) passed hosted CI on all six cells and CodeQL. Searches validated locally (TD-50): random and Latin hypercube spaces drawn by SHA-256 of their seed and pinned identically under CPython 3.12, 3.13 and 3.14, and successive halving run as rounds of child experiments, every configuration a counted trial; Sobol is left to alphalab-compute, its direction numbers a published table to verify at its source.
 - **2026-11-17** da8083d (drawn spaces and successive halving) passed the full gate (14,056 tests) and was pushed; 0984bf1 (labels and panels) passed hosted CI on all six cells and CodeQL. Feature Store's as-of reads validated locally (TD-51): every write kept in a timeline with when it was known, value_as_of and ml.build_dataset_as_of, held by the counterfactual-future test. GAP-13 closed, both ways the plan offers.
+- **2026-11-17** 0f9b285 (Feature Store's as-of reads, GAP-13 closed) passed the full gate (14,060 tests) and was pushed; da8083d's and 0f9b285's hosted runs were still in progress when read. AC-38 validated locally (TD-52): an AST sweep holds every import statement and every import by a written name in alphalab to the standard library or alphalab, and tzdata's version is read as data, so the core imports no third-party package at all.
 
 ## Milestones
 
@@ -839,6 +844,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md (settled point 19)
 - **Tests:** tests/unit/feature_store/test_value_as_of.py: reads at each instant, a late backfill, a value computed after the read, ties, the timeline's approved writes only and an untouched earlier state; the counterfactual future, under which the as-of dataset is unchanged while the latest-value builder moves; refusals.
 
+### TD-52: AC-38 held by an AST sweep, and tzdata's version read as data (ADR-0057's settled points 1 and 2) (WS-09, 2026-11-17)
+
+- **Problem:** ADR-0057 makes AC-38 a rule: no alphalab module imports a third-party package or an optional distribution. Nothing measured it, and lifecycle.environment imported tzdata by name to record its version.
+- **Alternatives:** A sweep of import statements only, or of import statements and imports by a written name. tzdata kept as the one exception the sweep allows, or located with find_spec and its version read from its source.
+- **Decision:** tests/regression/test_the_core_imports_no_third_party_package.py reads every module's syntax tree: every import statement, and every literal passed to importlib.import_module or __import__, names the standard library, alphalab or __future__; a planted import of each kind is caught. lifecycle.environment locates tzdata with importlib.util.find_spec and parses the string its __init__.py assigns to IANA_VERSION, so the recorded version is the same and no third-party code runs. A name now becomes code in two places, both a module the researcher names.
+- **Rationale:** A dependency-free core is a charter principle (ADR-0056); a rule nothing measures erodes. An exception in the sweep would be the first third-party import the core keeps, where reading a version as text needs none.
+- **Compatibility:** None for the API: no name or signature moves, and EngineBuild.tz_database records the same version.
+- **Recorded in:** docs/ADR/0057-optional-distributions-and-backend-protocols.md (settled points 1 and 2)
+- **Tests:** tests/regression/test_the_core_imports_no_third_party_package.py; tests/unit/lifecycle/test_engine_build.py (a tzdata whose __init__.py raises if executed, read as data); tests/regression/test_one_executor_path.py (two import sites).
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1032,11 +1047,12 @@ Evidence:
 - [Hosted CI passed] M7: The Model protocol and its artifacts (TD-48, ADR-0064 settled points 1 to 10): ml.protocol's Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore; RidgeRegression (class 2), LogisticRegression (class 3) and GradientBoostedTrees (class 2 with the squared loss), each pinned under CPython 3.12, 3.13 and 3.14
 - [Hosted CI passed] M7: Point-in-time labels and panels (TD-49, ADR-0064 settled points 11 to 15): fixed-horizon, triple-barrier and meta-labels carrying their ends, weights by uniqueness among the rows taken, and PointInTimePanel joining the factor library's panels for research's purged splits, held by the counterfactual-future test
 - [Pushed] M7: Searches beyond the grid (TD-50, ADR-0064 settled points 16 to 18): random and Latin hypercube spaces drawn by SHA-256 of their seed, and successive halving whose rounds are child experiments, every configuration a counted trial
-- [Local validation passed] M7: Feature Store reads as of an instant (TD-51, ADR-0064 settled point 19): a timeline of every write with when it was known, value_as_of, and ml.build_dataset_as_of, held by the counterfactual-future test; GAP-13 closed
+- [Pushed] M7: Feature Store reads as of an instant (TD-51, ADR-0064 settled point 19): a timeline of every write with when it was known, value_as_of, and ml.build_dataset_as_of, held by the counterfactual-future test; GAP-13 closed
 
 ### WS-09: Optional distributions and backends
 
 - [Hosted CI passed] M7: ADR-0057 accepted (TD-46): optional distributions under distributions/, AC-38 enforced by an AST sweep, tzdata read as data, discovery explicit
+- [Local validation passed] M7: AC-38 held by an AST sweep over every module (TD-52, ADR-0057 settled points 1 and 2), and tzdata's version read as data, never imported
 
 ### WS-13: Global conventions, reference data and historical universes
 

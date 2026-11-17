@@ -5,8 +5,9 @@ local-time computation depends on the host's time-zone database. The build
 records both -- in a manifest, never in a strategy fingerprint.
 """
 
-import importlib
+import importlib.util
 import re
+import sys
 import zoneinfo
 from pathlib import Path
 
@@ -82,12 +83,31 @@ def test_the_tz_version_is_read_where_zoneinfo_reads_zones(
 def test_no_discoverable_database_is_none_not_a_guess(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def no_tzdata(name: str) -> object:
-        raise ImportError(name)
+    def no_tzdata(name: str, package: str | None = None) -> None:
+        return None
 
     monkeypatch.setattr(zoneinfo, "TZPATH", (str(tmp_path),))
-    monkeypatch.setattr(importlib, "import_module", no_tzdata)
+    monkeypatch.setattr(importlib.util, "find_spec", no_tzdata)
     assert tz_database_version() is None
+
+
+def test_the_tzdata_packages_version_is_read_as_data_and_never_executed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR-0057, AC-38: the core runs no third-party code to read a version."""
+
+    package = tmp_path / "site" / "tzdata"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(
+        'raise RuntimeError("tzdata was executed")\nIANA_VERSION = "2097x"\n', encoding="utf-8"
+    )
+    monkeypatch.syspath_prepend(str(tmp_path / "site"))
+    monkeypatch.delitem(sys.modules, "tzdata", raising=False)
+    monkeypatch.setattr(zoneinfo, "TZPATH", (str(tmp_path),))
+    assert tz_database_version() == "2097x"
+    assert "tzdata" not in sys.modules, "located and read, never imported"
+    (package / "__init__.py").write_text("IANA_VERSION = compute()\n", encoding="utf-8")
+    assert tz_database_version() is None, "only a string the source assigns is a version"
 
 
 @pytest.mark.parametrize(

@@ -16,8 +16,9 @@ on a caller's behalf.
 
 from __future__ import annotations
 
+import ast
 import hashlib
-import importlib
+import importlib.util
 import re
 import zoneinfo
 from pathlib import Path
@@ -68,8 +69,8 @@ def tz_database_version() -> str | None:
     ``tzdata`` package, so this does the same: the first ``TZPATH`` directory
     holding a ``tzdata.zi`` (whose first line reads ``# version 2025b``) or a
     ``+VERSION`` file answers; failing every one, the ``tzdata`` package's
-    ``IANA_VERSION`` does. ``None`` means neither says -- which a manifest
-    records as a gap rather than a guess.
+    ``IANA_VERSION`` does, read as data (:func:`_tzdata_version`). ``None``
+    means neither says -- which a manifest records as a gap rather than a guess.
     """
 
     for directory in zoneinfo.TZPATH:
@@ -85,12 +86,49 @@ def tz_database_version() -> str | None:
             text = marker.read_text(encoding="utf-8", errors="replace").strip()
             if text:
                 return text
+    return _tzdata_version()
+
+
+def _tzdata_version() -> str | None:
+    """The ``tzdata`` package's ``IANA_VERSION``, read from its source and never executed.
+
+    ``importlib.util.find_spec`` locates a top-level package without importing
+    it, and the version is the string its ``__init__.py`` assigns: no
+    third-party code runs to read it (ADR-0057, AC-38). ``None`` when the
+    package is absent or assigns no such string.
+    """
+
     try:
-        tzdata = importlib.import_module("tzdata")
-    except ImportError:
+        spec = importlib.util.find_spec("tzdata")
+    except (ImportError, ValueError):
         return None
-    version = getattr(tzdata, "IANA_VERSION", None)
-    return version if isinstance(version, str) and version else None
+    origin = None if spec is None else spec.origin
+    if origin is None or Path(origin).name != "__init__.py":
+        return None
+    try:
+        tree = ast.parse(Path(origin).read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
+        return None
+    for node in tree.body:
+        targets: list[ast.expr]
+        value: ast.expr | None
+        if isinstance(node, ast.Assign):
+            targets, value = list(node.targets), node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets, value = [node.target], node.value
+        else:
+            continue
+        named = any(
+            isinstance(target, ast.Name) and target.id == "IANA_VERSION" for target in targets
+        )
+        if (
+            named
+            and isinstance(value, ast.Constant)
+            and isinstance(value.value, str)
+            and value.value
+        ):
+            return value.value
+    return None
 
 
 def running_build() -> EngineBuild:
