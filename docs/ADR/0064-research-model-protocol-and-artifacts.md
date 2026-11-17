@@ -255,6 +255,22 @@ Building the search settled these points (`tests/unit/research/test_sampling.py`
 
     So GAP-13 closes both ways the plan offers: ML builds point-in-time panels
     from the factor library, and Feature Store reads as of an instant.
+20. **An adapter keeps the bytes it was captured as.**
+    `alphalab_models.sklearn.SklearnModel` captures a line of canonical JSON,
+    then the pickled estimator. The JSON holds the kind, the features, the
+    scikit-learn, NumPy and adapter versions, and the payload's SHA-256.
+    - **Pickled once.** scikit-learn's pickles do not round-trip byte for
+      byte: a `Ridge` or a gradient-boosting model pickled, loaded and pickled
+      again gives other bytes. So a fit is pickled once, when it is made, and
+      a restored model captures as the artifact it came from. A deterministic
+      fit pickles to the same bytes, so the same training is the same
+      artifact.
+    - **Refused under another version.** A restore is refused under another
+      scikit-learn or adapter version.
+    - **The seed reaches the framework.** An estimator taking a
+      `random_state` is given the fit's seed.
+    - **Trust.** Restoring unpickles; the adapter's documentation states the
+      trust that needs (`distributions/alphalab-models/tests/test_sklearn.py`).
 
 # Compatibility
 

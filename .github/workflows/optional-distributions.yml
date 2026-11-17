@@ -1,0 +1,78 @@
+name: Optional Distributions
+
+# Each optional distribution's own cells (ADR-0057 section 2). The core's CI
+# (ci.yml, which the release preflight reuses) installs no optional
+# distribution, so the core's suite skips nothing and its release contract
+# stays the core's. These cells install the core beside a distribution and the
+# frameworks it adapts, and run that distribution's suite across its versions.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  alphalab-models:
+    # Every cell is a required gate, and one failing cell does not hide the
+    # others.
+    name: alphalab-models (${{ matrix.os }}, Python ${{ matrix.python-version }}, scikit-learn ${{ matrix.scikit-learn }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+        python-version:
+          - "3.12"
+          - "3.13"
+          - "3.14"
+        scikit-learn:
+          - "latest"
+        include:
+          # The lowest scikit-learn the distribution declares, on the lowest
+          # Python it supports.
+          - os: ubuntu-latest
+            python-version: "3.12"
+            scikit-learn: "1.7"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install the core, and alphalab-models with scikit-learn
+        env:
+          SCIKIT_LEARN: ${{ matrix.scikit-learn }}
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e . -e "distributions/alphalab-models[sklearn,dev]"
+          if [ "${SCIKIT_LEARN}" != "latest" ]; then
+            python -m pip install "scikit-learn==${SCIKIT_LEARN}.*"
+          fi
+          python -c "import sklearn; print('scikit-learn', sklearn.__version__)"
+
+      - name: Ruff (Lint and Format Check)
+        working-directory: distributions/alphalab-models
+        run: |
+          python -m ruff check .
+          python -m ruff format --check .
+
+      - name: MyPy
+        working-directory: distributions/alphalab-models
+        run: python -m mypy
+
+      - name: Pytest
+        working-directory: distributions/alphalab-models
+        run: python -m pytest -W error

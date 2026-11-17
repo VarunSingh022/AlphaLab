@@ -127,6 +127,11 @@ files = [
   "alphalab",
   "tests",
 ]
+# Each optional distribution (ADR-0057) is type-checked in its own CI cells,
+# where its frameworks are installed; the core's environment has none of them.
+exclude = [
+  "^distributions/",
+]
 
 [tool.pytest.ini_options]
 addopts = [

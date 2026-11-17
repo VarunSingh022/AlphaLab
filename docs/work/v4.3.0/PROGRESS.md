@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `0f9b285` |
+| Remote head | `dfbdb15` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M7 (WS-08, WS-09, WS-20), after the Model protocol: point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. 13c437c's re-run macOS cell is read once at the next boundary. |
@@ -184,6 +184,11 @@ Never:
 | `da8083d` | Continuous Integration | 44046474955 | in progress at this record, not counted as passed |
 | `0f9b285` | Continuous Integration | 44047767031 | in progress at this record, not counted as passed |
 | `0f9b285` | CodeQL | 44047767062 | in progress at this record, not counted as passed |
+| `da8083d` | Continuous Integration | 44046474955 | success: all six quality-gate cells, carrying drawn spaces and successive halving |
+| `0f9b285` | CodeQL | 44047767062 | success |
+| `0f9b285` | Continuous Integration | 44047767031 | in progress at this record, two cells running; not counted as passed |
+| `dfbdb15` | Continuous Integration | 44049326404 | in progress at this record, not counted as passed |
+| `dfbdb15` | CodeQL | 44049326431 | in progress at this record, not counted as passed |
 
 ## Continuation log
 
@@ -268,6 +273,7 @@ Never:
 - **2026-11-17** 0984bf1 (point-in-time labels and panels) passed the full gate (14,026 tests) and was pushed; cf8639d (the Model protocol) passed hosted CI on all six cells and CodeQL. Searches validated locally (TD-50): random and Latin hypercube spaces drawn by SHA-256 of their seed and pinned identically under CPython 3.12, 3.13 and 3.14, and successive halving run as rounds of child experiments, every configuration a counted trial; Sobol is left to alphalab-compute, its direction numbers a published table to verify at its source.
 - **2026-11-17** da8083d (drawn spaces and successive halving) passed the full gate (14,056 tests) and was pushed; 0984bf1 (labels and panels) passed hosted CI on all six cells and CodeQL. Feature Store's as-of reads validated locally (TD-51): every write kept in a timeline with when it was known, value_as_of and ml.build_dataset_as_of, held by the counterfactual-future test. GAP-13 closed, both ways the plan offers.
 - **2026-11-17** 0f9b285 (Feature Store's as-of reads, GAP-13 closed) passed the full gate (14,060 tests) and was pushed; da8083d's and 0f9b285's hosted runs were still in progress when read. AC-38 validated locally (TD-52): an AST sweep holds every import statement and every import by a written name in alphalab to the standard library or alphalab, and tzdata's version is read as data, so the core imports no third-party package at all.
+- **2026-11-17** dfbdb15 (AC-38) passed the full gate (14,065 tests) and was pushed; da8083d (the searches) passed hosted CI on all six cells and CodeQL. alphalab-models validated locally (TD-53): the scikit-learn adapter's 14 tests under scikit-learn 1.9.1, its workflow clean under actionlint. scikit-learn's pickles were found not to round-trip byte for byte, so the adapter keeps the payload it pickled at fit. Its cells run in a workflow of their own, since ci.yml is the core's release gate.
 
 ## Milestones
 
@@ -854,6 +860,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0057-optional-distributions-and-backend-protocols.md (settled points 1 and 2)
 - **Tests:** tests/regression/test_the_core_imports_no_third_party_package.py; tests/unit/lifecycle/test_engine_build.py (a tzdata whose __init__.py raises if executed, read as data); tests/regression/test_one_executor_path.py (two import sites).
 
+### TD-53: alphalab-models, the first optional distribution, with a scikit-learn adapter and CI cells of its own (ADR-0057 settled points 3 to 5, ADR-0064 settled point 20) (WS-09, 2026-11-17)
+
+- **Problem:** WS-09 asks for the distributions layout, alphalab-models with a scikit-learn adapter, and per-distribution CI cells across a version matrix, while the core's CI installs no optional distribution and the core suite skips nothing. scikit-learn's pickles do not round-trip byte for byte, so an adapter cannot capture a restored model by pickling it again and still be its artifact.
+- **Alternatives:** Cells as jobs in ci.yml, as the plan's WS-09 names, or a workflow of their own. A capture re-pickled on every call, or the payload pickled once at fit and kept. A restore under any scikit-learn, or only under the version that captured it.
+- **Decision:** distributions/alphalab-models: its own pyproject (0.1.0; alphalab >=4.3,<5; scikit-learn >=1.7,<2 as the sklearn extra), a src layout and its own suite and mypy. SklearnModel fits a clone with the seed as random_state, predicts a classifier's P(label 1) or a regressor's value from named features, and captures a canonical JSON header -- kind, features, scikit-learn, NumPy and adapter versions, the payload's SHA-256 -- then the payload pickled once at fit; a restored model captures as its artifact. A restore is refused under another scikit-learn or adapter version, a digest mismatch, another kind, or a header that is not canonical. The cells run in .github/workflows/optional-distributions.yml: CPython 3.12 to 3.14 with the latest scikit-learn, and 1.7 on 3.12. The core's mypy excludes distributions/; the sdist test lists the directory as local. Nothing is published (D-W3).
+- **Rationale:** ci.yml is reused by the release preflight, so jobs there would bind the core's release to scikit-learn's cells, which ADR-0057 section 6 keeps out of the core's contract. A model is its bytes only if a restore gives back exactly the artifact it was read from. scikit-learn promises its pickles within a version only.
+- **Compatibility:** None for the core: its API, its wheel, its sdist and its CI are unchanged; its mypy excludes the new directory.
+- **Recorded in:** docs/ADR/0057-optional-distributions-and-backend-protocols.md (settled points 3 to 5); docs/ADR/0064-research-model-protocol-and-artifacts.md (settled point 20); distributions/alphalab-models/README.md
+- **Tests:** distributions/alphalab-models/tests/test_sklearn.py (14): conformance for a ridge, a logistic regression and both gradient-boosting models; the seed reaching random_state and the same training giving the same artifact; a restored model capturing as its artifact though scikit-learn's pickles do not round-trip; the binding through a store; every refusal. Run locally under scikit-learn 1.9.1; actionlint with shellcheck passes the workflow.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1046,13 +1062,14 @@ Evidence:
 - [Hosted CI passed] M7: ADR-0064 accepted (TD-47): the Model protocol, a trained model's identity as its artifact, the reference models and the adapters' place
 - [Hosted CI passed] M7: The Model protocol and its artifacts (TD-48, ADR-0064 settled points 1 to 10): ml.protocol's Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore; RidgeRegression (class 2), LogisticRegression (class 3) and GradientBoostedTrees (class 2 with the squared loss), each pinned under CPython 3.12, 3.13 and 3.14
 - [Hosted CI passed] M7: Point-in-time labels and panels (TD-49, ADR-0064 settled points 11 to 15): fixed-horizon, triple-barrier and meta-labels carrying their ends, weights by uniqueness among the rows taken, and PointInTimePanel joining the factor library's panels for research's purged splits, held by the counterfactual-future test
-- [Pushed] M7: Searches beyond the grid (TD-50, ADR-0064 settled points 16 to 18): random and Latin hypercube spaces drawn by SHA-256 of their seed, and successive halving whose rounds are child experiments, every configuration a counted trial
+- [Hosted CI passed] M7: Searches beyond the grid (TD-50, ADR-0064 settled points 16 to 18): random and Latin hypercube spaces drawn by SHA-256 of their seed, and successive halving whose rounds are child experiments, every configuration a counted trial
 - [Pushed] M7: Feature Store reads as of an instant (TD-51, ADR-0064 settled point 19): a timeline of every write with when it was known, value_as_of, and ml.build_dataset_as_of, held by the counterfactual-future test; GAP-13 closed
 
 ### WS-09: Optional distributions and backends
 
 - [Hosted CI passed] M7: ADR-0057 accepted (TD-46): optional distributions under distributions/, AC-38 enforced by an AST sweep, tzdata read as data, discovery explicit
-- [Local validation passed] M7: AC-38 held by an AST sweep over every module (TD-52, ADR-0057 settled points 1 and 2), and tzdata's version read as data, never imported
+- [Pushed] M7: AC-38 held by an AST sweep over every module (TD-52, ADR-0057 settled points 1 and 2), and tzdata's version read as data, never imported
+- [Local validation passed] M7: alphalab-models with the scikit-learn adapter (TD-53, ADR-0057 settled points 3 to 5, ADR-0064 settled point 20), in CI cells of its own: optional-distributions.yml, CPython 3.12 to 3.14 and scikit-learn 1.7 to latest
 
 ### WS-13: Global conventions, reference data and historical universes
 

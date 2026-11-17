@@ -849,6 +849,27 @@ entry below says otherwise.
     from the package's source without executing it. The recorded version is
     the same.
 
+* **The first optional distribution: `alphalab-models`, with a scikit-learn
+  adapter** [plan WS-09, ADR-0057, ADR-0064].
+  * **The distribution.** `distributions/alphalab-models` is a package of its
+    own: version 0.1.0, depending on `alphalab >=4.3,<5`, with scikit-learn as
+    an extra.
+  * **The adapter.** `alphalab_models.sklearn.SklearnModel` wraps any
+    estimator in the model protocol.
+    * It fits a clone, giving it the seed as its `random_state`.
+    * It predicts from named features: a classifier's probability of the
+      label 1, or a regressor's value.
+    * It captures scikit-learn's own pickle under a canonical header of
+      versions and a digest, keeping the bytes it was captured as, since
+      scikit-learn's pickles do not round-trip.
+    * A restore under another scikit-learn version is refused. Restoring
+      unpickles, and the adapter states the trust that needs.
+  * **Its own CI.** It runs in its own cells,
+    `.github/workflows/optional-distributions.yml`, across CPython 3.12 to
+    3.14 and its scikit-learn range. The core's CI installs no optional
+    distribution, and the core's mypy excludes `distributions/`. It is not
+    published (owner decision D-W3).
+
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
   percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's

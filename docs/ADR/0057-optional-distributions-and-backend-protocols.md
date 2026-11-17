@@ -132,6 +132,25 @@ release's contract: four verified assets (RQ-01 to RQ-09, ADR-0071).
    `tests/unit/lifecycle/test_engine_build.py` proves the read never runs the
    package: it plants a `tzdata` whose `__init__.py` raises if executed. A
    name now becomes code in two places, not three.
+3. **The layout.** `distributions/alphalab-models/` has:
+   - its own `pyproject.toml`: version 0.1.0, depending on `alphalab >=4.3,<5`,
+     with scikit-learn `>=1.7,<2` as the `sklearn` extra;
+   - a `src` layout;
+   - its own suite, and its own pytest and mypy configuration.
+
+   The core stays the core: its pytest collects only `tests/`, its wheel
+   holds only `alphalab`, its sdist lists what it carries, and its mypy
+   excludes `distributions/`.
+4. **A workflow of its own, not jobs in `ci.yml`.** The plan's WS-09 names
+   `ci.yml`, but the release preflight reuses `ci.yml`. Cells there would put
+   scikit-learn into the core's release contract, which section 6 keeps the
+   core's. So `.github/workflows/optional-distributions.yml` runs each
+   distribution's cells:
+   - alphalab-models on CPython 3.12, 3.13 and 3.14 with the latest
+     scikit-learn its range admits;
+   - the lowest it declares, 1.7, on 3.12.
+5. **Nothing is published.** How a distribution is released is still the
+   owner's decision D-W3. This one is built and tested in place.
 
 # Compatibility
 
