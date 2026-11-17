@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `1f749f3` |
+| Remote head | `ec1ca9b` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M8 (WS-11, WS-26, WS-10's child-fill protocol), in the plan's commit order: NEXT_OPEN and the intraday opening rule; RemainderPolicy and strict caps; latency pricing; plans with queues; child-fill feedback; package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide. M7's re-run macOS cells and the checkpoint benchmarks are read once at the next boundary. |
@@ -299,6 +299,7 @@ Never:
 - **2026-11-17** 575d48b (XGBoost's and LightGBM's adapters, TD-56) passed the full gate (14,081 tests) and was pushed. M7's close: the ML series' 35 mutations caught, ML08 and ML32 after the tests they asked for and ML20 restated; WS-08 item 15's dataset budget at 15.2 CPU s against 60 on the reference machine; docs/ML.md; GAP-12 closed. M7 waits on hosted CI and the owner's acceptance.
 - **2026-11-17** 1f749f3 (M7's close) passed the full gate (14,084 tests) and was pushed, after 3379fc8 and 575d48b (each 14,081). Hosted CI: every Linux cell, CodeQL and every Optional Distributions cell passed on all three; 575d48b passed all six cells, and Optional Distributions' first run across every framework passed at both ends of each range. Four macOS cells, three on 3379fc8 and one on 1f749f3, were never acquired by a hosted runner; they were re-run and are not counted as passed. The benchmarks were dispatched at M7's checkpoint (44136412090).
 - **2026-11-17** M8 begun. Its scope was derived from the plan's WS-11, WS-26 and WS-10 sections, its section J rows, sections S and T and the register's gaps before any code. ADR-0060, ADR-0061 and ADR-0062 accepted under delegation (TD-57 to TD-59), and D-V4 decided: NEXT_OPEN opt-in in 4.3, the default unchanged until 5.0. WS-10's compose helpers, typed-configuration templates and authoring guide are recorded for M13's S-12, since the plan's milestone table gives WS-10 to M8 for its child-fill protocol only. Reading _fill_working_orders before the ADRs were pushed corrected ADR-0060's first section: under NEXT_EVENT a held limit or stop already takes a resting turn over the whole next bar, reading it from its open, so NEXT_OPEN changes only the price of a market order's turn.
+- **2026-11-17** ec1ca9b (M8's ADRs) passed the full gate (14,084 tests) and was pushed. NEXT_OPEN and the intraday opening rule validated locally (TD-60), with the pipeline snapshot's version 9 written only when declared and read strictly. The new bar ledger found the book's lazy mark: a fill at the open values its position at the open until the next event re-marks it. A resting limit's and an OPG fill's position already behave so, and changing it would move existing runs' identities, so it is documented, not changed. The commit's first gate failed: mypy and ten tests found pins of the pipeline schema the first search had missed -- three documents' schema tables, four more test assertions, and three scanners that count every constant named *_SCHEMA, which the new _UNDECLARED_SCHEMA matched. The constant was renamed _UNDECLARED, as the checkpoint's is _UNBOUND, the documents state 9 with a note that it is written only when declared, and the pins assert what they meant.
 
 ## Milestones
 
@@ -955,6 +956,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0062-combo-and-multi-leg-intents.md
 - **Tests:** Leg atomicity under caps, blocks and refusals; a pair traded as one order; netting across strategies; risk refusing the package whole; the accounting differential test over packages.
 
+### TD-60: NEXT_OPEN implemented: version 9 written only when declared and read strictly; out-of-session bars still expire; the lazy mark kept (ADR-0060 settled point 1) (WS-11, 2026-11-17)
+
+- **Problem:** ADR-0060 needs the pipeline snapshot to step to version 9 only for runs declaring an M8 option. Six tests pinned PIPELINE_SNAPSHOT_SCHEMA at 8, most meaning that some feature moves no schema. An out-of-session bar that gave orders no turn would also have skipped their expiry. And the bar ledger found that a fill at the open values its position at the open until the next event.
+- **Alternatives:** Always write 9, which moves every default payload's bytes; keep the constant at 8 beside a separate 'declared' constant; or, as the checkpoint does, make the constant the newest version and write the older one when nothing is declared. Read a payload whose version disagrees with its configuration, or refuse it. Re-mark a fill's position at the step's end, or keep the lazy mark (PRF-001).
+- **Decision:** PIPELINE_SNAPSHOT_SCHEMA is 9. The writer writes 9 exactly when the configuration declares an M8 option, today NEXT_OPEN, and 8 otherwise. Version 8 is read through an identity step, and a payload whose declared version is not the one its configuration implies is refused. The pins now say what they meant: the newest version is 9, and an undeclared capture writes 8. An out-of-session bar expires what is due and gives no other turn. The lazy mark is kept and documented: an open fill values its position at the open until any next event re-marks it, as a resting limit or OPG fill already does.
+- **Rationale:** The checkpoint's precedent (_UNBOUND) keeps default payloads byte for byte and names the newest version honestly. A strict version gives one payload per state. Re-marking at the step's end would move every existing run whose last step filled a limit order, which AC-06 forbids in 4.x.
+- **Compatibility:** No identity, digest or persisted byte moves for a run without NEXT_OPEN; the certificate moved only its source and manifest digests.
+- **Recorded in:** docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md (settled point 1); CHANGELOG
+- **Tests:** tests/regression/test_next_open.py (12): hand-calculated fills at daily and one-minute bars across a session boundary, with and without a calendar; limit and quote turns identical to NEXT_EVENT's; expiry on an out-of-session bar; the assumptions; the lazy mark; a resume at version 9. tests/regression/test_pipeline_snapshot.py: the version a capture declares, and both disagreeing payloads refused. tests/regression/test_accounting_matches_an_independent_ledger.py: 30 bar scenarios across all three timings, each fill's price held to its timing.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1170,8 +1181,9 @@ Evidence:
 
 ### WS-11: Execution realism: fills, partial fills, latency, plan+queue, combos
 
-- [Local validation passed] M8: ADR-0060 accepted (TD-57): NEXT_OPEN and the intraday opening rule, RemainderPolicy, strict caps, latency pricing, conservative builders (D-V4)
-- [Local validation passed] M8: ADR-0062 accepted (TD-59): package intents, all legs or none at one instant (N16)
+- [Pushed] M8: ADR-0060 accepted (TD-57): NEXT_OPEN and the intraday opening rule, RemainderPolicy, strict caps, latency pricing, conservative builders (D-V4)
+- [Pushed] M8: ADR-0062 accepted (TD-59): package intents, all legs or none at one instant (N16)
+- [Local validation passed] M8: FillTiming.NEXT_OPEN and the intraday opening rule (TD-60, ADR-0060 settled point 1, GAP-18): a market order's turn at a bar fills at the open, stamped at the delivering event; a declared calendar's pre- and post-market bars give no turn; pipeline schema 9 written only when declared and read strictly; hand-calculated fills at daily and one-minute bars
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1244,7 +1256,7 @@ Evidence:
 
 ### WS-26: Per-venue execution (FUT-045)
 
-- [Local validation passed] M8: ADR-0061 accepted (TD-58): per-venue execution models and routing (FUT-045), plans with queues, child fills
+- [Pushed] M8: ADR-0061 accepted (TD-58): per-venue execution models and routing (FUT-045), plans with queues, child fills
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
@@ -1262,7 +1274,7 @@ Evidence:
 
 ## Gaps
 
-33 open, 16 closed, 4 discarded.
+32 open, 17 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -1283,7 +1295,7 @@ Evidence:
 | GAP-15 | Charter conflict | H/P0 | Open: the charter is accepted and the five documents reconciled; closes when G0 and M0 are accepted | WS-00 | G0 |
 | GAP-16 | No reference-data packs | H/P2 | Open (D-V3) | WS-13 | M10 |
 | GAP-17 | One execution model per run | H/P1 | Open | WS-26 | M8 |
-| GAP-18 | No run-level or intraday next-open | L-M/P1 | Open | WS-11 | M8 |
+| GAP-18 | No run-level or intraday next-open | L-M/P1 | Closed at M8 (WS-11, ADR-0060, TD-60): FillTiming.NEXT_OPEN fills a market order's turn at a bar at the bar's open, and with a declared calendar an order decided after a session's last bar fills at the next session's first bar's open. Opt-in; the default stays SAME_EVENT in 4.x (D-V4). | WS-11 | M8 |
 | GAP-19 | Latency costs nothing | M/P2 | Open | WS-11 | M8 |
 | GAP-20 | Optimiser not on the path | M/P1 | Open (D-V3) | WS-12 | M9 |
 | GAP-21 | DL and RL not end to end | M/P2 | Open | WS-16 | M12 |

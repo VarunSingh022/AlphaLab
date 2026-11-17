@@ -782,8 +782,10 @@ def test_no_existing_snapshot_schema_moved() -> None:
     ``ALLOCATION_SNAPSHOT_SCHEMA`` to 3 for per-strategy ceilings (OFE-003) and
     ``RUN_SNAPSHOT_SCHEMA`` to 4 for the observation cursor (OFE-009), and
     v3.13 ``PIPELINE_SNAPSHOT_SCHEMA`` to 7 for the strategy status enum's name
-    (API-001), and v4.0 ``PIPELINE_SNAPSHOT_SCHEMA`` to 8 and
-    ``RUN_SNAPSHOT_SCHEMA`` to 5 for the described live objects (PER-008). What
+    (API-001), v4.0 ``PIPELINE_SNAPSHOT_SCHEMA`` to 8 and
+    ``RUN_SNAPSHOT_SCHEMA`` to 5 for the described live objects (PER-008), and
+    v4.3 ``PIPELINE_SNAPSHOT_SCHEMA`` to 9 for M8's execution options, written
+    only when a run declares one (ADR-0060). What
     ADR-0029 promised is that *its* change moved nothing, and that is what
     remains asserted -- against the values those constants hold now, not the
     values they held then.
@@ -803,7 +805,7 @@ def test_no_existing_snapshot_schema_moved() -> None:
         OMS_SNAPSHOT_SCHEMA,
         PORTFOLIO_SNAPSHOT_SCHEMA,
         DEFAULT_SCHEMA_VERSION,
-    ) == (8, 5, 3, 2, 5, 1)
+    ) == (9, 5, 3, 2, 5, 1)
 
 
 def test_a_v212_payload_is_unchanged_by_being_stored(tmp_path: Path) -> None:

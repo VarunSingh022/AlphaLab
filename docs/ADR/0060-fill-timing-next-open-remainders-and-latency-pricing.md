@@ -160,6 +160,47 @@ empty for its output.
 - `FillTiming.NEXT_OPEN`, `LatencyPricing`'s members and `RestRemainder` are
   persisted names, held by the persisted-name test.
 
+# Settled at implementation (2026-11-17)
+
+1. **`NEXT_OPEN` and the opening rule.**
+   - **Held as `NEXT_EVENT` holds.** Both timings hold every simulated order to
+     its asset's next event (`_HELD_TIMINGS`). A market order's turn at a bar of
+     its asset takes the bar's open as its price (`_opening`). Every other turn,
+     and every other order kind, is `NEXT_EVENT`'s.
+   - **Out of session.** With a calendar declared for the asset's listing
+     venue, or a default one, an intraday bar is in session when one window of
+     the trading day its interval starts in holds the whole interval, from its
+     start to its stamp. A bar out of session gives no order a turn and moves
+     no queue, but an order whose expiry it reaches still expires. A day limit
+     order decided in session therefore expires at the close, as it does today.
+   - **Plan children are not governed by it.** Under `ALGORITHMIC` routing the
+     parents go to the plan and the children are worked at the events their
+     algorithm schedules, as under `NEXT_EVENT`.
+   - **How the book values the fill.** A fill at the open values its position
+     at the open until the next event, of any asset, re-marks it at the market
+     price, as every fill priced away from its event's mark already is: a
+     resting limit's, an `OPG` auction's. The book re-marks lazily (PRF-001),
+     and changing that would move existing runs' identities.
+   - **Schema 9.** The pipeline snapshot writes version 9 exactly when a run
+     declares an M8 option, today a `NEXT_OPEN` fill timing, and version 8
+     otherwise. It reads version 8 through an identity step. A payload whose
+     declared version is not the one its own configuration implies is refused,
+     so one state has one payload.
+   - **Tests.** `tests/regression/test_next_open.py` holds hand-calculated fills:
+     - at daily bars: 103 at the open, where `NEXT_EVENT` fills at 105 and
+       `SAME_EVENT` at 100;
+     - at one-minute bars across a session boundary: 101 at the next
+       session's first open with the calendar, and 99 at the post-market bar
+       without it;
+     - limit and quote turns identical to `NEXT_EVENT`'s;
+     - expiry on an out-of-session bar;
+     - the assumptions;
+     - a resume at version 9.
+
+     The independent ledger now holds daily bars under all three timings, each
+     fill's price held to its timing's rule
+     (`tests/regression/test_accounting_matches_an_independent_ledger.py`).
+
 # Compatibility
 
 - Additive: a new `FillTiming` member, two new configuration fields with

@@ -1300,7 +1300,7 @@
       "FillPolicy": "class alphalab.execution.policy.FillPolicy(*args, **kwargs)",
       "FillQuality": "class alphalab.execution.quality.FillQuality(order_id: 'str', outcome: 'OrderStatus', ordered_quantity: 'Decimal', filled_quantity: 'Decimal', fill_ratio: 'Decimal', fill_count: 'int', average_fill_price: 'Decimal | None', limit_improvement_per_unit: 'Decimal | None', effective_spread_bps: 'Decimal | None', unavailable: 'Mapping[str, str]') -> None",
       "FillStatus": "enum alphalab.execution.fill.FillStatus[FULL_FILL, PARTIAL_FILL, NO_FILL, REJECTED, EXPIRED]",
-      "FillTiming": "enum alphalab.execution.policy.FillTiming[SAME_EVENT, NEXT_EVENT]",
+      "FillTiming": "enum alphalab.execution.policy.FillTiming[SAME_EVENT, NEXT_EVENT, NEXT_OPEN]",
       "FixedCommission": "class alphalab.execution.commission.FixedCommission(fee: decimal.Decimal) -> None",
       "FixedHalfSpread": "class alphalab.execution.costs.FixedHalfSpread(amount: 'Decimal') -> None",
       "FixedSlippage": "class alphalab.execution.slippage.FixedSlippage(slippage_amount: decimal.Decimal) -> None",

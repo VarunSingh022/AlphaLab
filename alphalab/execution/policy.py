@@ -45,6 +45,19 @@ class FillTiming(StrEnum):
     #: cost of one event's delay. It gets one attempt there, as a same-event
     #: order gets one at its event; what a partial fill leaves is withdrawn.
     NEXT_EVENT = "next_event"
+    #: As ``NEXT_EVENT``, but a market order's turn at a bar fills at the bar's
+    #: **open**, where ``NEXT_EVENT`` fills it at the close (v4.3, ADR-0060):
+    #: what an order sent after one close meets at the next open, a gap
+    #: included. The fill is recorded at the instant of the event that delivered
+    #: the bar, as an ``OPG`` auction fill is. Every other order kind already
+    #: meets the next bar from its open under ``NEXT_EVENT`` and is unchanged;
+    #: at a quote, trade or tick the turn is ``NEXT_EVENT``'s. With a trading
+    #: calendar declared for the order's listing venue, an intraday bar outside
+    #: the venue's sessions gives no working order its turn, so an order decided
+    #: after a session's last bar fills at the next session's first bar's open.
+    #: Like ``NEXT_EVENT`` it governs simulated orders: an execution plan's
+    #: children are worked at the events their algorithm schedules.
+    NEXT_OPEN = "next_open"
 
 
 @dataclass(frozen=True, slots=True)

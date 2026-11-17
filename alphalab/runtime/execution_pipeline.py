@@ -313,8 +313,11 @@ class ExecutionPipelineConfig:
             and changes nothing except how precisely an unpriced asset can be
             described and whether a run can report P&L by sector.
         fill_timing: When a simulated order fills: at the event that decided it
-            (``SAME_EVENT``, optimistic, and what every run did before v3.10) or
-            at its asset's next event (``NEXT_EVENT``). See
+            (``SAME_EVENT``, optimistic, and what every run did before v3.10),
+            at its asset's next event (``NEXT_EVENT``), or there with a market
+            order's turn at a bar priced at the bar's open (``NEXT_OPEN``, v4.3,
+            ADR-0060), an intraday bar outside the listing venue's sessions
+            passing the order by when the venue's calendar is declared. See
             :class:`~alphalab.execution.policy.FillTiming`. Ignored under
             ``EXTERNAL`` routing, where nothing is simulated. Recorded with the
             run, its snapshot and its results.
@@ -1237,7 +1240,7 @@ class ExecutionPipeline:
         # The orders an earlier event left working in this asset are worked now,
         # at this event's price, and before the strategy is dispatched -- so it
         # decides on a book that includes what they did (EXE-001). Under
-        # NEXT_EVENT every simulated order is one; under SAME_EVENT only an order
+        # NEXT_EVENT or NEXT_OPEN every simulated order is one; under SAME_EVENT only an order
         # that rests: one a strategy placed from a fill or an order event
         # (EXE-005), which fills at its asset's next event.
         earlier = _NO_ROUTING
@@ -2924,7 +2927,7 @@ def _route_requests(
             # stays held -- the capital is still committed.
             orders.append(order)
             continue
-        if rest or current.config.fill_timing is FillTiming.NEXT_EVENT:
+        if rest or current.config.fill_timing in _HELD_TIMINGS:
             # Working until its asset's next event, which fills it there -- not
             # at the price the strategy decided on (EXE-001), and not in the step
             # whose feedback placed it (EXE-005). Its reservation stays held
@@ -6952,7 +6955,9 @@ def _work_order(
         )
 
     if order.order_type is OrderType.MARKET:
-        return _simulate_fill(state, order, event, policy, rates)
+        return _simulate_fill(
+            state, order, event, policy, rates, price=_opening(state, order, event)
+        )
 
     current = state
     execution_price: Decimal | None = None
@@ -6994,6 +6999,75 @@ def _work_order(
         one_shot=one_shot,
         cap=None if queue_turn is None else queue_turn.eligible,
     )
+
+
+#: The fill timings under which every simulated order is held to its asset's
+#: next event: it has no turn at the event that decided it (EXE-001, ADR-0060).
+_HELD_TIMINGS: Final = frozenset({FillTiming.NEXT_EVENT, FillTiming.NEXT_OPEN})
+
+
+def _opening(state: ExecutionPipelineState, order: OMSOrder, event: MarketEvent) -> Decimal | None:
+    """The open a market order's turn at a bar takes under ``NEXT_OPEN``, or ``None``.
+
+    ``None`` -- the event's own price -- under any other timing, and at any
+    event other than a bar of the order's asset: a quote, trade or tick has no
+    open (ADR-0060 section 1).
+    """
+
+    if (
+        state.config.fill_timing is FillTiming.NEXT_OPEN
+        and isinstance(event, BarClosed)
+        and event.bar.asset_id == order.asset_id
+    ):
+        return event.bar.open
+    return None
+
+
+def _outside_session(state: ExecutionPipelineState, event: MarketEvent, asset_id: str) -> bool:
+    """Whether ``event`` is an intraday bar outside its venue's sessions, under ``NEXT_OPEN``.
+
+    Only with a calendar declared for ``asset_id``'s listing venue, or a default
+    one: without it every bar is in session, as every run before ADR-0060
+    assumed. A daily, weekly or monthly bar is a session, and always in one. An
+    intraday bar is in session when one window of the trading day its interval
+    starts in holds the whole interval, from its start to its stamp
+    (ADR-0060 section 2).
+    """
+
+    if state.config.fill_timing is not FillTiming.NEXT_OPEN or not isinstance(event, BarClosed):
+        return False
+    bar = event.bar
+    seconds = bar.timeframe.seconds
+    if bar.timeframe.unit in _SESSION_UNITS or seconds is None:
+        return False
+    calendar = state.config.calendars.calendar_for(_listing_exchange(state, asset_id))
+    if calendar is None:
+        return False
+    start = bar.timestamp - seconds
+    day = calendar.trading_day_of(start)
+    if day is None:
+        return True
+    return not any(
+        opened <= start and bar.timestamp <= closed
+        for opened, closed in calendar.session_windows_on(day)
+    )
+
+
+def _expire_due(
+    state: ExecutionPipelineState, asset_id: str, timestamp: float, queue: QueueBook | None
+) -> tuple[ExecutionPipelineState, _Routed, QueueBook | None]:
+    """Expire the orders in ``asset_id`` due by ``timestamp``, and give no other a turn."""
+
+    current = state
+    expired: list[OMSOrder] = []
+    for order_id in state.oms.working_orders_for(asset_id):
+        order = current.oms.orders.find(order_id)
+        if order.expire_at is not None and timestamp >= order.expire_at:
+            current = _expire(current, order, timestamp)
+            expired.append(current.oms.orders.find(order_id))
+            if queue is not None:
+                queue = queue.without(str(order_id.value))
+    return current, _Routed(orders=tuple(expired)), queue
 
 
 def _auctions_declared(state: ExecutionPipelineState) -> bool:
@@ -7342,6 +7416,11 @@ def _fill_working_orders(
     halt = _auction_due(state, event, asset_id) if _auctions_declared(state) else None
     if halt is not None:
         return _reopen(state, event, asset_id, halt, policy, rates, queue)
+    if _outside_session(state, event, asset_id):
+        # A pre- or post-market bar under NEXT_OPEN: the venue's orders are not in
+        # its market, so none has a turn and no queue moves -- but what is due to
+        # expire expires, as it would at any event (ADR-0060 section 2).
+        return _expire_due(state, asset_id, event.timestamp, queue)
     current = state
     observation = None if queue is None else _queue_observation(event)
     orders: list[OMSOrder] = []

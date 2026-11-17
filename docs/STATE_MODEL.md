@@ -190,13 +190,18 @@ and a typed decoder that refuses what it does not understand. Eleven do (v4.1):
 | `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA` | 5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA` | 2 |
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 3 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 8 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 9 |
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 5 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 4 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
 | `LiveRunState` | `runtime.live_snapshot` | `LIVE_SNAPSHOT_SCHEMA` | 3 |
 | `FxFeedState` | `portfolio.fx_feed` | `FX_FEED_SNAPSHOT_SCHEMA` | 1 |
 | `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 3 |
+
+The pipeline's version 9 (v4.3) is written only when a run declares one of the
+execution options M8 adds, a next-open fill timing first. A run declaring none
+writes version 8, byte for byte, as the checkpoint writes its version 2 when it
+is given no schedule binding (ADR-0060).
 
 `InstrumentRegistry` schema 4 (v4.1.1) carries each instrument's last trading
 instant (FUT-012) and its contract terms (FUT-013) -- `OptionTerms` or

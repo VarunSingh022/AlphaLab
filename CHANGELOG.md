@@ -1005,6 +1005,30 @@ entry below says otherwise.
       cell passed. The series alone read at most 4.55 percent and series and
       trace at most 9.92 (CPython 3.12, a trade every 2 records).
 
+* **Fill at the next open** [plan WS-11, GAP-18, ADR-0060, D-V4].
+  `FillTiming.NEXT_OPEN` holds every simulated order to its asset's next event,
+  as `NEXT_EVENT` does. There, a market order's turn at a bar fills at the bar's
+  **open**, where `NEXT_EVENT` fills it at the close. That is what an order sent
+  after one close meets at the next open, a gap included.
+  * **The fill's record.** It is stamped at the event that delivered the bar,
+    as an `OPG` auction fill is. Limit and stop orders, which already meet the
+    next bar from its open, are unchanged, and a quote, trade or tick has no
+    open.
+  * **The intraday opening rule.** With a calendar declared for the listing
+    venue, a pre- or post-market bar gives no order a turn, though what is due
+    still expires. So an order decided after a session's last bar fills at the
+    next session's first bar's open.
+  * **What does not change.** The default stays `SAME_EVENT` throughout 4.x;
+    5.0 makes `fill_timing` required (D-V4).
+  * **The pipeline snapshot's version 9.** It is written only when a run
+    declares one of M8's execution options, so a run declaring none still
+    writes version 8, byte for byte. A payload whose version is not the one its
+    configuration implies is refused.
+  * **The tests.** Hand-calculated fills at daily and one-minute bars across a
+    session boundary are held by `tests/regression/test_next_open.py`. The
+    independent accounting ledger now holds daily bars under every fill timing,
+    each fill's price checked against its timing's rule.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

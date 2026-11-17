@@ -498,8 +498,9 @@ def test_the_pipeline_config_carries_no_rate_table() -> None:
     assert "fx_rates" not in names
     assert "rates" not in names
     # v3.10 minor units; v3.11 interval code; v3.12 calendars; v3.13 the status enum's
-    # name; v4.0 the described live objects (PER-008)
-    assert PIPELINE_SNAPSHOT_SCHEMA == 8
+    # name; v4.0 the described live objects (PER-008); v4.3 M8's execution options,
+    # written only when declared (ADR-0060)
+    assert PIPELINE_SNAPSHOT_SCHEMA == 9
 
 
 # --------------------------------------------------------------------------- #

@@ -328,7 +328,17 @@ __all__ = [
 #: run was captured with, where version 7 accepted any object of the right class
 #: (ledger PER-008). Every earlier version is read through
 #: :data:`PIPELINE_SCHEMA_HISTORY`.
-PIPELINE_SNAPSHOT_SCHEMA: Final = 8
+#:
+#: Version 9 (v4.3, ADR-0060) records the execution options M8 adds -- today a
+#: run's ``NEXT_OPEN`` fill timing -- and is written **only when a run declares
+#: one**: a run declaring none writes version 8, byte for byte, as the
+#: checkpoint writes its version 2 when it is given no schedule binding. A
+#: payload declares the version its own configuration implies, and is refused
+#: otherwise, so one state has one payload.
+PIPELINE_SNAPSHOT_SCHEMA: Final = 9
+
+#: The version a run declaring none of M8's execution options writes (ADR-0060).
+_UNDECLARED: Final = 8
 
 _SUBSYSTEM: Final = "pipeline"
 
@@ -787,6 +797,12 @@ PIPELINE_SCHEMA_HISTORY: Final = SchemaHistory(
             "version-7 payload recorded their types alone, and is checked by type alone",
             upgrade=_v7_to_v8,
         ),
+        SchemaStep(
+            8,
+            "version 9 records M8's execution options, written only when a run declares one; "
+            "a version-8 payload declares none, which is what it already meant",
+            upgrade=lambda payload: payload,
+        ),
     ),
 )
 
@@ -1149,7 +1165,9 @@ class PipelineSnapshot:
     #: before the ones recorded here, by the path :data:`RETAINED_LOGS` names
     #: it by. Only non-zero counts are written (v3.12, ledger PRF-004).
     dropped: Mapping[str, int] = field(default_factory=dict)
-    schema_version: int = PIPELINE_SNAPSHOT_SCHEMA
+    #: The version written: 9 only when the run declares one of M8's execution
+    #: options, 8 otherwise (ADR-0060). :func:`capture` sets it from the state.
+    schema_version: int = _UNDECLARED
 
 
 @dataclass(frozen=True, slots=True)
@@ -1359,6 +1377,19 @@ def _capture_strategies(state: StrategyRuntimeState) -> tuple[StrategyRecord, ..
     )
 
 
+def _written_version(config: ConfigRecord) -> int:
+    """The schema version a pipeline configured as ``config`` is written at (ADR-0060).
+
+    :data:`PIPELINE_SNAPSHOT_SCHEMA` when the run declares one of M8's execution
+    options -- a ``NEXT_OPEN`` fill timing -- and version 8 otherwise, so a run
+    declaring none is written as it was before they existed.
+    """
+
+    if config.fill_timing is FillTiming.NEXT_OPEN:
+        return PIPELINE_SNAPSHOT_SCHEMA
+    return _UNDECLARED
+
+
 def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
     """Project ``state`` into its complete serializable snapshot.
 
@@ -1368,8 +1399,9 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
     own position.
     """
 
+    config = _capture_config(state.config)
     return PipelineSnapshot(
-        config=_capture_config(state.config),
+        config=config,
         market=MarketRecord(
             latest_quotes=dict(state.market.latest_quotes),
             latest_books=dict(state.market.latest_books),
@@ -1417,6 +1449,7 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
         unpriced_assets=dict(state.unpriced_assets),
         id_position=state.id_position,
         dropped=_dropped_counts(state),
+        schema_version=_written_version(config),
     )
 
 
@@ -2638,9 +2671,18 @@ def from_primitives(payload: Mapping[str, Any]) -> PipelineSnapshot:
 
     payload = as_mapping(payload, "pipeline snapshot")
     payload, version = PIPELINE_SCHEMA_HISTORY.read(payload)
+    config = _config(require(payload, "config"))
+    written = _written_version(config)
+    if version >= _UNDECLARED and version != written:
+        # One state has one payload: version 9 is written when, and only when, the
+        # run declares one of M8's execution options (ADR-0060).
+        raise StateDecodeError(
+            f"pipeline snapshot declares schema version {version}, and its configuration "
+            f"is written at version {written}."
+        )
 
     return PipelineSnapshot(
-        config=_config(require(payload, "config")),
+        config=config,
         market=_market(require(payload, "market")),
         strategy=tuple(
             _strategy_record(item, f"strategy[{index}]", version)
@@ -2682,5 +2724,5 @@ def from_primitives(payload: Mapping[str, Any]) -> PipelineSnapshot:
         ),
         id_position=_id_position(require(payload, "id_position")),
         dropped=_dropped(require(payload, "dropped")),
-        schema_version=PIPELINE_SNAPSHOT_SCHEMA,
+        schema_version=written,
     )

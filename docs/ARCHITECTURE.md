@@ -710,7 +710,7 @@ owning module, its own schema constant and its own typed decoder:
 | `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA = 5` | v2.5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA = 2` | v2.5 |
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA = 3` | v2.9 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 8` | v2.9 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 9` | v2.9 |
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 5` | v2.14 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA = 4` | v2.15 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA = 2` | v2.16 |
