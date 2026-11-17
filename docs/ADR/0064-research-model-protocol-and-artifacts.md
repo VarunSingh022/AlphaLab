@@ -296,6 +296,24 @@ Building the search settled these points (`tests/unit/research/test_sampling.py`
     (`tests/integration/test_supervised_research_end_to_end.py`). The same
     scenario runs with scikit-learn's gradient boosting in `alphalab-models`'
     suite (`distributions/alphalab-models/tests/test_s07.py`).
+23. **`ml`'s duplicate helpers and splitters are deprecated in documentation
+    (GAP-48, ADR-0058's table, plan V.3).**
+    - **The six names.** They are `ml.linalg`'s `transpose`, `matmul`,
+      `identity` and `matrix_inverse`, and `ml.cross_validation`'s
+      `k_fold_split` and `walk_forward_split`. Each keeps its behaviour until
+      5.0 removes it.
+    - **The notice.** Each docstring states the deprecation and names its
+      replacement in `common.linalg` or `research`, and a test holds each to
+      it. The replacements for the three trivial helpers are standard-library
+      expressions, which a test holds to the same values. The ML guide and the
+      CHANGELOG list them all. `Matrix`, the type the models annotate with, is
+      kept.
+    - **Why no warning.** A `DeprecationWarning` on call was built first, and
+      the suite refused it: since v2.17 the package raises no warning at all,
+      so a real notice is never lost among scheduled ones, and a test reads
+      the source to hold it so
+      (`tests/regression/test_the_suite_reports_nothing_deferred.py`). The
+      plan's migration register asks for this deprecation in documentation.
 
 # Compatibility
 

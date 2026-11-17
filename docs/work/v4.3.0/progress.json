@@ -964,6 +964,19 @@
       "compatibility": "Additive: HalvingRound gains its spec (new in v4.3); the adapter's fits now accept every seed, and estimators without sample weights are refused before fitting, with a truer message.",
       "record": "docs/ADR/0064-research-model-protocol-and-artifacts.md (settled points 20 and 21); examples/README.md and docs/EXAMPLES.md (example 81)",
       "tests": "tests/integration/test_supervised_research_end_to_end.py (6): the panel known before the lockbox unmoved by every later close, 33 counted trials as child experiments, every fold's rows purged of its scored window and the lockbox, the lockbox read once, the model traded by its artifact and reproduced, INPUTS_DIFFER. distributions/alphalab-models/tests/test_s07.py (3) with scikit-learn, and test_sklearn.py's 64-bit seed. Example 81 runs in the installed smoke test."
+    },
+    {
+      "id": "TD-55",
+      "date": "2026-11-17",
+      "workstream": "WS-08",
+      "title": "ml's duplicate helpers and splitters deprecated in documentation, each docstring naming its replacement, kept until 5.0 (GAP-48, ADR-0064 settled point 23)",
+      "problem": "GAP-48's deprecation, with replacements, was M7's (recorded at M2, PC-05): ml.linalg's transpose, matmul, identity and matrix_inverse duplicate common.linalg, and ml.cross_validation's k_fold_split and walk_forward_split duplicate research's splitters. The plan keeps them in 4.3 and removes them in 5.0 (sections H.1 and V.3), and they cannot delegate without changing what they return. Checking M7 against the plan's WS-08 before its close found the deprecation still open.",
+      "alternatives": "A DeprecationWarning on every call, naming the replacement and pointing at the caller; a DeprecationWarning through the package by PEP 562; the deprecation in documentation only, as the plan's migration register words it.",
+      "decision": "Each of the six keeps its behaviour, and its docstring states the deprecation and names its replacement: common.linalg.least_squares or cholesky to solve, or pseudo_inverse, for matrix_inverse; standard-library expressions that return the same values for transpose, matmul and identity; research.walk_forward_splits, or cross_validation_splits with EXPANDING, ROLLING or PURGED, for the splitters. ml's docstring, the ML guide and the CHANGELOG's Deprecated section list them. No warning is raised. ml.Matrix, the type the models annotate with, is kept.",
+      "rationale": "The plan deprecates them in documentation (V.3: deprecated, documented, kept). A warning on call was built first, and the suite refused it: since v2.17 the package raises no warning at all, so that a real notice is never read past among scheduled ones, and tests/regression/test_the_suite_reports_nothing_deferred.py reads the source to hold it. That rule stands. The docstrings carry the notice, and a test holds each to it.",
+      "compatibility": "None: behaviour, names, signatures and identities are unchanged.",
+      "record": "docs/ADR/0064-research-model-protocol-and-artifacts.md (settled point 23); the CHANGELOG's Deprecated section; docs/ML.md once M7 closes; the six docstrings and ml's",
+      "tests": "tests/unit/ml/test_ml.py: each of the six states its deprecation and names its replacement; the stated standard-library expressions return what the three trivial helpers did. tests/regression/test_one_research_authority_per_concept.py: nothing outside ml uses them; tests/regression/test_the_suite_reports_nothing_deferred.py: the package raises no warning."
     }
   ],
   "plan_changes": [
@@ -1835,6 +1848,11 @@
         {
           "milestone": "M7",
           "item": "S-07 end to end (TD-54, ADR-0064 settled point 21): example 81 and its test with the core's ensemble -- 33 counted trials over purged CV, the lockbox read once, the model traded by its artifact and restored byte for byte, INPUTS_DIFFER for another artifact -- and the rule that a runner takes only labels known before the lockbox",
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M7",
+          "item": "GAP-48: ml's duplicate helpers and splitters deprecated in documentation, each docstring naming its replacement in common.linalg or research, kept until 5.0 (TD-55, ADR-0064 settled point 23)",
           "status": "Local validation passed"
         }
       ],
@@ -1867,7 +1885,7 @@
         {
           "milestone": "M7",
           "item": "S-07 with a boosting adapter (TD-54, ADR-0064 settled point 20): the same scenario with scikit-learn's GradientBoostingClassifier in alphalab-models' suite; the seed entering modulo 2**32 and sample weights asked about with has_fit_parameter",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -2805,8 +2823,8 @@
       "id": "GAP-48",
       "problem": "→ Expanded: duplicate authorities in `ml`: `ml.linalg` *and* a second walk-forward splitter",
       "severity": "L/P3",
-      "status": "Open",
-      "status_note": "M2 (PC-05): the duplicates in ml (ml.linalg's four helpers, ml.cross_validation's two splitters) and deep_learning.gradient_check.numerical_gradient are documented and recorded, kept unchanged, and nothing outside ml may compute through ml's (a regression test). The deprecation, with replacements, is at M7; removal is 5.0.",
+      "status": "Closed",
+      "status_note": "M2 (PC-05): the duplicates in ml (ml.linalg's four helpers, ml.cross_validation's two splitters) and deep_learning.gradient_check.numerical_gradient are documented and recorded, kept unchanged, and nothing outside ml may compute through ml's (a regression test). Closed at M7 (WS-08, TD-55, ADR-0064 settled point 23): the six are deprecated in documentation, each docstring naming its replacement in common.linalg or research, and kept until 5.0 removes them (plan V.3); the package raises no warning, as its suite has held since v2.17. The deep-learning gradient check keeps its own central difference, recorded for deprecation in 5.0 (M2).",
       "workstreams": [
         "WS-03",
         "WS-08"
@@ -3091,7 +3109,7 @@
   },
   "state": {
     "updated": "2026-11-17",
-    "remote_head": "bcc36a2",
+    "remote_head": "3ef1780",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3951,10 +3969,28 @@
         "workflow": "Optional Distributions",
         "run": 44050812298,
         "result": "success, its first run: alphalab-models on CPython 3.12, 3.13 and 3.14 with scikit-learn 1.9.1, and on 3.12 with 1.7.2, 14 tests each"
+      },
+      {
+        "sha": "3ef1780",
+        "workflow": "Continuous Integration",
+        "run": 44085662191,
+        "result": "success: all six quality-gate cells, carrying S-07 end to end"
+      },
+      {
+        "sha": "3ef1780",
+        "workflow": "CodeQL",
+        "run": 44085662633,
+        "result": "success"
+      },
+      {
+        "sha": "3ef1780",
+        "workflow": "Optional Distributions",
+        "run": 44085662467,
+        "result": "success: alphalab-models on all four cells, S-07 with scikit-learn's gradient boosting among its tests"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M7 (WS-08, WS-09, WS-20), after the Model protocol: point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. 13c437c's re-run macOS cell is read once at the next boundary.",
+    "next": "M7's close (WS-08, WS-09, WS-20): XGBoost's and LightGBM's adapters in alphalab-models, which ADR-0057's table puts at M7; WS-08 item 15's dataset budget on the reference machine; the ML series' results; GAP-12 closed; the benchmarks workflow dispatched at M7's checkpoint. Then M8 (WS-11, WS-26): NEXT_OPEN, remainders, latency, plan and queue, child fills, combos and per-venue execution, with ADR-0060, ADR-0061 and ADR-0062.",
     "open_questions": []
   },
   "log": [
@@ -4289,6 +4325,10 @@
     {
       "date": "2026-11-17",
       "entry": "bcc36a2 (alphalab-models) passed the full gate (14,067 tests) and was pushed, and passed CI on all six cells, CodeQL and the first Optional Distributions run on all four of its cells (scikit-learn 1.9.1 and 1.7.2). 0f9b285 and dfbdb15 passed hosted CI on all six cells and CodeQL. S-07 validated locally (TD-54) with the core's ensemble and with scikit-learn's through the adapter. It found three defects, each fixed with the test that found it: the example's first runner fitted labels realized inside the lockbox; the adapter passed 64-bit seeds to scikit-learn unchanged; and it read a parameter error as a missing sample weight."
+    },
+    {
+      "date": "2026-11-17",
+      "entry": "3ef1780 (S-07) passed hosted CI on all six cells and CodeQL, and Optional Distributions on all four cells. M7's ML mutation series ran on the working tree: 33 of 35 caught, ML08 and ML32 surviving, and ML20's catch false (its mutant called a name labels.py never imports); each was answered, and the series' results are recorded at M7's close. Checking M7 against the plan's WS-08 and WS-09 before closing it found two deliverables open: GAP-48's deprecation of ml's duplicates, delivered here (TD-55), and ADR-0057's XGBoost and LightGBM adapters, next. The deprecation was first built to warn on call; the suite refused it, since the package raises no warning, and it is documented as the plan's migration register says."
     }
   ]
 }

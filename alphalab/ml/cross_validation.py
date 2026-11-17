@@ -15,9 +15,21 @@ For research experiments the authority is :mod:`alphalab.research.walk_forward`
 and :mod:`alphalab.research.time_series_cv` (ADR-0058): they split timestamps,
 hold a validation window, and purge and embargo. These two split sample indices,
 and the last test fold takes the remainder, so they cannot delegate without
-changing what they return. They are kept, unchanged; nothing outside ``ml``
-uses them, which a regression test holds, and their deprecation is GAP-48's, at
-M7, for removal in 5.0.
+changing what they return. Nothing outside ``ml`` uses them, which a regression
+test holds.
+
+**Deprecated since 4.3, removed in 5.0** (GAP-48). Each still returns what it
+always did, and its docstring names its replacement:
+
+* ``walk_forward_split`` -- :func:`alphalab.research.walk_forward_splits`, or
+  :func:`alphalab.research.cross_validation_splits` with ``CVMethod.EXPANDING``
+  or ``CVMethod.ROLLING``.
+* ``k_fold_split`` -- :func:`alphalab.research.cross_validation_splits` with
+  ``CVMethod.PURGED``: blocked folds, purged of the labels that overlap them.
+
+The replacements split the samples' instants into windows, not their indices
+into tuples: a panel's ``PointInTimePanel.at`` takes a window's instants, and
+``PointInTimePanel.purge_policy`` gives the splitters each instant's label end.
 """
 
 from alphalab.ml.exceptions import MLInputError
@@ -33,6 +45,9 @@ def k_fold_split(n_samples: int, k: int) -> tuple[TrainTestSplit, ...]:
     never shuffles by default, so results are always deterministic given the same
     input order. This is appropriate for cross-sectional data with no meaningful
     order; for time-ordered data, use `walk_forward_split` instead.
+
+    Deprecated since 4.3, removed in 5.0:
+    :func:`alphalab.research.cross_validation_splits` with ``CVMethod.PURGED``.
 
     Raises:
         MLInputError: If k is less than 2, or k exceeds n_samples.
@@ -63,6 +78,11 @@ def walk_forward_split(
     all prior data (the standard "expanding window" walk-forward). With
     `expanding=False`, each training set is a fixed-size rolling window of the most
     recent `min_train_size` samples immediately preceding the test fold instead.
+
+    Deprecated since 4.3, removed in 5.0:
+    :func:`alphalab.research.walk_forward_splits`, or
+    :func:`alphalab.research.cross_validation_splits` with ``CVMethod.EXPANDING``
+    or ``CVMethod.ROLLING``.
 
     Raises:
         MLInputError: If n_splits is not positive, min_train_size is not positive,

@@ -18,12 +18,11 @@ Beside them: feature pipelines (built directly from Feature Store, not
 point-in-time), linear and logistic regression, k-fold and walk-forward
 cross-validation, and regression/classification evaluation metrics.
 
-Zero runtime dependencies -- no numpy. `alphalab.ml.linalg` is a small,
-purpose-built linear algebra module, not a general-purpose replacement.
-`walk_forward_split` exists alongside `k_fold_split`, not instead of it, because
-naive k-fold on time-ordered financial features leaks future data into training
-folds -- the same look-ahead bias risk this project's research/bias-audit work
-targets in backtests, applying equally to ML validation.
+Zero runtime dependencies -- no numpy. `alphalab.ml.linalg`'s four helpers and
+the two index splitters, `k_fold_split` and `walk_forward_split`, are
+deprecated since 4.3 and removed in 5.0 (GAP-48): each one's docstring names
+its replacement in `common.linalg` or `research`, the library's one authority
+for each (ADR-0058).
 """
 
 from alphalab.ml.cross_validation import TrainTestSplit, k_fold_split, walk_forward_split

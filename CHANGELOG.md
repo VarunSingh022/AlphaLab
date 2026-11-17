@@ -973,6 +973,24 @@ entry below says otherwise.
   `work/v4.3.0-release`: the development branch never triggers it (plan
   decision D-W1).
 
+## Deprecated
+
+* **`ml`'s duplicate helpers and splitters** [plan H.1, V.3, GAP-48,
+  ADR-0058, ADR-0064 settled point 23]. They are deprecated since 4.3 and
+  removed in 5.0. Each keeps its behaviour, and its docstring names its
+  replacement:
+
+  | Deprecated | Use instead |
+  | --- | --- |
+  | `ml.matrix_inverse` | `common.linalg.least_squares` or `cholesky` to solve; `pseudo_inverse` where the inverse is wanted |
+  | `ml.transpose`, `ml.matmul`, `ml.identity` | The standard-library expressions their docstrings give, which return the same values |
+  | `ml.walk_forward_split` | `research.walk_forward_splits`, or `research.cross_validation_splits` with `CVMethod.EXPANDING` or `ROLLING` |
+  | `ml.k_fold_split` | `research.cross_validation_splits` with `CVMethod.PURGED` |
+
+  The deprecation is documented, not warned: the package raises no warning, a
+  rule its suite has held since v2.17. Nothing in the library calls them, as a
+  regression test holds. `ml.Matrix` is not deprecated.
+
 ## Fixed
 
 * **A design with a dependent column is refused as ill-conditioned** [NUM-018].
