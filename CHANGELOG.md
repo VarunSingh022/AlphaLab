@@ -870,6 +870,32 @@ entry below says otherwise.
     distribution, and the core's mypy excludes `distributions/`. It is not
     published (owner decision D-W3).
 
+* **S-07: supervised research end to end** [plan S-07, WS-08, WS-09,
+  ADR-0064].
+  * **`examples/81_search_train_and_trade_a_model.py`.**
+    * A momentum rule's side is meta-labelled by a triple barrier and joined
+      to the features known at each event.
+    * The core's gradient-boosted classifier is searched by successive
+      halving over purged cross-validated backtests. All 33 trials are
+      counted, and the lockbox is held back from every one of them.
+    * The chosen configuration is trained on every label known before the
+      lockbox, filed by its bytes, traded by its artifact id and restored byte
+      for byte, and the lockbox is read once.
+    * Another artifact is `INPUTS_DIFFER`. A rerun with the same one is
+      `REPRODUCED`.
+  * **The tests.** `tests/integration/test_supervised_research_end_to_end.py`
+    holds it, and so does `alphalab-models`' suite with scikit-learn's
+    gradient boosting. The example joins the installed smoke test.
+  * **What it found.**
+    * The example's first runner fitted labels realized inside the lockbox. A
+      runner now takes only labels known before it.
+    * The adapter passed the ledger's 64-bit seeds to scikit-learn unchanged.
+      They now enter modulo 2**32.
+    * It also read any `TypeError` as a missing `sample_weight`. It now asks
+      `has_fit_parameter`.
+  * **The halving record.** `lifecycle.HalvingRound` keeps the round's
+    experiment, so a lockbox is read through the last round.
+
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
   percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's

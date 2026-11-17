@@ -1763,7 +1763,7 @@
       "Governance": "class alphalab.lifecycle.governance.Governance(authority: 'PermissionAuthority', actor_id: 'str', approval_required_in: 'frozenset[str]' = <factory>) -> None",
       "GovernedAct": "class alphalab.lifecycle.governance.GovernedAct(action: 'str', subject: 'str', actor_id: 'str', timestamp: 'float', detail: 'str' = '') -> None",
       "HalvingRecord": "class alphalab.lifecycle.search.HalvingRecord(rounds: 'tuple[HalvingRound, ...]', configurations: 'int', counts: 'LedgerCount', selected: 'Mapping[str, Any] | None') -> None",
-      "HalvingRound": "class alphalab.lifecycle.search.HalvingRound(budget: 'int', experiment_id: 'str', parent_id: 'str | None', record: 'ExperimentRecord', scores: 'Mapping[str, float | None]') -> None",
+      "HalvingRound": "class alphalab.lifecycle.search.HalvingRound(budget: 'int', spec: 'ExperimentSpec', experiment_id: 'str', parent_id: 'str | None', record: 'ExperimentRecord', scores: 'Mapping[str, float | None]') -> None",
       "HealthCategory": "enum alphalab.lifecycle.health.HealthCategory[STALE_DATA, ABNORMAL_EXECUTION, UNEXPECTED_POSITION, RISK_BREACH, HEARTBEAT_LOSS, BROKER_DISCONNECT, EXPECTED_STATE_DIVERGENCE]",
       "HealthFinding": "class alphalab.lifecycle.health.HealthFinding(category: 'HealthCategory', severity: 'HealthSeverity', subject: 'str', summary: 'str', observed_at: 'float', detail: 'Mapping[str, str]' = <factory>) -> None",
       "HealthReport": "class alphalab.lifecycle.health.HealthReport(specification_id: 'str', evaluated_at: 'float', findings: 'tuple[HealthFinding, ...]' = (), unevaluated: 'tuple[UnevaluatedCategory, ...]' = ()) -> None",

@@ -98,6 +98,7 @@ API.
 | 78 | `78_a_tender_split_between_holders.py` | **A tender split between holders** (phase 4): holders of one position electing apart, a prorated cash alternative, a record instant, and the issuer's delayed then corrected payment, reconciled from the ledger |
 | 79 | `79_bid_into_a_reopening_auction.py` | **Bid into a reopening auction** (phase 5): the venue's published book and indications shown to a strategy as published, a withdrawal among them, a bid above the indicated price, the uncross computed from the book, and the venue conditions the result states |
 | 80 | `80_a_ledgered_sweep.py` | **A ledgered sweep** (v4.3): the research assistant's candidates run as trials in spawned workers that refuse the network, every trial counted with its failures, a resume that runs nothing, one record reproduced in a fresh interpreter, the tracker citing the experiment, and the lockbox read once |
+| 81 | `81_search_train_and_trade_a_model.py` | **Search, train and trade a model by its artifact** (v4.3, S-07): triple-barrier meta-labels beside point-in-time features, successive halving over purged cross-validated backtests with every configuration a counted trial, the lockbox read once, and the chosen model filed by its bytes, traded by its artifact id and restored byte for byte -- another artifact being another run's inputs |
 
 ## Reading order
 

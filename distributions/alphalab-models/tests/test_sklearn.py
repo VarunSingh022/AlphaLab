@@ -24,7 +24,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from alphalab_models.sklearn import ADAPTER_VERSION, SKLEARN_SCHEME, SklearnModel
+from alphalab_models.sklearn import ADAPTER_VERSION, RANDOM_STATES, SKLEARN_SCHEME, SklearnModel
 from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
 from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
 from sklearn.neighbors import KNeighborsRegressor
@@ -116,6 +116,18 @@ def test_the_seed_reaches_random_state_and_the_same_training_is_the_same_artifac
     )
 
 
+def test_a_ledgers_64_bit_seed_enters_scikit_learns_range_modulo_2_to_the_32() -> None:
+    """The trial ledger draws 64-bit seeds; scikit-learn's random_state stops at 2**32."""
+
+    model = SklearnModel(GradientBoostingClassifier(n_estimators=10, subsample=0.8))
+    training = _data(True)
+    wide = 10725776635129204304
+    fitted = model.fit(training, seed=wide)
+    assert fitted.capture() == model.fit(training, seed=wide % RANDOM_STATES).capture()
+    assert fitted.capture() != model.fit(training, seed=wide + 1).capture()
+    assert model.fit(training, seed=-1).capture() == model.fit(training, seed=2**32 - 1).capture()
+
+
 def test_a_restored_model_captures_as_the_artifact_it_came_from() -> None:
     """scikit-learn's pickles do not round-trip byte for byte; the artifact does."""
 
@@ -183,7 +195,7 @@ def test_what_a_restore_cannot_take_is_refused() -> None:
 
 def test_what_a_fit_cannot_take_is_refused() -> None:
     weighted = TrainingSet.of(NAMES, _data(False).features.rows, _data(False).labels, [1.0] * 120)
-    with pytest.raises(MLInputError, match="takes no sample weights"):
+    with pytest.raises(MLInputError, match="fit takes no sample weights"):
         SklearnModel(KNeighborsRegressor()).fit(weighted, seed=0)
     with pytest.raises(MLInputError, match="scikit-learn estimator"):
         SklearnModel(object())

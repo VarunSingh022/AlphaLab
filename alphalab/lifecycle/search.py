@@ -42,6 +42,8 @@ class HalvingRound:
 
     Attributes:
         budget: The budget every candidate of the round was given.
+        spec: The round's experiment, its candidates those the round before
+            kept, with the round's budget: what a lockbox is read through.
         experiment_id: The round's experiment.
         parent_id: The experiment it continues: the round before it, or for
             round zero, the parent the search was given.
@@ -51,6 +53,7 @@ class HalvingRound:
     """
 
     budget: int
+    spec: ExperimentSpec
     experiment_id: str
     parent_id: str | None
     record: ExperimentRecord
@@ -118,7 +121,7 @@ def run_successive_halving(
         record = run_experiment(current, registry, runner, ledger, executor)
         scores = candidate_scores(current, ledger, measure)
         rounds.append(
-            HalvingRound(budget, current.experiment_id, current.parent_id, record, scores)
+            HalvingRound(budget, current, current.experiment_id, current.parent_id, record, scores)
         )
         if index == len(halving.budgets) - 1:
             break

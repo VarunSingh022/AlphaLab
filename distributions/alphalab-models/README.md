@@ -53,6 +53,8 @@ declares. The core never unpickles; this adapter does, when you ask it to.
 | 0.1.0 | >=4.3, <5 | 3.12, 3.13, 3.14 | >=1.7, <2 |
 
 An artifact is restored only under the scikit-learn version that captured it,
-because scikit-learn promises its pickles only within a version. The suite runs
+because scikit-learn promises its pickles only within a version. A fit's seed
+reaches an estimator's `random_state` modulo 2**32, the range scikit-learn
+accepts: AlphaLab's trial ledger draws 64-bit seeds. The suite runs
 in this distribution's own CI cells
 (`.github/workflows/optional-distributions.yml`), never in the core's.

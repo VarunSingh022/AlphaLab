@@ -46,18 +46,22 @@ from typing import Any, Final, Self
 import numpy as np
 import sklearn
 from sklearn.base import BaseEstimator, clone, is_classifier
+from sklearn.utils.validation import has_fit_parameter
 
 from alphalab.common.types import ParamValue
 from alphalab.ml.exceptions import MLInputError
 from alphalab.ml.protocol import FeatureMatrix, TrainingSet
 
-__all__ = ["ADAPTER_VERSION", "SKLEARN_SCHEME", "SklearnModel"]
+__all__ = ["ADAPTER_VERSION", "RANDOM_STATES", "SKLEARN_SCHEME", "SklearnModel"]
 
 #: This adapter's version, recorded in every artifact it captures.
 ADAPTER_VERSION: Final = "0.1.0"
 
 #: The scheme tag of a scikit-learn artifact's header.
 SKLEARN_SCHEME: Final = "alphalab-models.sklearn.v1"
+
+#: scikit-learn's random_state is an integer below this: a seed enters modulo it.
+RANDOM_STATES: Final = 2**32
 
 _HEADER_KEYS: Final = frozenset(
     {"scheme", "model_kind", "features", "sklearn", "numpy", "adapter", "payload_sha256"}
@@ -84,7 +88,9 @@ class SklearnModel:
     Args:
         estimator: The estimator, unfitted or not: :meth:`fit` fits a clone of
             it. An estimator that takes a ``random_state`` is given the fit's
-            seed.
+            seed modulo :data:`RANDOM_STATES`, the range scikit-learn accepts:
+            the ledger's 64-bit trial seeds each give one state, and two seeds
+            ``2**32`` apart the same.
 
     Raises:
         MLInputError: If ``estimator`` is not a scikit-learn estimator.
@@ -145,8 +151,8 @@ class SklearnModel:
 
         Raises:
             MLInputError: If ``training`` is not a TrainingSet, the seed is not
-                an integer, or the estimator takes no sample weights and the
-                training set has them.
+                an integer, or the training set has weights and the estimator's
+                ``fit`` takes no ``sample_weight``.
         """
 
         if not isinstance(training, TrainingSet):
@@ -154,20 +160,20 @@ class SklearnModel:
         if isinstance(seed, bool) or not isinstance(seed, int):
             raise MLInputError(f"A seed is an integer, got {seed!r}.")
         estimator = clone(self._estimator)
+        if training.weights is not None and not has_fit_parameter(estimator, "sample_weight"):
+            raise MLInputError(
+                f"{self.model_kind}'s fit takes no sample weights, and the training set has "
+                "them: fit it on a training set without weights, or choose an estimator that "
+                "takes them."
+            )
         if "random_state" in estimator.get_params(deep=False):
-            estimator.set_params(random_state=seed)
+            estimator.set_params(random_state=seed % RANDOM_STATES)
         design = np.asarray(training.features.rows, dtype=np.float64)
         labels = np.asarray(training.labels, dtype=np.float64)
         if training.weights is None:
             estimator.fit(design, labels)
         else:
-            try:
-                estimator.fit(design, labels, sample_weight=np.asarray(training.weights))
-            except TypeError as refusal:
-                raise MLInputError(
-                    f"{self.model_kind} takes no sample weights, and the training set has them: "
-                    f"{refusal}"
-                ) from refusal
+            estimator.fit(design, labels, sample_weight=np.asarray(training.weights))
         payload = pickle.dumps(estimator, protocol=5)
         return self._fitted(estimator, training.features.names, payload, np.__version__)
 

@@ -268,9 +268,34 @@ Building the search settled these points (`tests/unit/research/test_sampling.py`
     - **Refused under another version.** A restore is refused under another
       scikit-learn or adapter version.
     - **The seed reaches the framework.** An estimator taking a
-      `random_state` is given the fit's seed.
+      `random_state` is given the fit's seed modulo 2**32, the range
+      scikit-learn accepts: the trial ledger draws 64-bit seeds. S-07 found
+      the gap.
+    - **Weights are asked about, not guessed at.** The adapter asks
+      scikit-learn's `has_fit_parameter` whether an estimator's `fit` takes
+      `sample_weight`, and refuses before fitting when it does not. It does
+      not catch a `TypeError` instead: scikit-learn's parameter errors are
+      `TypeError`s too, and S-07 found one misreported as a missing weight.
     - **Trust.** Restoring unpickles; the adapter's documentation states the
       trust that needs (`distributions/alphalab-models/tests/test_sklearn.py`).
+21. **S-07 end to end, and a runner holds the lockbox back from labels too.**
+    `examples/81_search_train_and_trade_a_model.py` runs the plan's S-07:
+    - meta-labels of a momentum rule's side;
+    - successive halving over purged cross-validated backtests, every
+      configuration a counted trial;
+    - the lockbox read once;
+    - the chosen model filed by its bytes and traded by its artifact id.
+
+    The ledger holds the lockbox's prices back from every trial's backtest,
+    but it cannot see what a runner reads. The example's first runner fitted
+    its panel's rows by start instant, and some of their labels were realized
+    inside the lockbox. The test caught it, and the rule is now stated: a
+    runner fitting a model takes only labels known before the lockbox, its
+    last session included and its first excluded. The halving record keeps
+    each round's experiment, so the lockbox is read through the last one
+    (`tests/integration/test_supervised_research_end_to_end.py`). The same
+    scenario runs with scikit-learn's gradient boosting in `alphalab-models`'
+    suite (`distributions/alphalab-models/tests/test_s07.py`).
 
 # Compatibility
 

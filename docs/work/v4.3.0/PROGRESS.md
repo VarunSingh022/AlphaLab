@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `dfbdb15` |
+| Remote head | `bcc36a2` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M7 (WS-08, WS-09, WS-20), after the Model protocol: point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. 13c437c's re-run macOS cell is read once at the next boundary. |
@@ -189,6 +189,12 @@ Never:
 | `0f9b285` | Continuous Integration | 44047767031 | in progress at this record, two cells running; not counted as passed |
 | `dfbdb15` | Continuous Integration | 44049326404 | in progress at this record, not counted as passed |
 | `dfbdb15` | CodeQL | 44049326431 | in progress at this record, not counted as passed |
+| `0f9b285` | Continuous Integration | 44047767031 | success: all six quality-gate cells, carrying Feature Store's as-of reads |
+| `dfbdb15` | Continuous Integration | 44049326404 | success: all six quality-gate cells, carrying AC-38 |
+| `dfbdb15` | CodeQL | 44049326431 | success |
+| `bcc36a2` | Continuous Integration | 44050812343 | success: all six quality-gate cells, carrying alphalab-models beside the core |
+| `bcc36a2` | CodeQL | 44050812224 | success |
+| `bcc36a2` | Optional Distributions | 44050812298 | success, its first run: alphalab-models on CPython 3.12, 3.13 and 3.14 with scikit-learn 1.9.1, and on 3.12 with 1.7.2, 14 tests each |
 
 ## Continuation log
 
@@ -274,6 +280,7 @@ Never:
 - **2026-11-17** da8083d (drawn spaces and successive halving) passed the full gate (14,056 tests) and was pushed; 0984bf1 (labels and panels) passed hosted CI on all six cells and CodeQL. Feature Store's as-of reads validated locally (TD-51): every write kept in a timeline with when it was known, value_as_of and ml.build_dataset_as_of, held by the counterfactual-future test. GAP-13 closed, both ways the plan offers.
 - **2026-11-17** 0f9b285 (Feature Store's as-of reads, GAP-13 closed) passed the full gate (14,060 tests) and was pushed; da8083d's and 0f9b285's hosted runs were still in progress when read. AC-38 validated locally (TD-52): an AST sweep holds every import statement and every import by a written name in alphalab to the standard library or alphalab, and tzdata's version is read as data, so the core imports no third-party package at all.
 - **2026-11-17** dfbdb15 (AC-38) passed the full gate (14,065 tests) and was pushed; da8083d (the searches) passed hosted CI on all six cells and CodeQL. alphalab-models validated locally (TD-53): the scikit-learn adapter's 14 tests under scikit-learn 1.9.1, its workflow clean under actionlint. scikit-learn's pickles were found not to round-trip byte for byte, so the adapter keeps the payload it pickled at fit. Its cells run in a workflow of their own, since ci.yml is the core's release gate.
+- **2026-11-17** bcc36a2 (alphalab-models) passed the full gate (14,067 tests) and was pushed, and passed CI on all six cells, CodeQL and the first Optional Distributions run on all four of its cells (scikit-learn 1.9.1 and 1.7.2). 0f9b285 and dfbdb15 passed hosted CI on all six cells and CodeQL. S-07 validated locally (TD-54) with the core's ensemble and with scikit-learn's through the adapter. It found three defects, each fixed with the test that found it: the example's first runner fitted labels realized inside the lockbox; the adapter passed 64-bit seeds to scikit-learn unchanged; and it read a parameter error as a missing sample weight.
 
 ## Milestones
 
@@ -870,6 +877,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0057-optional-distributions-and-backend-protocols.md (settled points 3 to 5); docs/ADR/0064-research-model-protocol-and-artifacts.md (settled point 20); distributions/alphalab-models/README.md
 - **Tests:** distributions/alphalab-models/tests/test_sklearn.py (14): conformance for a ridge, a logistic regression and both gradient-boosting models; the seed reaching random_state and the same training giving the same artifact; a restored model capturing as its artifact though scikit-learn's pickles do not round-trip; the binding through a store; every refusal. Run locally under scikit-learn 1.9.1; actionlint with shellcheck passes the workflow.
 
+### TD-54: S-07 end to end: a model searched through the ledger, filed by its bytes and traded by its artifact, with the core's ensemble and scikit-learn's (ADR-0064 settled points 20 and 21) (WS-08, 2026-11-17)
+
+- **Problem:** S-07 is M7's exit gate: a point-in-time panel, triple-barrier labels, a boosting adapter, purged CV, HPO counted in the ledger and a byte-identical restore when trading, with another artifact INPUTS_DIFFER. Built, it found three defects. The example's first runner fitted labels realized inside the lockbox, which the ledger holds back from backtests but cannot see a runner read. The adapter passed the ledger's 64-bit seeds to scikit-learn, whose random_state stops at 2**32. And it read any TypeError as a missing sample_weight, though scikit-learn's parameter errors are TypeErrors too.
+- **Alternatives:** A scenario of a single backtest, or of trials in the ledger. A runner trusting the ledger's windows alone, or holding the lockbox back from labels too. Seeds refused above 2**32, hashed, or taken modulo 2**32. A TypeError caught around fit, or has_fit_parameter asked first.
+- **Decision:** examples/81_search_train_and_trade_a_model.py: meta-labels of a momentum rule's side; successive halving of the core's GradientBoostedTrees over CrossValidated(3, PURGED, warm-up 20, MEAN, PurgeSpec(10, 0), Lockbox) backtests -- 33 counted trials over 6 configurations; the lockbox read once through the last round, which HalvingRound now keeps; the chosen configuration trained on every label known before the lockbox (KNOWN_BY, the last session before it), filed, traded by its artifact id and restored byte for byte; INPUTS_DIFFER for another seed's artifact, REPRODUCED for the same. A runner takes only labels known before the lockbox. The adapter gives random_state the seed modulo 2**32, and asks has_fit_parameter about sample_weight before fitting. The same scenario runs in alphalab-models' suite with scikit-learn's GradientBoostingClassifier.
+- **Rationale:** The exit gate is the whole path, so it is held end to end, once with the core's model and once through an adapter. The ledger cannot police what a runner reads, so the runner states the rule it keeps. A refusal must name its real cause.
+- **Compatibility:** Additive: HalvingRound gains its spec (new in v4.3); the adapter's fits now accept every seed, and estimators without sample weights are refused before fitting, with a truer message.
+- **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md (settled points 20 and 21); examples/README.md and docs/EXAMPLES.md (example 81)
+- **Tests:** tests/integration/test_supervised_research_end_to_end.py (6): the panel known before the lockbox unmoved by every later close, 33 counted trials as child experiments, every fold's rows purged of its scored window and the lockbox, the lockbox read once, the model traded by its artifact and reproduced, INPUTS_DIFFER. distributions/alphalab-models/tests/test_s07.py (3) with scikit-learn, and test_sklearn.py's 64-bit seed. Example 81 runs in the installed smoke test.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1063,13 +1080,15 @@ Evidence:
 - [Hosted CI passed] M7: The Model protocol and its artifacts (TD-48, ADR-0064 settled points 1 to 10): ml.protocol's Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore; RidgeRegression (class 2), LogisticRegression (class 3) and GradientBoostedTrees (class 2 with the squared loss), each pinned under CPython 3.12, 3.13 and 3.14
 - [Hosted CI passed] M7: Point-in-time labels and panels (TD-49, ADR-0064 settled points 11 to 15): fixed-horizon, triple-barrier and meta-labels carrying their ends, weights by uniqueness among the rows taken, and PointInTimePanel joining the factor library's panels for research's purged splits, held by the counterfactual-future test
 - [Hosted CI passed] M7: Searches beyond the grid (TD-50, ADR-0064 settled points 16 to 18): random and Latin hypercube spaces drawn by SHA-256 of their seed, and successive halving whose rounds are child experiments, every configuration a counted trial
-- [Pushed] M7: Feature Store reads as of an instant (TD-51, ADR-0064 settled point 19): a timeline of every write with when it was known, value_as_of, and ml.build_dataset_as_of, held by the counterfactual-future test; GAP-13 closed
+- [Hosted CI passed] M7: Feature Store reads as of an instant (TD-51, ADR-0064 settled point 19): a timeline of every write with when it was known, value_as_of, and ml.build_dataset_as_of, held by the counterfactual-future test; GAP-13 closed
+- [Local validation passed] M7: S-07 end to end (TD-54, ADR-0064 settled point 21): example 81 and its test with the core's ensemble -- 33 counted trials over purged CV, the lockbox read once, the model traded by its artifact and restored byte for byte, INPUTS_DIFFER for another artifact -- and the rule that a runner takes only labels known before the lockbox
 
 ### WS-09: Optional distributions and backends
 
 - [Hosted CI passed] M7: ADR-0057 accepted (TD-46): optional distributions under distributions/, AC-38 enforced by an AST sweep, tzdata read as data, discovery explicit
-- [Pushed] M7: AC-38 held by an AST sweep over every module (TD-52, ADR-0057 settled points 1 and 2), and tzdata's version read as data, never imported
-- [Local validation passed] M7: alphalab-models with the scikit-learn adapter (TD-53, ADR-0057 settled points 3 to 5, ADR-0064 settled point 20), in CI cells of its own: optional-distributions.yml, CPython 3.12 to 3.14 and scikit-learn 1.7 to latest
+- [Hosted CI passed] M7: AC-38 held by an AST sweep over every module (TD-52, ADR-0057 settled points 1 and 2), and tzdata's version read as data, never imported
+- [Hosted CI passed] M7: alphalab-models with the scikit-learn adapter (TD-53, ADR-0057 settled points 3 to 5, ADR-0064 settled point 20), in CI cells of its own: optional-distributions.yml, CPython 3.12 to 3.14 and scikit-learn 1.7 to latest
+- [Local validation passed] M7: S-07 with a boosting adapter (TD-54, ADR-0064 settled point 20): the same scenario with scikit-learn's GradientBoostingClassifier in alphalab-models' suite; the seed entering modulo 2**32 and sample weights asked about with has_fit_parameter
 
 ### WS-13: Global conventions, reference data and historical universes
 
