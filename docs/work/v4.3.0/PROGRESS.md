@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `0984bf1` |
+| Remote head | `da8083d` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M7 (WS-08, WS-09, WS-20), after the Model protocol: point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. 13c437c's re-run macOS cell is read once at the next boundary. |
@@ -179,6 +179,7 @@ Never:
 | `cf8639d` | Continuous Integration | 44041183473 | success: all six quality-gate cells, carrying the Model protocol and the reference models |
 | `0984bf1` | CodeQL | 44044118375 | success |
 | `0984bf1` | Continuous Integration | 44044118399 | in progress at this record, not counted as passed |
+| `0984bf1` | Continuous Integration | 44044118399 | success: all six quality-gate cells, carrying point-in-time labels and panels |
 
 ## Continuation log
 
@@ -261,6 +262,7 @@ Never:
 - **2026-11-17** 6bc417e (ADR-0057 and ADR-0064) passed the full gate (13,904 tests) and was pushed, and passed hosted CI on all six cells and CodeQL. The re-run macOS cells of 7b6bdc0 and 04b4e0f passed, so both passed all six cells. 13c437c (M6's close) lost macOS 3.14 to runner capacity and was re-run; its code and tests passed all six cells in 6bc417e's run, so M6 and WS-07 passed hosted CI. The benchmarks dispatched at M6's checkpoint passed every cell: on Linux, Johansen 0.085 to 0.093 CPU s against 2, GARCH 0.158 to 0.179 against 5, and PC-07's series and trace 6.67 to 8.88 percent against 15. The host restarted during a network outage; /private/tmp was cleared and the scratch toolchain rebuilt (a CPython 3.12.4 venv; uv's 3.13.18 and 3.14.10) and checked against the checkout. One uncommitted test edit had been reverted on disk before the restart and was re-applied. The Model protocol validated locally (TD-48): ml.protocol and ml.models, the three reference models pinned under CPython 3.12, 3.13 and 3.14.
 - **2026-11-17** The protocol commit's first gate failed on one test: a tree node named Split brought back ml.Split, which v3.13 renamed TrainTestSplit without an alias (API-001). The nodes became TreeSplit and TreeLeaf, the unpushed commit was amended to cf8639d, and it passed the full gate (13,989 tests) and was pushed. 13c437c's re-run macOS 3.14 cell passed, so M6's close passed all six cells on its own commit. Point-in-time labels and panels validated locally (TD-49): a panel's identity first named its label set's, which covers later labels, so a panel known by an instant moved with the prices after it; it now names the labels' method and source, and the counterfactual-future test holds it.
 - **2026-11-17** 0984bf1 (point-in-time labels and panels) passed the full gate (14,026 tests) and was pushed; cf8639d (the Model protocol) passed hosted CI on all six cells and CodeQL. Searches validated locally (TD-50): random and Latin hypercube spaces drawn by SHA-256 of their seed and pinned identically under CPython 3.12, 3.13 and 3.14, and successive halving run as rounds of child experiments, every configuration a counted trial; Sobol is left to alphalab-compute, its direction numbers a published table to verify at its source.
+- **2026-11-17** da8083d (drawn spaces and successive halving) passed the full gate (14,056 tests) and was pushed; 0984bf1 (labels and panels) passed hosted CI on all six cells and CodeQL. Feature Store's as-of reads validated locally (TD-51): every write kept in a timeline with when it was known, value_as_of and ml.build_dataset_as_of, held by the counterfactual-future test. GAP-13 closed, both ways the plan offers.
 
 ## Milestones
 
@@ -827,6 +829,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md (settled points 16 to 18)
 - **Tests:** tests/unit/research/test_sampling.py: two drawn spaces pinned by identity under CPython 3.12, 3.13 and 3.14, every stratum drawn once, no repeat, halving's kept fraction. tests/integration/test_successive_halving_through_the_ledger.py: rounds as child experiments with 11 counted trials, each round's kept half ranked independently, a resume that runs nothing, candidate_scores ranking as cross-validation selects.
 
+### TD-51: Feature Store reads as of an instant (ADR-0064's settled point 19); GAP-13 closed (WS-08, 2026-11-17)
+
+- **Problem:** GAP-13: Feature Store keeps one value per feature, version and asset -- the latest write -- so ml's dataset builder, reading it, answers for any instant with whatever was written last, a backfill or a later computation included. The plan (I.3) asks that Feature Store gain as-of reads or that ML stop reading it.
+- **Alternatives:** Stop ML reading Feature Store, leaving the store's reads latest-only; or keep every write in a timeline and read as of an instant. A value known from its computation, from its write, or from the later of the two. A tuple per key rebuilt on every write (the O(N^2) copying ADR-0032 removed), or a persistent append-only log.
+- **Decision:** Both: ML builds point-in-time panels (TD-49), and FeatureStoreState gains a timeline -- a PersistentMap of AppendOnlyLogs of KnownFeatureValue, each value known from the later of its computation and its write. feature_store.value_as_of returns the last value known by an instant, a later write winning a tie; value_timeline lists a key's writes. ml.build_dataset_as_of reads through value_as_of; build_dataset_from_feature_store is kept, reads latest writes, and is documented as not point-in-time.
+- **Rationale:** A value no read could have returned before it was both computed and written is not knowable before then. A backfill must never answer for the past it fills. The timeline is append-only and persistent, so a write stays O(1) and every earlier state keeps its own history.
+- **Compatibility:** Additive: a trailing FeatureStoreState field with a default, and four names (3,084 exports). FeatureStoreState is not persisted; latest_value and build_dataset_from_feature_store behave as before.
+- **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md (settled point 19)
+- **Tests:** tests/unit/feature_store/test_value_as_of.py: reads at each instant, a late backfill, a value computed after the read, ties, the timeline's approved writes only and an untouched earlier state; the counterfactual future, under which the as-of dataset is unchanged while the latest-value builder moves; refusals.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1018,8 +1030,9 @@ Evidence:
 
 - [Hosted CI passed] M7: ADR-0064 accepted (TD-47): the Model protocol, a trained model's identity as its artifact, the reference models and the adapters' place
 - [Hosted CI passed] M7: The Model protocol and its artifacts (TD-48, ADR-0064 settled points 1 to 10): ml.protocol's Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore; RidgeRegression (class 2), LogisticRegression (class 3) and GradientBoostedTrees (class 2 with the squared loss), each pinned under CPython 3.12, 3.13 and 3.14
-- [Pushed] M7: Point-in-time labels and panels (TD-49, ADR-0064 settled points 11 to 15): fixed-horizon, triple-barrier and meta-labels carrying their ends, weights by uniqueness among the rows taken, and PointInTimePanel joining the factor library's panels for research's purged splits, held by the counterfactual-future test
-- [Local validation passed] M7: Searches beyond the grid (TD-50, ADR-0064 settled points 16 to 18): random and Latin hypercube spaces drawn by SHA-256 of their seed, and successive halving whose rounds are child experiments, every configuration a counted trial
+- [Hosted CI passed] M7: Point-in-time labels and panels (TD-49, ADR-0064 settled points 11 to 15): fixed-horizon, triple-barrier and meta-labels carrying their ends, weights by uniqueness among the rows taken, and PointInTimePanel joining the factor library's panels for research's purged splits, held by the counterfactual-future test
+- [Pushed] M7: Searches beyond the grid (TD-50, ADR-0064 settled points 16 to 18): random and Latin hypercube spaces drawn by SHA-256 of their seed, and successive halving whose rounds are child experiments, every configuration a counted trial
+- [Local validation passed] M7: Feature Store reads as of an instant (TD-51, ADR-0064 settled point 19): a timeline of every write with when it was known, value_as_of, and ml.build_dataset_as_of, held by the counterfactual-future test; GAP-13 closed
 
 ### WS-09: Optional distributions and backends
 
@@ -1109,7 +1122,7 @@ Evidence:
 
 ## Gaps
 
-36 open, 13 closed, 4 discarded.
+35 open, 14 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -1125,7 +1138,7 @@ Evidence:
 | GAP-10 | No numerical foundation | C/P1 | Closed at M2's hosted exit gate (fe3c80b; WS-03, ADR-0058): distributions, linear algebra, optimisers, quadrature, the Estimate, each against its oracle. | WS-03 | M2 |
 | GAP-11 | No econometrics | H/P1 | Closed at M6 (WS-07, ADR-0074, ADR-0075): the econometrics package -- unit roots with MacKinnon's tables, Engle-Granger, Johansen, the VECM, the OU half-life, ARMA, the VAR, the GARCH family, the Kalman filter and RTS smoother with the local level and the time-varying beta, the Gaussian HMM and the Markov-switching regression -- each returning an Estimate and recovering known parameters, with S-02's screen through the ledger; each estimator's commit passed the full local gate, and its hosted CI is recorded in the state's rows (M6's evidence). | WS-07 | M6 |
 | GAP-12 | No model protocol | C/P1 | Open | WS-08 | M7 |
-| GAP-13 | ML dataset not PIT | H/P1 | Open | WS-08 | M7 |
+| GAP-13 | ML dataset not PIT | H/P1 | Closed at M7 (WS-08, ADR-0064, TD-49, TD-51), both ways the plan offers: ML builds point-in-time panels from the factor library's feature panels and labels that carry when they became known (ml.point_in_time), and Feature Store reads as of an instant (feature_store.value_as_of, ml.build_dataset_as_of). Each builder is held by a counterfactual-future test. build_dataset_from_feature_store is kept, documented as not point-in-time. | WS-08 | M7 |
 | GAP-14 | Throughput | H/P2 | Open | WS-15 | M11 |
 | GAP-15 | Charter conflict | H/P0 | Open: the charter is accepted and the five documents reconciled; closes when G0 and M0 are accepted | WS-00 | G0 |
 | GAP-16 | No reference-data packs | H/P2 | Open (D-V3) | WS-13 | M10 |

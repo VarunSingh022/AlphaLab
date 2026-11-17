@@ -242,6 +242,19 @@ Building the search settled these points (`tests/unit/research/test_sampling.py`
     - Every configuration any round evaluated is a recorded, counted trial. A
       `HalvingRecord` keeps the configurations the search began with and
       every round's counts.
+19. **Feature Store reads as of an instant** (`tests/unit/feature_store/test_value_as_of.py`).
+    - `FeatureStoreState` keeps every approved write in a timeline, each
+      value known from the later of the instant it was computed at and the
+      instant it was written.
+    - `feature_store.value_as_of` returns the last value known by an
+      instant, a later write winning a tie, so a backfill written late never
+      answers for an earlier instant.
+    - `ml.build_dataset_as_of` reads through it.
+    - `build_dataset_from_feature_store` is kept, reads each latest write,
+      and is documented as not point-in-time.
+
+    So GAP-13 closes both ways the plan offers: ML builds point-in-time panels
+    from the factor library, and Feature Store reads as of an instant.
 
 # Compatibility
 

@@ -27,7 +27,12 @@ targets in backtests, applying equally to ML validation.
 """
 
 from alphalab.ml.cross_validation import TrainTestSplit, k_fold_split, walk_forward_split
-from alphalab.ml.dataset import Dataset, FeatureSpec, build_dataset_from_feature_store
+from alphalab.ml.dataset import (
+    Dataset,
+    FeatureSpec,
+    build_dataset_as_of,
+    build_dataset_from_feature_store,
+)
 from alphalab.ml.evaluation import (
     ConfusionMatrix,
     accuracy,
@@ -142,6 +147,7 @@ __all__ = [
     "VerticalOutcome",
     "accuracy",
     "average_uniqueness",
+    "build_dataset_as_of",
     "build_dataset_from_feature_store",
     "canonical_capture",
     "confusion_matrix",

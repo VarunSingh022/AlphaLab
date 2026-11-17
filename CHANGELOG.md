@@ -827,6 +827,19 @@ entry below says otherwise.
     evaluated is a trial in the ledger, and the `HalvingRecord` counts them
     all.
 
+* **Feature Store reads as of an instant** [plan WS-08, I.3, GAP-13,
+  ADR-0064].
+  * **The timeline.** `FeatureStoreState` keeps every approved write in a
+    timeline, each value known from the later of when it was computed and
+    when it was written.
+  * **`feature_store.value_as_of`** returns what a read at an instant would
+    have returned. A backfill written late never answers for an earlier
+    instant.
+  * **`ml.build_dataset_as_of`** builds a dataset as of an instant. Writes
+    after it change nothing in it.
+  * **The old builder.** `build_dataset_from_feature_store`, unchanged, reads
+    the latest writes and is now documented as not point-in-time.
+
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
   percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's
