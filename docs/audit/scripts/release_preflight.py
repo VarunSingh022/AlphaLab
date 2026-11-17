@@ -45,7 +45,7 @@ beside a local build -- so a hosted run and a local one check the same things.
     installed alone into a fresh virtual environment and checked from a
     directory outside the source tree by ``tests/installed_smoke.py`` -- which
     runs ``pip check``, holds the import location, the version, every module and
-    every public name to the source, and runs examples 11 and 70 with the
+    every public name to the source, and runs the examples it names with the
     network refused. ``--record`` writes what was checked, and its outcome.
 
     Since v4.3 (plan WS-29) the artifacts are also held to the commit they were

@@ -116,6 +116,39 @@ whose coefficients sum above one, outside the flipped region, was added to
 the recovery cases, and EC28 was run again: caught. No first failure read a
 clock. The test that caught each is recorded in the progress register, in
 M6's evidence.
+
+M7's series:
+
+* **ML** -- WS-08 and WS-09, ADR-0064: the training set's identity, the
+  capture's checks, the reference models' arithmetic and refusals, labels'
+  barriers, windows, sides and spans, point-in-time panels -- what they know
+  by an instant, their purge ends and their lineage -- the samplers and
+  successive halving, candidates' scores, and Feature Store's as-of reads.
+
+M7's first run (ML01 to ML35) caught 33 of 35 on the working tree, and one of
+those catches was false:
+
+* **ML20's mutant called ``bisect_left``**, which ``labels.py`` never imports,
+  so every test it failed raised a ``NameError``. It was restated in the
+  module's own names, and a sweep of every mutation in the table for names
+  their modules lack found no other.
+* **ML08 survived.** Newton's method converges quadratically, so at the
+  suite's tolerance of 1e-12 a stop at a thousand times it fell on the same
+  step. A test now reads each step's change from the refusal of a fit one
+  step short, and holds the fit to stop at the first step within a tolerance
+  set between two changes.
+* **ML32 survived.** Every candidate the suite failed, failed in every fold, so
+  the mean over the folds it completed was still none. A runner that fails
+  one candidate in one fold was added.
+
+ML08, ML20 and ML32 were run again: all caught. ML18's first failure is the
+end-to-end panel's ``IndexError``, the mutant reading a close past the
+series' last; the volatility estimate is now also checked against closes
+continuing past its event, and fails by value. ML03 is caught by the
+refusal's reason: without the kind check, the hyperparameter check still
+refuses another kind's bytes, under a message naming the wrong difference. No
+first failure read a clock. The test that caught each is recorded in the
+progress register, in M7's evidence.
 """
 
 from __future__ import annotations
@@ -1921,6 +1954,283 @@ V43_M6: tuple[Any, ...] = (
     ),
 )
 
+_PROTOCOL = "alphalab/ml/protocol.py"
+_MODELS = "alphalab/ml/models.py"
+_LABELS = "alphalab/ml/labels.py"
+_PANELS = "alphalab/ml/point_in_time.py"
+_SAMPLING = "alphalab/research/sampling.py"
+_HALVING = "alphalab/lifecycle/search.py"
+_SCORES = "alphalab/lifecycle/experiments.py"
+_AS_OF = "alphalab/feature_store/views.py"
+_TIMELINE = "alphalab/feature_store/store.py"
+
+#: M7's behaviour, one rule each.
+V43_M7: tuple[Any, ...] = (
+    # --- ML: the model protocol and its artifacts, point-in-time data, searches (WS-08, ADR-0064)
+    Mutation(
+        "ML01",
+        "a training set's identity leaves out its labels",
+        _PROTOCOL,
+        '            line = ",".join(repr(value) for value in row) + "|" + repr(label)\n',
+        '            line = ",".join(repr(value) for value in row)\n',
+    ),
+    Mutation(
+        "ML02",
+        "a restore keeps bytes that are not the model's own capture",
+        _PROTOCOL,
+        "    if model.capture() != artifact:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "ML03",
+        "a capture of another kind is read",
+        _PROTOCOL,
+        '    if document["model_kind"] != model_kind:\n',
+        "    if False:\n",
+    ),
+    Mutation(
+        "ML04",
+        "rows naming the features in another order are predicted from",
+        _MODELS,
+        "    if features.names != fitted:\n",
+        "    if sorted(features.names) != sorted(fitted):\n",
+    ),
+    Mutation(
+        "ML05",
+        "the ridge penalizes the intercept too",
+        _MODELS,
+        "        for column in range(offset, width):\n",
+        "        for column in range(width):\n",
+    ),
+    Mutation(
+        "ML06",
+        "a row's weight is ignored",
+        _MODELS,
+        "        root = math.sqrt(weight)\n",
+        "        root = 1.0\n",
+    ),
+    Mutation(
+        "ML07",
+        "logistic regression's working response flips its residual",
+        _MODELS,
+        "                working.append(eta + (label - probability) / variance)\n",
+        "                working.append(eta - (label - probability) / variance)\n",
+    ),
+    Mutation(
+        "ML08",
+        "logistic regression stops at a change a thousand times its tolerance",
+        _MODELS,
+        "            if change <= self.tolerance:\n",
+        "            if change <= 1e3 * self.tolerance:\n",
+    ),
+    Mutation(
+        "ML09",
+        "separated classes are fitted on",
+        _MODELS,
+        "                if variance == 0.0:\n",
+        "                if False:\n",
+    ),
+    Mutation(
+        "ML10",
+        "a split's threshold is the midpoint of the values beside it",
+        _MODELS,
+        "                low = self.rows[previous][feature]\n",
+        "                low = (self.rows[previous][feature] + "
+        "self.rows[ordered[position]][feature]) / 2\n",
+    ),
+    Mutation(
+        "ML11",
+        "a tie between splits goes to the later feature",
+        _MODELS,
+        "                if best is None or gain > best[0]:\n",
+        "                if best is None or gain >= best[0]:\n",
+    ),
+    Mutation(
+        "ML12",
+        "a leaf may hold fewer rows than minimum_leaf",
+        _MODELS,
+        "                if position < self.minimum_leaf or len(ordered) - position < "
+        "self.minimum_leaf:\n",
+        "                if position < 1 or len(ordered) - position < 1:\n",
+    ),
+    Mutation(
+        "ML13",
+        "a tree's subsample ignores the seed",
+        _MODELS,
+        '        key=lambda row: (hashlib.sha256(f"{seed}|{tree}|{row}".encode()).digest(), '
+        "row),\n",
+        '        key=lambda row: (hashlib.sha256(f"0|{tree}|{row}".encode()).digest(), row),\n',
+    ),
+    Mutation(
+        "ML14",
+        "a leaf ignores the learning rate",
+        _MODELS,
+        "        return TreeLeaf(self.learning_rate * (gradient / hessian))\n",
+        "        return TreeLeaf(gradient / hessian)\n",
+    ),
+    Mutation(
+        "ML15",
+        "a logistic ensemble starts from even odds, not the labels' log-odds",
+        _MODELS,
+        "        base = math.log(mean / (1.0 - mean)) if logistic else mean\n",
+        "        base = 0.0 if logistic else mean\n",
+    ),
+    Mutation(
+        "ML16",
+        "a barrier is touched only when passed, not when reached",
+        _LABELS,
+        "        if upper is not None and signed >= upper:\n",
+        "        if upper is not None and signed > upper:\n",
+    ),
+    Mutation(
+        "ML17",
+        "a vertical outcome of zero is read as the return's sign",
+        _LABELS,
+        "    if maker.at_vertical is VerticalOutcome.ZERO or vertical == 0.0:\n",
+        "    if vertical == 0.0:\n",
+    ),
+    Mutation(
+        "ML18",
+        "the volatility window reaches one observation past its event",
+        _LABELS,
+        "            prices[j] / prices[j - 1] - 1.0 for j in range(index - self.window + 1, index "
+        "+ 1)\n",
+        "            prices[j] / prices[j - 1] - 1.0 for j in range(index - self.window + 2, index "
+        "+ 2)\n",
+    ),
+    Mutation(
+        "ML19",
+        "a meta-label ignores the primary side",
+        _LABELS,
+        "        signed = side * (values[ahead] / start - 1.0)\n",
+        "        signed = values[ahead] / start - 1.0\n",
+    ),
+    Mutation(
+        "ML20",
+        "uniqueness counts the event's own observation",
+        _LABELS,
+        "        low = bisect_right(clock, start)\n",
+        "        low = bisect_right(clock, start) - 1\n",
+    ),
+    Mutation(
+        "ML21",
+        "a fixed-horizon label ends one observation early",
+        _LABELS,
+        "            labels.append(Label(subject, instants[index], instants[ahead], value, "
+        "outcome))\n"
+        '    return _label_set(maker.describe(), labels, prices, {"unresolved": unresolved})\n',
+        "            labels.append(Label(subject, instants[index], instants[ahead - 1], value, "
+        "outcome))\n"
+        '    return _label_set(maker.describe(), labels, prices, {"unresolved": unresolved})\n',
+    ),
+    Mutation(
+        "ML22",
+        "known_by keeps rows by their start, not their label's end",
+        _PANELS,
+        "            (i for i, end in enumerate(self.ends) if end <= instant),\n",
+        "            (i for i, start in enumerate(self.starts) if start <= instant),\n",
+    ),
+    Mutation(
+        "ML23",
+        "an instant's label end is its last row's, not its latest",
+        _PANELS,
+        "            ends[start] = max(ends[start], end)\n",
+        "            ends[start] = end\n",
+    ),
+    Mutation(
+        "ML24",
+        "a panel's lineage names its label set's identity",
+        _PANELS,
+        '        f"labels: {labels.method}, from {labels.source} on {labels.dataset_version} "\n',
+        '        f"labels {labels.label_id}: {labels.method}, from {labels.source} on '
+        '{labels.dataset_version} "\n',
+    ),
+    Mutation(
+        "ML25",
+        "a training set by uniqueness is given no weights",
+        _PANELS,
+        "            self.uniqueness() if weights is SampleWeights.UNIQUENESS else None,\n",
+        "            None,\n",
+    ),
+    Mutation(
+        "ML26",
+        "successive halving's tie goes to the later candidate",
+        _SAMPLING,
+        "        best = sorted(scored, key=lambda pair: (-pair[0], pair[1]))[:number]\n",
+        "        best = sorted(scored, key=lambda pair: (-pair[0], -pair[1]))[:number]\n",
+    ),
+    Mutation(
+        "ML27",
+        "successive halving keeps the floor of its fraction",
+        _SAMPLING,
+        "        number = max(1, math.ceil(len(space.candidates) * self.keep))\n",
+        "        number = max(1, math.floor(len(space.candidates) * self.keep))\n",
+    ),
+    Mutation(
+        "ML28",
+        "a random space passes a repeated candidate on",
+        _SAMPLING,
+        "        if rendered in seen:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "ML29",
+        "a Latin hypercube deals its strata in order",
+        _SAMPLING,
+        '                hashlib.sha256(f"{seed}|deal|{name}|{stratum}".encode()).digest(),\n',
+        '                b"",\n',
+    ),
+    Mutation(
+        "ML30",
+        "a later round's parent is the search's, not the round before",
+        _HALVING,
+        "            spec, space=halving.round(index + 1, kept), parent_id=current.experiment_id\n",
+        "            spec, space=halving.round(index + 1, kept), parent_id=spec.parent_id\n",
+    ),
+    Mutation(
+        "ML31",
+        "a search's record counts its last round only",
+        _HALVING,
+        "        counts=_total([each.record.counts for each in rounds]),\n",
+        "        counts=rounds[-1].record.counts,\n",
+    ),
+    Mutation(
+        "ML32",
+        "a candidate that failed a fold still has a score",
+        _SCORES,
+        "        means[label] = math.fsum(known) / len(known) if held and len(known) == len(held) "
+        "else None\n",
+        "        means[label] = math.fsum(known) / len(known) if known else None\n",
+    ),
+    Mutation(
+        "ML33",
+        "an as-of read answers by when a value was computed, not when it was known",
+        _AS_OF,
+        "        if known.known_at <= instant and (best is None or known.known_at >= "
+        "best.known_at):\n",
+        "        if known.value.timestamp <= instant and (\n"
+        "            best is None or known.value.timestamp >= best.value.timestamp\n"
+        "        ):\n",
+    ),
+    Mutation(
+        "ML34",
+        "an as-of read's tie goes to the earlier write",
+        _AS_OF,
+        "        if known.known_at <= instant and (best is None or known.known_at >= "
+        "best.known_at):\n",
+        "        if known.known_at <= instant and (best is None or known.known_at > "
+        "best.known_at):\n",
+    ),
+    Mutation(
+        "ML35",
+        "a value is known from its computation alone, whenever it was written",
+        _TIMELINE,
+        "        known = KnownFeatureValue(value, max(value.timestamp, timestamp))\n",
+        "        known = KnownFeatureValue(value, value.timestamp)\n",
+    ),
+)
+
+
 MUTATIONS: tuple[Any, ...] = (
     tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS)
     + V43_M0
@@ -1930,6 +2240,7 @@ MUTATIONS: tuple[Any, ...] = (
     + V43_M4
     + V43_M5
     + V43_M6
+    + V43_M7
 )
 
 

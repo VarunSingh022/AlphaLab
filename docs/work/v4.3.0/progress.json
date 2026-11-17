@@ -1240,8 +1240,22 @@
       "deliverables": "Model protocol and artifacts; PIT datasets and labels; HPO samplers; adapters",
       "exit_gate": "S-07 with a boosting adapter; counterfactual tests",
       "size": "L",
-      "status": "In progress",
-      "evidence": []
+      "status": "Pushed",
+      "evidence": [
+        "Exit gate, S-07 with a boosting adapter: examples/81_search_train_and_trade_a_model.py searches the core's gradient-boosted classifier by successive halving over purged cross-validated backtests -- 33 trials over 6 configurations in three rounds, each round a child experiment, every trial counted, the lockbox held back from all of them -- then trains the selection on every label known before the lockbox, files it by its bytes, trades it by its artifact id, restores it byte for byte and reads the lockbox once. Another artifact is INPUTS_DIFFER, the same one's rerun REPRODUCED (tests/integration/test_supervised_research_end_to_end.py). The same scenario runs with each boosting adapter's classifier -- scikit-learn's, XGBoost's and LightGBM's -- in alphalab-models' suite (distributions/alphalab-models/tests/test_s07.py).",
+        "Exit gate, counterfactual tests: every dataset builder is held by one. Moving every close from the lockbox on changes nothing the panel known before it holds -- no feature, label, end, weight or training set (test_supervised_research_end_to_end); a panel known by a boundary has the same rows and identity whatever comes after it (tests/unit/ml/test_point_in_time.py); and a backfill written late never answers a read as of an earlier instant, nor reaches ml.build_dataset_as_of (tests/unit/feature_store/test_value_as_of.py).",
+        "The Model protocol and its artifacts (TD-48): ml.Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore. The reference models' artifacts are pinned: the ridge and the squared-loss ensemble by digest (class 2), the logistic models held across hosts by a stated tolerance (class 3), all computed identically under CPython 3.12, 3.13 and 3.14 before pinning (tests/unit/ml/test_model_protocol.py, test_reference_models.py, tests/regression/test_model_artifacts_are_pinned.py). GAP-12 closed.",
+        "Point-in-time datasets and labels (TD-49, TD-51): fixed-horizon, triple-barrier and meta-labels, each carrying when it became known; weights by uniqueness among the rows taken; PointInTimePanel's known_by, at and purge_policy for research's splitters; Feature Store's value_as_of and ml.build_dataset_as_of. GAP-13 closed.",
+        "Searches beyond the grid (TD-50): random and Latin hypercube spaces over four kinds of axis, drawn by SHA-256 of their seed and pinned; successive halving through the ledger, every round a child experiment and every configuration a counted trial; candidate_scores, the rule cross-validation selects by. Sobol sequences are alphalab-compute's (ADR-0064 settled point 17).",
+        "Adapters (TD-46, TD-52, TD-53, TD-56): AC-38 held by an AST sweep, tzdata's version read as data; alphalab-models with scikit-learn's, XGBoost's and LightGBM's adapters, in a workflow of its own across the lowest and the latest of every framework. PyTorch's adapter is M12's (WS-16). Nothing is published (D-W3).",
+        "GAP-48 (TD-55): ml's duplicate helpers and splitters deprecated in documentation, each docstring naming its replacement in common.linalg or research, kept until 5.0; the package raises no warning.",
+        "WS-08 item 15's budget: a point-in-time training set for 500 assets over 2,520 days -- two feature panels, triple-barrier labels, the panel and its uniqueness weights -- in 15.2 CPU s against 60 (benchmarks/benchmark_ml_datasets.py, the reference machine).",
+        "Guide: docs/ML.md, indexed (WS-20; GAP-49's M7 part), with example 81.",
+        "Defects M7 found, each fixed with the test that found it: S-07's three -- the example's first runner fitting labels realized inside the lockbox, the adapter passing 64-bit seeds to scikit-learn unchanged, and a parameter error read as a missing sample weight; a panel's identity that named its label set's, which covers labels realized after the panel, found before its commit; and a tree node named Split, which revived the removed ml.Split (API-001), caught by the gate before cf8639d. The mutation harness's own ML20 was a false catch, restated.",
+        "Mutation series ML (WS-08, WS-09, ADR-0064), 35 mutations, each caught -- the history below says on which tree -- by: ML01 (a training set's identity leaves out its labels): test_model_artifacts_are_pinned::test_a_ridge_and_a_squared_loss_ensemble_are_pinned_byte_for_byte; ML02 (a restore keeps bytes that are not the model's own capture): test_model_protocol::test_bytes_that_are_not_the_models_canonical_capture_are_refused[ridge]; ML03 (a capture of another kind is read): test_model_protocol::test_another_kinds_bytes_are_refused -- by the refusal's reason: without the kind check the hyperparameter check still refuses another kind's bytes, naming the wrong difference; ML04 (rows naming the features in another order are predicted from): test_model_protocol::test_rows_naming_other_features_or_another_order_are_refused[ridge]; ML05 (the ridge penalizes the intercept too): test_model_artifacts_are_pinned::test_a_ridge_and_a_squared_loss_ensemble_are_pinned_byte_for_byte; ML06 (a row's weight is ignored): test_model_artifacts_are_pinned::test_the_logistic_models_agree_across_hosts_within_their_stated_tolerance; ML07 (logistic regression's working response flips its residual): test_model_artifacts_are_pinned::test_the_logistic_models_agree_across_hosts_within_their_stated_tolerance -- the flipped residual drives the fit into the separated-classes refusal; ML08 (logistic regression stops at a change a thousand times its tolerance): test_reference_models::test_a_logistic_fit_stops_at_the_first_newton_step_within_its_tolerance (added for it); ML09 (separated classes are fitted on): test_reference_models::test_separated_classes_are_refused_without_a_penalty_and_fitted_with_one -- a ZeroDivisionError where the refusal was; ML10 (a split's threshold is the midpoint of the values beside it): test_model_artifacts_are_pinned::test_a_ridge_and_a_squared_loss_ensemble_are_pinned_byte_for_byte; ML11 (a tie between splits goes to the later feature): test_reference_models::test_a_tie_between_features_goes_to_the_first; ML12 (a leaf may hold fewer rows than minimum_leaf): test_model_artifacts_are_pinned::test_a_ridge_and_a_squared_loss_ensemble_are_pinned_byte_for_byte; ML13 (a tree's subsample ignores the seed): test_supervised_research_end_to_end::test_another_artifact_is_another_runs_inputs; ML14 (a leaf ignores the learning rate): test_model_artifacts_are_pinned::test_a_ridge_and_a_squared_loss_ensemble_are_pinned_byte_for_byte; ML15 (a logistic ensemble starts from even odds, not the labels' log-odds): test_model_artifacts_are_pinned::test_the_logistic_models_agree_across_hosts_within_their_stated_tolerance; ML16 (a barrier is touched only when passed, not when reached): test_labels::test_a_path_resolves_at_its_first_barrier[path0-1.0-expected0]; ML17 (a vertical outcome of zero is read as the return's sign): test_labels::test_a_vertical_outcome_of_zero_ignores_the_returns_sign; ML18 (the volatility window reaches one observation past its event): test_supervised_research_end_to_end::test_the_panel_known_before_the_lockbox_ignores_every_close_in_it -- the panel's IndexError, the mutant reading a close past the series' last; and by value, test_labels::test_the_volatility_estimate_is_the_exact_sample_deviation_of_its_returns (extended for it); ML19 (a meta-label ignores the primary side): test_labels::test_a_path_resolves_at_its_first_barrier[path4--1.0-expected4]; ML20 (uniqueness counts the event's own observation): test_labels::test_average_uniqueness_is_a_hand_count_of_overlaps_per_subject (restated: its first form called bisect_left, which labels.py never imports); ML21 (a fixed-horizon label ends one observation early): test_labels::test_a_fixed_horizon_is_the_return_ahead_and_its_end_that_observation; ML22 (known_by keeps rows by their start, not their label's end): test_supervised_research_end_to_end::test_the_panel_known_before_the_lockbox_ignores_every_close_in_it; ML23 (an instant's label end is its last row's, not its latest): test_point_in_time::test_a_purged_split_from_research_leaves_no_training_label_reaching_its_validation; ML24 (a panel's lineage names its label set's identity): test_point_in_time::test_each_row_is_an_events_features_at_its_start_beside_its_label, and test_point_in_time::test_the_counterfactual_future_moves_nothing_known_by_the_boundary; ML25 (a training set by uniqueness is given no weights): test_point_in_time::test_a_training_set_weighs_rows_equally_or_by_their_uniqueness_among_themselves; ML26 (successive halving's tie goes to the later candidate): test_successive_halving_through_the_ledger::test_each_round_keeps_the_best_half_and_the_search_selects_the_last_rounds_best; ML27 (successive halving keeps the floor of its fraction): test_successive_halving_through_the_ledger::test_every_round_is_a_child_experiment_and_every_trial_is_counted; ML28 (a random space passes a repeated candidate on): test_sampling::test_a_random_space_never_repeats_and_refuses_more_than_its_axes_hold -- the space's own refusal of a repeat; ML29 (a Latin hypercube deals its strata in order): test_sampling::test_a_drawn_space_is_its_seeds_on_every_host[latin_hypercube_space-7cdef0bf93d03958af85a529dac599f6ddf4606c76266921a13fc954df5ae01b]; ML30 (a later round's parent is the search's, not the round before): test_successive_halving_through_the_ledger::test_every_round_is_a_child_experiment_and_every_trial_is_counted; ML31 (a search's record counts its last round only): test_successive_halving_through_the_ledger::test_every_round_is_a_child_experiment_and_every_trial_is_counted; ML32 (a candidate that failed a fold still has a score): test_successive_halving_through_the_ledger::test_a_candidate_that_failed_one_fold_has_no_score_and_moves_no_other (added for it); ML33 (an as-of read answers by when a value was computed, not when it was known): test_value_as_of::test_a_read_at_an_instant_returns_the_last_value_known_by_it; ML34 (an as-of read's tie goes to the earlier write): test_value_as_of::test_a_read_at_an_instant_returns_the_last_value_known_by_it; ML35 (a value is known from its computation alone, whenever it was written): test_value_as_of::test_a_read_at_an_instant_returns_the_last_value_known_by_it.",
+        "Mutation history: the first run (ML01 to ML35) caught 33 of 35 on the working tree. ML20's catch was false: its mutant called bisect_left, which labels.py never imports, so every test it failed raised a NameError. It was restated in the module's own names, and a sweep of all 497 mutations for names their modules lack found no other. ML08 survived: Newton's method converges quadratically, so at the suite's tolerance of 1e-12 a stop at a thousand times it fell on the same step; a test now pins the step a fit stops at, reading each step's change from the refusal of a fit one step short. ML32 survived: every candidate the suite failed, failed in every fold, so the mean over the folds it completed was still none; a runner failing one candidate in one fold was added. ML08, ML20 and ML32 were run again: all caught. Every first failure was replayed alone under its mutation and read: each is the mutation's own effect, and none read a clock. Baselines: 13,984 and 13,987 passed, 90 deselected (the tests that read a clock, and the certificate's source digest).",
+        "Hosted CI: every M7 commit through 3ef1780 passed all six cells and CodeQL, and alphalab-models' cells passed on bcc36a2 (44050812298) and 3ef1780 (44085662467). 3379fc8, 575d48b and this close are read at the next boundary."
+      ]
     },
     {
       "id": "M8",
@@ -1867,6 +1881,16 @@
           "milestone": "M7",
           "item": "GAP-48: ml's duplicate helpers and splitters deprecated in documentation, each docstring naming its replacement in common.linalg or research, kept until 5.0 (TD-55, ADR-0064 settled point 23)",
           "status": "Pushed"
+        },
+        {
+          "milestone": "M7",
+          "item": "WS-08 item 15's budget: a point-in-time training set for 500 assets over 2,520 days in 15.2 CPU s against 60 (benchmarks/benchmark_ml_datasets.py)",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M7",
+          "item": "Mutation series ML (35): the training set's identity, the capture's checks, the reference models' arithmetic and refusals, labels, point-in-time panels, the samplers and successive halving, candidates' scores, and Feature Store's as-of reads -- 35 of 35 caught, ML08 and ML32 after the tests they asked for, ML20 restated",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -1903,7 +1927,7 @@
         {
           "milestone": "M7",
           "item": "XGBoost's and LightGBM's adapters (TD-56, ADR-0057 settled point 6, ADR-0064 settled point 22): each framework's own model format as the payload, parameters stated exactly, prediction through the loaded booster, S-07 with each framework's boosting classifier, and CI cells across the lowest and latest of every framework",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": []
@@ -2070,6 +2094,11 @@
           "milestone": "M0",
           "item": "High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15",
           "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M7",
+          "item": "The machine-learning guide, docs/ML.md (GAP-49's M7 part), indexed, with example 81",
+          "status": "Local validation passed"
         }
       ],
       "evidence": [
@@ -2417,8 +2446,8 @@
       "id": "GAP-12",
       "problem": "No model protocol",
       "severity": "C/P1",
-      "status": "Open",
-      "status_note": "",
+      "status": "Closed",
+      "status_note": "Closed at M7 (WS-08, ADR-0064, TD-48): ml.Model is the protocol every model implements, the core's three reference models and alphalab-models' three adapters among them. A trained model is its canonical bytes, filed in an artifact store, declared by the strategy that trades it and restored byte for byte, and another artifact is INPUTS_DIFFER (S-07).",
       "workstreams": [
         "WS-08"
       ],
@@ -2855,7 +2884,7 @@
       "problem": "No ML/DL/RL/distributed guides",
       "severity": "M/P2",
       "status": "Open",
-      "status_note": "",
+      "status_note": "M7's part delivered: docs/ML.md, the machine-learning guide, and example 81 (S-07). The deep-learning, reinforcement-learning and distributed guides and their examples are M12's (WS-16, WS-20).",
       "workstreams": [
         "WS-20"
       ],
@@ -3127,7 +3156,7 @@
   },
   "state": {
     "updated": "2026-11-17",
-    "remote_head": "3379fc8",
+    "remote_head": "575d48b",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4008,7 +4037,7 @@
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M7's close (WS-08, WS-09, WS-20): XGBoost's and LightGBM's adapters in alphalab-models, which ADR-0057's table puts at M7; WS-08 item 15's dataset budget on the reference machine; the ML series' results; GAP-12 closed; the benchmarks workflow dispatched at M7's checkpoint. Then M8 (WS-11, WS-26): NEXT_OPEN, remainders, latency, plan and queue, child fills, combos and per-venue execution, with ADR-0060, ADR-0061 and ADR-0062.",
+    "next": "M7 on hosted CI: the close's runs, Optional Distributions' first run across every framework, and the benchmarks workflow dispatched at M7's checkpoint, WS-08 item 15 read on its Linux cells. Then M8 (WS-11, WS-26): NEXT_OPEN, remainders, latency, plan and queue, child fills, combos and per-venue execution, with ADR-0060, ADR-0061 and ADR-0062.",
     "open_questions": []
   },
   "log": [
@@ -4351,6 +4380,10 @@
     {
       "date": "2026-11-17",
       "entry": "3379fc8 (GAP-48's deprecation, TD-55) passed the full gate (14,081 tests) and was pushed. XGBoost's and LightGBM's adapters validated locally (TD-56): their own model formats as payloads, parameters stated exactly because XGBoost's reloaded wrapper rewrites its own, and S-07 with each framework's boosting classifier. The distribution's 48 tests pass at the lowest and the latest of every framework. At the lowest, LightGBM 4.6's own estimator warned about feature names it had given a NumPy fit itself; the adapter predicts through the booster and never meets it."
+    },
+    {
+      "date": "2026-11-17",
+      "entry": "575d48b (XGBoost's and LightGBM's adapters, TD-56) passed the full gate (14,081 tests) and was pushed. M7's close: the ML series' 35 mutations caught, ML08 and ML32 after the tests they asked for and ML20 restated; WS-08 item 15's dataset budget at 15.2 CPU s against 60 on the reference machine; docs/ML.md; GAP-12 closed. M7 waits on hosted CI and the owner's acceptance."
     }
   ]
 }

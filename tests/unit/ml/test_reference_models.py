@@ -199,6 +199,27 @@ def test_a_logistic_fit_short_of_its_tolerance_raises_with_what_it_reached() -> 
     assert raised.value.limit == 1 and raised.value.reached > 1e-12
 
 
+def test_a_logistic_fit_stops_at_the_first_newton_step_within_its_tolerance() -> None:
+    """And never before: each step's change is read from the refusal of a fit one step short."""
+
+    training = TrainingSet.of(NAMES, ROWS, [1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0])
+    changes: list[float] = []
+    for limit in range(1, 30):
+        try:
+            _logistic(0.5, iterations=limit).fit(training, seed=0)
+        except ConvergenceError as short:
+            changes.append(short.reached)
+        else:
+            break
+    assert len(changes) >= 4 and all(before > after for before, after in pairwise(changes))
+    for step, (before, after) in enumerate(pairwise(changes), start=2):
+        tolerance = math.sqrt(before * after)  # within this step's change, not the one before
+        assert _logistic(0.5, iterations=step, tolerance=tolerance).fit(training, seed=0).fitted
+        with pytest.raises(ConvergenceError) as raised:
+            _logistic(0.5, iterations=step - 1, tolerance=tolerance).fit(training, seed=0)
+        assert raised.value.reached == before
+
+
 @pytest.mark.parametrize(
     ("labels", "match"),
     [

@@ -81,7 +81,9 @@ def test_the_volatility_estimate_is_the_exact_sample_deviation_of_its_returns() 
     returns = [Fraction(prices[j]) / Fraction(prices[j - 1]) - 1 for j in range(2, 6)]
     mean = sum(returns, Fraction(0)) / 4
     exact = math.sqrt(float(sum(((r - mean) ** 2 for r in returns), Fraction(0)) / 3))
-    assert estimate.at(prices, 5) == pytest.approx(exact, rel=1e-14)
+    later = [*prices, 140.0, 60.0]
+    assert estimate.at(later, 5) == pytest.approx(exact, rel=1e-14), "no close after the event"
+    assert estimate.at(prices, 5) == estimate.at(later, 5)
 
 
 def _barrier(**changes: object) -> TripleBarrier:

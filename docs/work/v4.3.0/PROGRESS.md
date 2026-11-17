@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `3379fc8` |
+| Remote head | `575d48b` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M7's close (WS-08, WS-09, WS-20): XGBoost's and LightGBM's adapters in alphalab-models, which ADR-0057's table puts at M7; WS-08 item 15's dataset budget on the reference machine; the ML series' results; GAP-12 closed; the benchmarks workflow dispatched at M7's checkpoint. Then M8 (WS-11, WS-26): NEXT_OPEN, remainders, latency, plan and queue, child fills, combos and per-venue execution, with ADR-0060, ADR-0061 and ADR-0062. |
+| Next | M7 on hosted CI: the close's runs, Optional Distributions' first run across every framework, and the benchmarks workflow dispatched at M7's checkpoint, WS-08 item 15 read on its Linux cells. Then M8 (WS-11, WS-26): NEXT_OPEN, remainders, latency, plan and queue, child fills, combos and per-venue execution, with ADR-0060, ADR-0061 and ADR-0062. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -286,6 +286,7 @@ Never:
 - **2026-11-17** bcc36a2 (alphalab-models) passed the full gate (14,067 tests) and was pushed, and passed CI on all six cells, CodeQL and the first Optional Distributions run on all four of its cells (scikit-learn 1.9.1 and 1.7.2). 0f9b285 and dfbdb15 passed hosted CI on all six cells and CodeQL. S-07 validated locally (TD-54) with the core's ensemble and with scikit-learn's through the adapter. It found three defects, each fixed with the test that found it: the example's first runner fitted labels realized inside the lockbox; the adapter passed 64-bit seeds to scikit-learn unchanged; and it read a parameter error as a missing sample weight.
 - **2026-11-17** 3ef1780 (S-07) passed hosted CI on all six cells and CodeQL, and Optional Distributions on all four cells. M7's ML mutation series ran on the working tree: 33 of 35 caught, ML08 and ML32 surviving, and ML20's catch false (its mutant called a name labels.py never imports); each was answered, and the series' results are recorded at M7's close. Checking M7 against the plan's WS-08 and WS-09 before closing it found two deliverables open: GAP-48's deprecation of ml's duplicates, delivered here (TD-55), and ADR-0057's XGBoost and LightGBM adapters, next. The deprecation was first built to warn on call; the suite refused it, since the package raises no warning, and it is documented as the plan's migration register says.
 - **2026-11-17** 3379fc8 (GAP-48's deprecation, TD-55) passed the full gate (14,081 tests) and was pushed. XGBoost's and LightGBM's adapters validated locally (TD-56): their own model formats as payloads, parameters stated exactly because XGBoost's reloaded wrapper rewrites its own, and S-07 with each framework's boosting classifier. The distribution's 48 tests pass at the lowest and the latest of every framework. At the lowest, LightGBM 4.6's own estimator warned about feature names it had given a NumPy fit itself; the adapter predicts through the booster and never meets it.
+- **2026-11-17** 575d48b (XGBoost's and LightGBM's adapters, TD-56) passed the full gate (14,081 tests) and was pushed. M7's close: the ML series' 35 mutations caught, ML08 and ML32 after the tests they asked for and ML20 restated; WS-08 item 15's dataset budget at 15.2 CPU s against 60 on the reference machine; docs/ML.md; GAP-12 closed. M7 waits on hosted CI and the owner's acceptance.
 
 ## Milestones
 
@@ -299,7 +300,7 @@ Never:
 | M4 | Hosted CI passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Hosted CI passed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Hosted CI passed | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
-| M7 | In progress | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
+| M7 | Pushed | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Not started | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
 | M9 | Not started | WS-12 | A rebalancing backtest with CVaR, certified |
 | M10 | Not started | WS-13, WS-27, WS-14, WS-28 | S-03, S-04, S-05, S-06, S-14; GR-1, GR-3, GR-6 |
@@ -1108,6 +1109,8 @@ Evidence:
 - [Hosted CI passed] M7: Feature Store reads as of an instant (TD-51, ADR-0064 settled point 19): a timeline of every write with when it was known, value_as_of, and ml.build_dataset_as_of, held by the counterfactual-future test; GAP-13 closed
 - [Hosted CI passed] M7: S-07 end to end (TD-54, ADR-0064 settled point 21): example 81 and its test with the core's ensemble -- 33 counted trials over purged CV, the lockbox read once, the model traded by its artifact and restored byte for byte, INPUTS_DIFFER for another artifact -- and the rule that a runner takes only labels known before the lockbox
 - [Pushed] M7: GAP-48: ml's duplicate helpers and splitters deprecated in documentation, each docstring naming its replacement in common.linalg or research, kept until 5.0 (TD-55, ADR-0064 settled point 23)
+- [Local validation passed] M7: WS-08 item 15's budget: a point-in-time training set for 500 assets over 2,520 days in 15.2 CPU s against 60 (benchmarks/benchmark_ml_datasets.py)
+- [Local validation passed] M7: Mutation series ML (35): the training set's identity, the capture's checks, the reference models' arithmetic and refusals, labels, point-in-time panels, the samplers and successive halving, candidates' scores, and Feature Store's as-of reads -- 35 of 35 caught, ML08 and ML32 after the tests they asked for, ML20 restated
 
 ### WS-09: Optional distributions and backends
 
@@ -1115,7 +1118,7 @@ Evidence:
 - [Hosted CI passed] M7: AC-38 held by an AST sweep over every module (TD-52, ADR-0057 settled points 1 and 2), and tzdata's version read as data, never imported
 - [Hosted CI passed] M7: alphalab-models with the scikit-learn adapter (TD-53, ADR-0057 settled points 3 to 5, ADR-0064 settled point 20), in CI cells of its own: optional-distributions.yml, CPython 3.12 to 3.14 and scikit-learn 1.7 to latest
 - [Hosted CI passed] M7: S-07 with a boosting adapter (TD-54, ADR-0064 settled point 20): the same scenario with scikit-learn's GradientBoostingClassifier in alphalab-models' suite; the seed entering modulo 2**32 and sample weights asked about with has_fit_parameter
-- [Local validation passed] M7: XGBoost's and LightGBM's adapters (TD-56, ADR-0057 settled point 6, ADR-0064 settled point 22): each framework's own model format as the payload, parameters stated exactly, prediction through the loaded booster, S-07 with each framework's boosting classifier, and CI cells across the lowest and latest of every framework
+- [Pushed] M7: XGBoost's and LightGBM's adapters (TD-56, ADR-0057 settled point 6, ADR-0064 settled point 22): each framework's own model format as the payload, parameters stated exactly, prediction through the loaded booster, S-07 with each framework's boosting classifier, and CI cells across the lowest and latest of every framework
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1138,6 +1141,7 @@ Evidence:
 ### WS-20: Documentation, guides and examples
 
 - [Hosted CI passed] M0: High documentation corrections: CON-X4, CON-X1, CON-N2, CON-X16, CON-X14, CON-A5, CON-A15
+- [Local validation passed] M7: The machine-learning guide, docs/ML.md (GAP-49's M7 part), indexed, with example 81
 
 Evidence:
 
@@ -1201,7 +1205,7 @@ Evidence:
 
 ## Gaps
 
-34 open, 15 closed, 4 discarded.
+33 open, 16 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -1216,7 +1220,7 @@ Evidence:
 | GAP-09 | Selection statistics missing | C/P1 | Closed at M3 (WS-06, ADR-0054 and ADR-0055): the statistics delivered at M2 against their oracles, and connected to AlphaLab's own backtests through lifecycle.selection, whose 16-variant PBO equals full history's exactly; hosted CI passed on 0649893 and acf4ce4. | WS-06 | M2 (bridge M3) |
 | GAP-10 | No numerical foundation | C/P1 | Closed at M2's hosted exit gate (fe3c80b; WS-03, ADR-0058): distributions, linear algebra, optimisers, quadrature, the Estimate, each against its oracle. | WS-03 | M2 |
 | GAP-11 | No econometrics | H/P1 | Closed at M6 (WS-07, ADR-0074, ADR-0075): the econometrics package -- unit roots with MacKinnon's tables, Engle-Granger, Johansen, the VECM, the OU half-life, ARMA, the VAR, the GARCH family, the Kalman filter and RTS smoother with the local level and the time-varying beta, the Gaussian HMM and the Markov-switching regression -- each returning an Estimate and recovering known parameters, with S-02's screen through the ledger; each estimator's commit passed the full local gate, and its hosted CI is recorded in the state's rows (M6's evidence). | WS-07 | M6 |
-| GAP-12 | No model protocol | C/P1 | Open | WS-08 | M7 |
+| GAP-12 | No model protocol | C/P1 | Closed at M7 (WS-08, ADR-0064, TD-48): ml.Model is the protocol every model implements, the core's three reference models and alphalab-models' three adapters among them. A trained model is its canonical bytes, filed in an artifact store, declared by the strategy that trades it and restored byte for byte, and another artifact is INPUTS_DIFFER (S-07). | WS-08 | M7 |
 | GAP-13 | ML dataset not PIT | H/P1 | Closed at M7 (WS-08, ADR-0064, TD-49, TD-51), both ways the plan offers: ML builds point-in-time panels from the factor library's feature panels and labels that carry when they became known (ml.point_in_time), and Feature Store reads as of an instant (feature_store.value_as_of, ml.build_dataset_as_of). Each builder is held by a counterfactual-future test. build_dataset_from_feature_store is kept, documented as not point-in-time. | WS-08 | M7 |
 | GAP-14 | Throughput | H/P2 | Open | WS-15 | M11 |
 | GAP-15 | Charter conflict | H/P0 | Open: the charter is accepted and the five documents reconciled; closes when G0 and M0 are accepted | WS-00 | G0 |
@@ -1253,7 +1257,7 @@ Evidence:
 | GAP-46 | RL environment invents limits | M/P2 | Open | WS-16 | M12 |
 | GAP-47 | No incremental feature evaluator | M/P2 | Open | WS-25 | M11 |
 | GAP-48 | → Expanded: duplicate authorities in `ml`: `ml.linalg` *and* a second walk-forward splitter | L/P3 | M2 (PC-05): the duplicates in ml (ml.linalg's four helpers, ml.cross_validation's two splitters) and deep_learning.gradient_check.numerical_gradient are documented and recorded, kept unchanged, and nothing outside ml may compute through ml's (a regression test). Closed at M7 (WS-08, TD-55, ADR-0064 settled point 23): the six are deprecated in documentation, each docstring naming its replacement in common.linalg or research, and kept until 5.0 removes them (plan V.3); the package raises no warning, as its suite has held since v2.17. The deep-learning gradient check keeps its own central difference, recorded for deprecation in 5.0 (M2). | WS-03, WS-08 | M7 |
-| GAP-49 | No ML/DL/RL/distributed guides | M/P2 | Open | WS-20 | M7, M12 |
+| GAP-49 | No ML/DL/RL/distributed guides | M/P2 | M7's part delivered: docs/ML.md, the machine-learning guide, and example 81 (S-07). The deep-learning, reinforcement-learning and distributed guides and their examples are M12's (WS-16, WS-20). | WS-20 | M7, M12 |
 | GAP-50 | No lot-relief methods (FIFO, LIFO, specific identification, pooling); proportional cost basis only | M/P2 | New (audit §F "to verify": verified absent) | WS-13 | M10 |
 | GAP-51 | Missing instrument classes: swaps (IRS, CDS, TRS), non-FX forwards, funds/ETFs as a booking class, inflation-linked, repos, securities lending as an instrument, structured products | M/P2 | New (audit §F row "Missing classes") | WS-14, WS-28, WS-13 | M10 |
 | GAP-52 | No native pegged or trailing orders (trailing is strategy logic by design) | L/P3 | New (audit §H) | WS-20, WS-26 | After M13 |

@@ -920,6 +920,37 @@ entry below says otherwise.
   * **The halving record.** `lifecycle.HalvingRound` keeps the round's
     experiment, so a lockbox is read through the last round.
 
+* **The machine-learning guide** [plan WS-20, GAP-49]. `docs/ML.md` covers:
+  * the model protocol and the reference models, each with its numerical
+    class;
+  * filing, declaring and restoring a model by its bytes;
+  * labels that carry when they became known, point-in-time panels and
+    weights by uniqueness;
+  * searches counted in the ledger;
+  * framework adapters, and the trust a restore needs;
+  * S-07 end to end.
+
+  The deep-learning and reinforcement-learning guides are M12's.
+* **WS-08's dataset budget** [plan WS-08 item 15].
+  `benchmarks/benchmark_ml_datasets.py` builds a point-in-time training set
+  for 500 assets over 2,520 days and judges the build against 60 seconds. The
+  build covers two feature panels, triple-barrier labels, the panel, and its
+  uniqueness weights.
+* **M7's mutation series** [plan WS-08, WS-09, ADR-0064].
+  `mutation_v4_3.py` gains the ML series: 35 mutations over every M7 module,
+  each caught by a test that exercises what it breaks.
+  * **Tests added with it.** They hold:
+    * a logistic fit stopping at the first Newton step within its
+      tolerance, never a step early;
+    * a candidate that failed one fold left unscored, never given the mean of
+      the folds it completed;
+    * the volatility estimate unmoved by closes after its event.
+  * **A false catch, restated.** One mutant called a function `labels.py`
+    never imports, so every test it failed raised a `NameError`, not the
+    defect. It is restated in the module's own names. A sweep of every
+    mutation in the table found no other mutant calling a name its module
+    lacks.
+
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
   percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's

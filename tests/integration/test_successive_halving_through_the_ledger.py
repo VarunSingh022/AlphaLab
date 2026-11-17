@@ -13,7 +13,8 @@ and 60 bars, half kept each round:
 * **A resume runs nothing the ledger holds** and records the same search.
 * **Candidates are ranked as cross-validation selects**: on a cross-validated
   experiment, the best of ``candidate_scores`` is the experiment's selection,
-  and a candidate that failed in a fold has no score.
+  and a candidate that failed in any fold has no score -- never the mean of
+  the folds it completed, which would rank it on the folds that flattered it.
 """
 
 from __future__ import annotations
@@ -41,10 +42,12 @@ from alphalab.research import CVMethod, ParameterSpace, SuccessiveHalving
 from alphalab.research.selection import SelectionMeasure
 from tests.integration.experiment_workload import (
     ASSET_ID,
+    CANDIDATES,
     DATASET,
     REGISTRY,
     STRATEGY_ID,
     _plan,
+    build,
     spec,
 )
 from tests.integration.harness import (
@@ -163,13 +166,28 @@ def test_a_resume_runs_nothing_the_ledger_holds_and_records_the_same_search() ->
     assert again == first
 
 
-def test_candidates_are_ranked_as_cross_validation_selects() -> None:
-    experiment = replace(
+def _cross_validated() -> ExperimentSpec:
+    return replace(
         spec(),
         validation=CrossValidated(
             3, CVMethod.PURGED, 4, SelectionMeasure.MEAN, PurgeSpec(1, 0.0), None
         ),
     )
+
+
+def _fails_one_fold(trial: TrialSpec) -> TrialInputs:
+    """The reference runner, failing the first candidate in its second fold only."""
+
+    if trial.fold == 1 and dict(trial.candidate) == CANDIDATES[0]:
+        raise ValueError("the runner's defect, in one fold")
+    return build(trial)
+
+
+ONE_FOLD = RunnerRegistry().register("one fold", _fails_one_fold)
+
+
+def test_candidates_are_ranked_as_cross_validation_selects() -> None:
+    experiment = _cross_validated()
     ledger = _ledger()
     record = run_experiment(experiment, REGISTRY, "reference", ledger, SequentialExecutor())
     scores = candidate_scores(experiment, ledger, SelectionMeasure.MEAN)
@@ -179,3 +197,19 @@ def test_candidates_are_ranked_as_cross_validation_selects() -> None:
     assert best == record.selected
     failed = {label for label in scores if "mode='normal'" not in label and "squeeze" not in label}
     assert failed and all(scores[label] is None for label in failed)
+
+
+def test_a_candidate_that_failed_one_fold_has_no_score_and_moves_no_other() -> None:
+    experiment = _cross_validated()
+    reference, failing = _ledger(), _ledger()
+    complete = run_experiment(experiment, REGISTRY, "reference", reference, SequentialExecutor())
+    record = run_experiment(experiment, ONE_FOLD, "one fold", failing, SequentialExecutor())
+    assert record.counts.recorded == complete.counts.recorded, "the failed trial is counted"
+    assert record.counts.completed == complete.counts.completed - 1
+    expected = candidate_scores(experiment, reference, SelectionMeasure.MEAN)
+    scores = candidate_scores(experiment, failing, SelectionMeasure.MEAN)
+    first = experiment.space.rendered[0]
+    assert expected[first] is not None, "every fold of the reference scored it"
+    assert scores[first] is None, "not the mean of the two folds it completed"
+    del expected[first], scores[first]
+    assert scores == expected
