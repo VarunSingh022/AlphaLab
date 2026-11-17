@@ -151,6 +151,16 @@ release's contract: four verified assets (RQ-01 to RQ-09, ADR-0071).
    - the lowest it declares, 1.7, on 3.12.
 5. **Nothing is published.** How a distribution is released is still the
    owner's decision D-W3. This one is built and tested in place.
+6. **XGBoost and LightGBM join at M7, as section 1's table has them.** Points 3
+   and 4 are extended as follows.
+   - `alphalab-models` gains the `xgboost` extra (`>=3.0,<4`) and the
+     `lightgbm` extra (`>=4.6,<5`). Both bring scikit-learn, whose estimators
+     the two adapters wrap.
+   - The workflow's cells run every framework: the latest of each on CPython
+     3.12, 3.13 and 3.14, and the lowest of each on 3.12. The lowest are
+     scikit-learn 1.7, XGBoost 3.0 and LightGBM 4.6, the first XGBoost and
+     LightGBM releases with scikit-learn's estimator tags.
+   - PyTorch remains M12's (deep learning, WS-16).
 
 # Compatibility
 

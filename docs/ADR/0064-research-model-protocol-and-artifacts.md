@@ -296,6 +296,40 @@ Building the search settled these points (`tests/unit/research/test_sampling.py`
     (`tests/integration/test_supervised_research_end_to_end.py`). The same
     scenario runs with scikit-learn's gradient boosting in `alphalab-models`'
     suite (`distributions/alphalab-models/tests/test_s07.py`).
+22. **XGBoost and LightGBM through their own model formats.**
+    `alphalab_models.xgboost.XGBoostModel` and
+    `alphalab_models.lightgbm.LightGBMModel` each wrap a classifier and a
+    regressor.
+    - **The payload.** It is the framework's own serialisation: XGBoost's JSON
+      model and LightGBM's model text. Both are deterministic for a seed and
+      survive a load and a save unchanged. The adapter keeps the payload it
+      wrote at the fit, as point 20 has every adapter do.
+    - **The parameters are stated exactly in the header.** They hold `None`,
+      booleans, numbers, strings, lists and tuples, with non-finite floats
+      tagged. A restore constructs the estimator from them, because XGBoost's
+      own reload rewrites a wrapper's parameters from the booster's
+      configuration. A parameter that is code, or a mapping, is refused when
+      the model is made: bytes cannot carry it.
+    - **Prediction is through the booster the payload loads**, after a fit as
+      after a restore, so a model and its restore predict the same by
+      construction. Those predictions are the framework's own estimator's.
+    - **A classifier is binary.** Its objective is XGBoost's
+      `binary:logistic` or LightGBM's binary, and it is fitted on labels 0 and
+      1, both present. A restore refuses a booster whose features, classes or
+      objective are not the ones its header names.
+    - **The seed** enters each framework's own range: modulo 2**32 for
+      XGBoost, the reduction XGBoost makes itself, and modulo 2**31 for
+      LightGBM, whose seed is a signed 32-bit integer. XGBoost's model records no seed.
+      LightGBM's records its training parameters, the thread count among them.
+      An unstated `n_jobs` therefore makes the same training other bytes on a
+      host with other cores. The adapter leaves that to the researcher, and
+      documents it.
+    - **A restore** is held to the framework version and the adapter version
+      that captured the artifact. Nothing is unpickled.
+
+    S-07 runs with each framework's boosting classifier
+    (`distributions/alphalab-models/tests/test_xgboost_and_lightgbm.py`,
+    `tests/test_s07.py`).
 23. **`ml`'s duplicate helpers and splitters are deprecated in documentation
     (GAP-48, ADR-0058's table, plan V.3).**
     - **The six names.** They are `ml.linalg`'s `transpose`, `matmul`,

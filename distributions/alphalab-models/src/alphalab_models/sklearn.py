@@ -36,8 +36,6 @@ bytes whose digest is not the id a strategy declares. The core never unpickles
 from __future__ import annotations
 
 import hashlib
-import json
-import math
 import pickle
 from collections.abc import Mapping
 from types import MappingProxyType
@@ -46,16 +44,22 @@ from typing import Any, Final, Self
 import numpy as np
 import sklearn
 from sklearn.base import BaseEstimator, clone, is_classifier
-from sklearn.utils.validation import has_fit_parameter
 
 from alphalab.common.types import ParamValue
 from alphalab.ml.exceptions import MLInputError
 from alphalab.ml.protocol import FeatureMatrix, TrainingSet
+from alphalab_models._capture import (
+    ADAPTER_VERSION,
+    captured,
+    declared,
+    matched,
+    read,
+    require_training,
+    require_weights,
+    unfitted,
+)
 
 __all__ = ["ADAPTER_VERSION", "RANDOM_STATES", "SKLEARN_SCHEME", "SklearnModel"]
-
-#: This adapter's version, recorded in every artifact it captures.
-ADAPTER_VERSION: Final = "0.1.0"
 
 #: The scheme tag of a scikit-learn artifact's header.
 SKLEARN_SCHEME: Final = "alphalab-models.sklearn.v1"
@@ -70,16 +74,6 @@ _HEADER_KEYS: Final = frozenset(
 
 def _kind(estimator: object) -> str:
     return f"sklearn:{type(estimator).__name__}"
-
-
-def _parameter(value: object) -> ParamValue:
-    """A parameter as a parameter value: itself when it is one, else its ``repr``."""
-
-    if isinstance(value, bool | int | str):
-        return value
-    if isinstance(value, float) and math.isfinite(value):
-        return value
-    return repr(value)
 
 
 class SklearnModel:
@@ -143,8 +137,7 @@ class SklearnModel:
     def hyperparameters(self) -> Mapping[str, ParamValue]:
         """Every parameter of the estimator, each a parameter value or its ``repr``."""
 
-        params = self._estimator.get_params(deep=False)
-        return MappingProxyType({name: _parameter(params[name]) for name in sorted(params)})
+        return MappingProxyType(declared(self._estimator.get_params(deep=False)))
 
     def fit(self, training: TrainingSet, *, seed: int) -> Self:
         """A new model: a clone of the estimator fitted on ``training``, the seed its random_state.
@@ -155,17 +148,9 @@ class SklearnModel:
                 ``fit`` takes no ``sample_weight``.
         """
 
-        if not isinstance(training, TrainingSet):
-            raise MLInputError(f"A model is fitted on a TrainingSet, got {training!r}.")
-        if isinstance(seed, bool) or not isinstance(seed, int):
-            raise MLInputError(f"A seed is an integer, got {seed!r}.")
+        training = require_training(training, seed)
         estimator = clone(self._estimator)
-        if training.weights is not None and not has_fit_parameter(estimator, "sample_weight"):
-            raise MLInputError(
-                f"{self.model_kind}'s fit takes no sample weights, and the training set has "
-                "them: fit it on a training set without weights, or choose an estimator that "
-                "takes them."
-            )
+        require_weights(estimator, training, self.model_kind)
         if "random_state" in estimator.get_params(deep=False):
             estimator.set_params(random_state=seed % RANDOM_STATES)
         design = np.asarray(training.features.rows, dtype=np.float64)
@@ -187,19 +172,11 @@ class SklearnModel:
         """
 
         if self._features is None:
-            raise MLInputError(
-                f"This {self.model_kind} is not fitted: fit it, or restore a fitted one."
-            )
-        if not isinstance(features, FeatureMatrix):
-            raise MLInputError(f"A model predicts from a FeatureMatrix, got {features!r}.")
-        if features.names != self._features:
-            raise MLInputError(
-                f"The {self.model_kind} was fitted on {list(self._features)}, in that order; the "
-                f"rows name {list(features.names)}."
-            )
-        if not features.rows:
+            raise unfitted(self.model_kind)
+        matrix = matched(features, self._features, self.model_kind)
+        if not matrix.rows:
             return ()
-        design = np.asarray(features.rows, dtype=np.float64)
+        design = np.asarray(matrix.rows, dtype=np.float64)
         if is_classifier(self._estimator):
             classes = [float(label) for label in self._estimator.classes_]
             if sorted(classes) != [0.0, 1.0]:
@@ -231,13 +208,8 @@ class SklearnModel:
         """
 
         if self._payload is None:
-            raise MLInputError(
-                f"This {self.model_kind} is not fitted: fit it, or restore a fitted one."
-            )
-        header = json.dumps(
-            self._header(), sort_keys=True, separators=(",", ":"), ensure_ascii=True
-        )
-        return header.encode("ascii") + b"\n" + self._payload
+            raise unfitted(self.model_kind)
+        return captured(self._header(), self._payload)
 
     @classmethod
     def restore(cls, artifact: bytes) -> Self:
@@ -250,52 +222,17 @@ class SklearnModel:
                 estimator of the kind the header names.
         """
 
-        if not isinstance(artifact, bytes):
-            raise MLInputError(f"An artifact is bytes, got {type(artifact).__name__}.")
-        line, newline, payload = artifact.partition(b"\n")
-        if not newline:
-            raise MLInputError(
-                "The bytes are not a scikit-learn artifact: they hold no header line."
-            )
-        try:
-            header = json.loads(line.decode("ascii"))
-        except (UnicodeDecodeError, ValueError) as refusal:
-            raise MLInputError(
-                f"The artifact's header is not canonical JSON: {refusal}"
-            ) from refusal
-        if not isinstance(header, dict) or set(header) != _HEADER_KEYS:
-            raise MLInputError(
-                f"A scikit-learn artifact's header holds exactly {sorted(_HEADER_KEYS)}."
-            )
-        if header["scheme"] != SKLEARN_SCHEME:
-            raise MLInputError(
-                f"The artifact's scheme is {header['scheme']!r}; this adapter reads "
-                f"{SKLEARN_SCHEME!r}."
-            )
-        if header["sklearn"] != sklearn.__version__:
-            raise MLInputError(
-                f"The artifact was captured under scikit-learn {header['sklearn']} and this "
-                f"environment has {sklearn.__version__}; scikit-learn promises its pickles only "
-                "within a version. Restore it where that version is installed, or fit it again."
-            )
-        if header["adapter"] != ADAPTER_VERSION:
-            raise MLInputError(
-                f"The artifact was captured by alphalab-models {header['adapter']} and this is "
-                f"{ADAPTER_VERSION}; restore it with the adapter that captured it."
-            )
+        header, payload, features = read(
+            artifact,
+            framework="scikit-learn",
+            scheme=SKLEARN_SCHEME,
+            keys=_HEADER_KEYS,
+            version_key="sklearn",
+            version=sklearn.__version__,
+            promise="scikit-learn promises its pickles only within a version.",
+        )
         if not isinstance(header["numpy"], str):
             raise MLInputError("The artifact's header names no NumPy version.")
-        if hashlib.sha256(payload).hexdigest() != header["payload_sha256"]:
-            raise MLInputError(
-                "The artifact's payload does not hash to the digest its header names."
-            )
-        features = header["features"]
-        if (
-            not isinstance(features, list)
-            or not features
-            or not all(isinstance(name, str) and name for name in features)
-        ):
-            raise MLInputError("The artifact's header names no features.")
         estimator = pickle.loads(payload)
         if not isinstance(estimator, BaseEstimator) or _kind(estimator) != header["model_kind"]:
             raise MLInputError(
@@ -307,7 +244,7 @@ class SklearnModel:
                 f"The estimator was fitted on {width} features and the header names "
                 f"{len(features)}."
             )
-        model = cls._fitted(estimator, tuple(features), payload, header["numpy"])
+        model = cls._fitted(estimator, features, payload, header["numpy"])
         if model.capture() != artifact:
             raise MLInputError(
                 "The bytes describe a scikit-learn model but are not its canonical capture; one "

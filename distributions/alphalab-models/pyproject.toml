@@ -22,8 +22,12 @@ classifiers = [
 dependencies = ["alphalab>=4.3,<5"]
 
 [project.optional-dependencies]
-# Each framework is an extra with the range the suite is run across.
+# Each framework is an extra with the range the suite is run across, lowest and
+# latest. XGBoost's and LightGBM's estimators are scikit-learn's, so their
+# extras bring scikit-learn too.
 sklearn = ["scikit-learn>=1.7,<2"]
+xgboost = ["xgboost>=3.0,<4", "scikit-learn>=1.7,<2"]
+lightgbm = ["lightgbm>=4.6,<5", "scikit-learn>=1.7,<2"]
 dev = [
   "mypy>=1.16,<3",
   "pytest>=8.4,<10",

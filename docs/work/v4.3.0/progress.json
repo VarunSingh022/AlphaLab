@@ -977,6 +977,19 @@
       "compatibility": "None: behaviour, names, signatures and identities are unchanged.",
       "record": "docs/ADR/0064-research-model-protocol-and-artifacts.md (settled point 23); the CHANGELOG's Deprecated section; docs/ML.md once M7 closes; the six docstrings and ml's",
       "tests": "tests/unit/ml/test_ml.py: each of the six states its deprecation and names its replacement; the stated standard-library expressions return what the three trivial helpers did. tests/regression/test_one_research_authority_per_concept.py: nothing outside ml uses them; tests/regression/test_the_suite_reports_nothing_deferred.py: the package raises no warning."
+    },
+    {
+      "id": "TD-56",
+      "date": "2026-11-17",
+      "workstream": "WS-09",
+      "title": "XGBoost's and LightGBM's adapters through their own model formats, in alphalab-models (ADR-0057 settled point 6, ADR-0064 settled point 22)",
+      "problem": "ADR-0057's table and the plan's I.2 put XGBoost and LightGBM adapters in alphalab-models at M7, and PyTorch at M12; only scikit-learn's was built. Their own serialisations -- XGBoost's JSON model, LightGBM's model text -- need no pickle. But XGBoost's reload into its scikit-learn wrapper rewrites the wrapper's parameters from the booster's configuration, LightGBM's wrapper has no reload, LightGBM writes its thread count into the model, and the two reduce seeds differently: XGBoost modulo 2**32, LightGBM as a signed 32-bit integer.",
+      "alternatives": "Wrap both through SklearnModel, pickling their wrappers; reload through the wrappers; restore to a bare booster with no estimator; state the parameters in the header, construct the estimator from them, and predict through the booster the payload loads.",
+      "decision": "XGBoostModel (XGBClassifier, XGBRegressor) and LightGBMModel (LGBMClassifier, LGBMRegressor). The payload is the framework's own serialisation, written once at the fit and kept. The header states the estimator's parameters exactly -- None, booleans, numbers, strings, lists and tuples, non-finite floats tagged -- and a parameter that is code, or a mapping, is refused when the model is made. A restore constructs the estimator from them and loads the booster, refusing another framework or adapter version, a booster of other features, classes or objective, and any capture that is not canonical. A model predicts through the loaded booster after a fit as after a restore; a classifier is binary under binary:logistic or LightGBM's binary and predicts the probability of the label 1. Seeds enter modulo 2**32 for XGBoost and 2**31 for LightGBM. The checks every adapter shares live in alphalab_models._capture, which SklearnModel now uses with its messages unchanged. The extras are xgboost (>=3.0,<4) and lightgbm (>=4.6,<5), each with scikit-learn; the workflow's frameworks axis runs the latest of every framework on CPython 3.12 to 3.14 and the lowest of each on 3.12.",
+      "rationale": "The framework's own format is ADR-0064 section 4's capture, and it takes unpickling out of two of the three adapters. Predicting through the loaded booster makes a model and its restore predict the same by construction, and a test holds those predictions to the framework's own estimator's. XGBoost's reloaded wrapper cannot give the parameters back, so the header carries them. LightGBM's thread count is the researcher's to state, so it is documented rather than overridden.",
+      "compatibility": "Additive: two modules and two extras in a distribution that is not published; SklearnModel's behaviour and messages are unchanged. The workflow's cells are renamed from their scikit-learn version to their frameworks, which no ruleset requires by name.",
+      "record": "docs/ADR/0057-optional-distributions-and-backend-protocols.md (settled point 6); docs/ADR/0064-research-model-protocol-and-artifacts.md (settled point 22); distributions/alphalab-models/README.md (installation, trust, what the bytes record, the compatibility matrix)",
+      "tests": "distributions/alphalab-models/tests/test_xgboost_and_lightgbm.py (24): each classifier and regressor against the framework's own predictions and restored to the same bytes and predictions; the payload the framework's own format, read back unchanged; seeds and the 64-bit range; LightGBM's seed and threads in the bytes; the artifact store; parameters stated exactly and code refused; binary classifiers; every restore refusal. tests/test_s07.py (9): S-07 with scikit-learn's, XGBoost's and LightGBM's boosting classifiers. The suite's 48 tests pass at the lowest versions declared (scikit-learn 1.7.2, XGBoost 3.0.5, LightGBM 4.6.0) and the latest (1.9.1, 3.4.1, 4.7.0) on CPython 3.12."
     }
   ],
   "plan_changes": [
@@ -1853,7 +1866,7 @@
         {
           "milestone": "M7",
           "item": "GAP-48: ml's duplicate helpers and splitters deprecated in documentation, each docstring naming its replacement in common.linalg or research, kept until 5.0 (TD-55, ADR-0064 settled point 23)",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": []
@@ -1886,6 +1899,11 @@
           "milestone": "M7",
           "item": "S-07 with a boosting adapter (TD-54, ADR-0064 settled point 20): the same scenario with scikit-learn's GradientBoostingClassifier in alphalab-models' suite; the seed entering modulo 2**32 and sample weights asked about with has_fit_parameter",
           "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M7",
+          "item": "XGBoost's and LightGBM's adapters (TD-56, ADR-0057 settled point 6, ADR-0064 settled point 22): each framework's own model format as the payload, parameters stated exactly, prediction through the loaded booster, S-07 with each framework's boosting classifier, and CI cells across the lowest and latest of every framework",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -3109,7 +3127,7 @@
   },
   "state": {
     "updated": "2026-11-17",
-    "remote_head": "3ef1780",
+    "remote_head": "3379fc8",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4329,6 +4347,10 @@
     {
       "date": "2026-11-17",
       "entry": "3ef1780 (S-07) passed hosted CI on all six cells and CodeQL, and Optional Distributions on all four cells. M7's ML mutation series ran on the working tree: 33 of 35 caught, ML08 and ML32 surviving, and ML20's catch false (its mutant called a name labels.py never imports); each was answered, and the series' results are recorded at M7's close. Checking M7 against the plan's WS-08 and WS-09 before closing it found two deliverables open: GAP-48's deprecation of ml's duplicates, delivered here (TD-55), and ADR-0057's XGBoost and LightGBM adapters, next. The deprecation was first built to warn on call; the suite refused it, since the package raises no warning, and it is documented as the plan's migration register says."
+    },
+    {
+      "date": "2026-11-17",
+      "entry": "3379fc8 (GAP-48's deprecation, TD-55) passed the full gate (14,081 tests) and was pushed. XGBoost's and LightGBM's adapters validated locally (TD-56): their own model formats as payloads, parameters stated exactly because XGBoost's reloaded wrapper rewrites its own, and S-07 with each framework's boosting classifier. The distribution's 48 tests pass at the lowest and the latest of every framework. At the lowest, LightGBM 4.6's own estimator warned about feature names it had given a NumPy fit itself; the adapter predicts through the booster and never meets it."
     }
   ]
 }

@@ -870,6 +870,29 @@ entry below says otherwise.
     distribution, and the core's mypy excludes `distributions/`. It is not
     published (owner decision D-W3).
 
+* **XGBoost and LightGBM adapters, through their own model formats** [plan
+  WS-09, I.2, ADR-0057, ADR-0064].
+  * **The adapters.** `alphalab_models.xgboost.XGBoostModel` wraps
+    `XGBClassifier` and `XGBRegressor`, and
+    `alphalab_models.lightgbm.LightGBMModel` wraps `LGBMClassifier` and
+    `LGBMRegressor`. Each is a new extra, `xgboost` and `lightgbm`.
+  * **The capture.** The payload is the framework's own serialisation:
+    XGBoost's JSON model, or LightGBM's model text. A restore parses it and
+    unpickles nothing.
+  * **The parameters.** The header states the estimator's parameters exactly,
+    and a restore constructs the estimator from them. A parameter that is
+    code, or a mapping, is refused when the model is made.
+  * **Prediction.** A model predicts through the booster its payload loads,
+    after a fit as after a restore. A classifier is binary and predicts the
+    probability of the label 1.
+  * **The seed.** The ledger's 64-bit seeds enter each framework's range:
+    modulo 2**32 for XGBoost, 2**31 for LightGBM. LightGBM records its thread
+    count in the bytes, so the README tells you to state `n_jobs`.
+  * **Its CI.** The cells run the latest of scikit-learn, XGBoost and LightGBM
+    on CPython 3.12 to 3.14, and the lowest declared on 3.12: scikit-learn 1.7,
+    XGBoost 3.0, LightGBM 4.6. The README's compatibility matrix states the
+    ranges.
+
 * **S-07: supervised research end to end** [plan S-07, WS-08, WS-09,
   ADR-0064].
   * **`examples/81_search_train_and_trade_a_model.py`.**
@@ -884,8 +907,9 @@ entry below says otherwise.
     * Another artifact is `INPUTS_DIFFER`. A rerun with the same one is
       `REPRODUCED`.
   * **The tests.** `tests/integration/test_supervised_research_end_to_end.py`
-    holds it, and so does `alphalab-models`' suite with scikit-learn's
-    gradient boosting. The example joins the installed smoke test.
+    holds it. So does `alphalab-models`' suite, with each framework's boosting
+    classifier: scikit-learn's, XGBoost's and LightGBM's. The example joins the
+    installed smoke test.
   * **What it found.**
     * The example's first runner fitted labels realized inside the lockbox. A
       runner now takes only labels known before it.

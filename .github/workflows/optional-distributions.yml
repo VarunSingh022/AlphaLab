@@ -21,7 +21,7 @@ jobs:
   alphalab-models:
     # Every cell is a required gate, and one failing cell does not hide the
     # others.
-    name: alphalab-models (${{ matrix.os }}, Python ${{ matrix.python-version }}, scikit-learn ${{ matrix.scikit-learn }})
+    name: alphalab-models (${{ matrix.os }}, Python ${{ matrix.python-version }}, frameworks ${{ matrix.frameworks }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -32,14 +32,14 @@ jobs:
           - "3.12"
           - "3.13"
           - "3.14"
-        scikit-learn:
+        frameworks:
           - "latest"
         include:
-          # The lowest scikit-learn the distribution declares, on the lowest
-          # Python it supports.
+          # The lowest scikit-learn, XGBoost and LightGBM the distribution
+          # declares, on the lowest Python it supports.
           - os: ubuntu-latest
             python-version: "3.12"
-            scikit-learn: "1.7"
+            frameworks: "lowest"
 
     steps:
       - name: Check out repository
@@ -51,17 +51,17 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
 
-      - name: Install the core, and alphalab-models with scikit-learn
+      - name: Install the core, and alphalab-models with every framework it adapts
         env:
-          SCIKIT_LEARN: ${{ matrix.scikit-learn }}
+          FRAMEWORKS: ${{ matrix.frameworks }}
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . -e "distributions/alphalab-models[sklearn,dev]"
-          if [ "${SCIKIT_LEARN}" != "latest" ]; then
-            python -m pip install "scikit-learn==${SCIKIT_LEARN}.*"
+          python -m pip install -e . -e "distributions/alphalab-models[sklearn,xgboost,lightgbm,dev]"
+          if [ "${FRAMEWORKS}" = "lowest" ]; then
+            python -m pip install "scikit-learn==1.7.*" "xgboost==3.0.*" "lightgbm==4.6.*"
           fi
-          python -c "import sklearn; print('scikit-learn', sklearn.__version__)"
+          python -c "import sklearn, xgboost, lightgbm; print('scikit-learn', sklearn.__version__, 'xgboost', xgboost.__version__, 'lightgbm', lightgbm.__version__)"
 
       - name: Ruff (Lint and Format Check)
         working-directory: distributions/alphalab-models

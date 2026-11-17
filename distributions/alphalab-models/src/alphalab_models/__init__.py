@@ -9,9 +9,17 @@ The core never imports this distribution, and this distribution never changes
 the core: a researcher imports an adapter and passes it in, as any other object.
 
 * :mod:`alphalab_models.sklearn` -- scikit-learn estimators
-  (``pip install "alphalab-models[sklearn]"``).
+  (``pip install "alphalab-models[sklearn]"``). Restoring one unpickles it:
+  restore only artifacts you trust.
+* :mod:`alphalab_models.xgboost` -- XGBoost's classifier and regressor
+  (``pip install "alphalab-models[xgboost]"``), captured as XGBoost's JSON
+  model.
+* :mod:`alphalab_models.lightgbm` -- LightGBM's classifier and regressor
+  (``pip install "alphalab-models[lightgbm]"``), captured as LightGBM's model
+  text.
 
-Restoring an adapter's artifact unpickles it; restore only artifacts you trust.
+An XGBoost or LightGBM restore unpickles nothing: it parses the framework's
+model format and constructs the estimator from parameters stated as values.
 """
 
 from __future__ import annotations
