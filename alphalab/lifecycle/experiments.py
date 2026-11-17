@@ -156,6 +156,7 @@ __all__ = [
     "TrialRecord",
     "TrialRerun",
     "TrialSpec",
+    "candidate_scores",
     "canonical_experiment_key",
     "dataset_identity",
     "every_trial",
@@ -1703,6 +1704,28 @@ def _fold_scores(
     for trial in trials:
         scores.setdefault(trial.label, []).append(_series_score(ledger, trial, measure))
     return scores
+
+
+def candidate_scores(
+    spec: ExperimentSpec, ledger: TrialLedger, measure: SelectionMeasure
+) -> dict[str, float | None]:
+    """Each candidate's mean score over its trials, the rule cross-validation selects by.
+
+    Rendered candidate to the mean, by the exactly rounded sum, of its trials'
+    scores by ``measure``: one trial under a full-sample design, one a fold or
+    split under the others. A candidate whose trial is missing, did not
+    complete, or was too short to score anywhere has ``None``: it is counted,
+    and never ranked (plan I.4's searches read it so).
+    """
+
+    scores = _fold_scores(measure, ledger, spec.trials())
+    means: dict[str, float | None] = {}
+    for candidate in spec.space.candidates:
+        label = _render(candidate)
+        held = scores.get(label, [])
+        known = [score for score in held if score is not None]
+        means[label] = math.fsum(known) / len(known) if held and len(known) == len(held) else None
+    return means
 
 
 def _joined(

@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `cf8639d` |
+| Remote head | `0984bf1` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M7 (WS-08, WS-09, WS-20), after the Model protocol: point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. 13c437c's re-run macOS cell is read once at the next boundary. |
@@ -176,6 +176,9 @@ Never:
 | `13c437c` | Continuous Integration | 43928758566 | success on attempt 2: macOS 3.14, never acquired on attempt 1, was re-run and passed, so all six cells passed, carrying M6's close |
 | `cf8639d` | CodeQL | 44041183455 | success |
 | `cf8639d` | Continuous Integration | 44041183473 | in progress at this record, not counted as passed |
+| `cf8639d` | Continuous Integration | 44041183473 | success: all six quality-gate cells, carrying the Model protocol and the reference models |
+| `0984bf1` | CodeQL | 44044118375 | success |
+| `0984bf1` | Continuous Integration | 44044118399 | in progress at this record, not counted as passed |
 
 ## Continuation log
 
@@ -257,6 +260,7 @@ Never:
 - **2026-11-16** M6's close (13c437c) passed the full gate (13,904 tests) and was pushed; the benchmarks workflow was dispatched at M6's checkpoint (run 43928771613), and PR #22's description records M6's state, the cancelled macOS cells included. M7 begins: ADR-0057 (optional distributions beside a dependency-free core, D-V2) and ADR-0064 (the research model protocol, a trained model's identity as its artifact) accepted (TD-46, TD-47). Measured for ADR-0057: no alphalab module imports a third-party package by an import statement; lifecycle.environment imports tzdata by name, and is to read its version as data instead (AC-38).
 - **2026-11-17** 6bc417e (ADR-0057 and ADR-0064) passed the full gate (13,904 tests) and was pushed, and passed hosted CI on all six cells and CodeQL. The re-run macOS cells of 7b6bdc0 and 04b4e0f passed, so both passed all six cells. 13c437c (M6's close) lost macOS 3.14 to runner capacity and was re-run; its code and tests passed all six cells in 6bc417e's run, so M6 and WS-07 passed hosted CI. The benchmarks dispatched at M6's checkpoint passed every cell: on Linux, Johansen 0.085 to 0.093 CPU s against 2, GARCH 0.158 to 0.179 against 5, and PC-07's series and trace 6.67 to 8.88 percent against 15. The host restarted during a network outage; /private/tmp was cleared and the scratch toolchain rebuilt (a CPython 3.12.4 venv; uv's 3.13.18 and 3.14.10) and checked against the checkout. One uncommitted test edit had been reverted on disk before the restart and was re-applied. The Model protocol validated locally (TD-48): ml.protocol and ml.models, the three reference models pinned under CPython 3.12, 3.13 and 3.14.
 - **2026-11-17** The protocol commit's first gate failed on one test: a tree node named Split brought back ml.Split, which v3.13 renamed TrainTestSplit without an alias (API-001). The nodes became TreeSplit and TreeLeaf, the unpushed commit was amended to cf8639d, and it passed the full gate (13,989 tests) and was pushed. 13c437c's re-run macOS 3.14 cell passed, so M6's close passed all six cells on its own commit. Point-in-time labels and panels validated locally (TD-49): a panel's identity first named its label set's, which covers later labels, so a panel known by an instant moved with the prices after it; it now names the labels' method and source, and the counterfactual-future test holds it.
+- **2026-11-17** 0984bf1 (point-in-time labels and panels) passed the full gate (14,026 tests) and was pushed; cf8639d (the Model protocol) passed hosted CI on all six cells and CodeQL. Searches validated locally (TD-50): random and Latin hypercube spaces drawn by SHA-256 of their seed and pinned identically under CPython 3.12, 3.13 and 3.14, and successive halving run as rounds of child experiments, every configuration a counted trial; Sobol is left to alphalab-compute, its direction numbers a published table to verify at its source.
 
 ## Milestones
 
@@ -813,6 +817,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md (settled points 11 to 15)
 - **Tests:** tests/unit/ml/test_labels.py: each barrier's outcome on hand-built paths, the volatility against exact rational arithmetic, the counted events, meta-labels for both sides, uniqueness against a hand count. tests/unit/ml/test_point_in_time.py: rows against the panels and labels they join, the counterfactual future, research's purged folds, rows taken and weighed, the identity, refusals.
 
+### TD-50: Searches beyond the grid: drawn spaces and successive halving, every configuration counted (ADR-0064's settled points 16 to 18) (WS-08, 2026-11-17)
+
+- **Problem:** N17: research.ParameterSpace offers a grid and a list, nothing else. The plan (I.4) asks for seeded random, Sobol or Latin hypercube spaces with recorded seeds, and successive halving, every evaluated configuration a trial in the ledger so the search's selection bias is counted.
+- **Alternatives:** Coordinates from random.Random, whose algorithms are CPython's, or from SHA-256. A log-uniform axis through libm's exp and log, or decimal's correctly rounded ones. Sobol from a direction-number table written here, or through alphalab-compute's SciPy. Halving as one experiment whose candidates carry every budget, or rounds of child experiments. Ranking by a new score, or by the mean score cross-validation selects by.
+- **Decision:** research.sampling: UniformAxis, LogUniformAxis, IntegerAxis and ChoiceAxis; random_space and latin_hypercube_space draw from SHA-256 of seed, draw and axis, a log-uniform axis through decimal; a SampledSpace keeps method and seed beside the space. SuccessiveHalving is the schedule: increasing budgets, a fraction kept, the budget's parameter; the best max(1, ceil(n * keep)) are kept, ties to the earlier, never one without a score. lifecycle.run_successive_halving runs each round as a child experiment of the round before, ranking by lifecycle.candidate_scores, and returns a HalvingRecord: every round, the configurations searched and every round's counts. Sobol comes through alphalab-compute.
+- **Rationale:** A drawn space feeds trial identities, so it must be the same on every host: SHA-256 and decimal's correctly rounded functions are, libm's and CPython's generators are not promised to be. A round as a child experiment gives every evaluation its own recorded trial, and a search counts what it evaluated, not only what survived. A published table is verified at its source, never reproduced.
+- **Compatibility:** Additive: research.sampling and lifecycle.search, 12 names (3,080 exports). ParameterSpace is unchanged.
+- **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md (settled points 16 to 18)
+- **Tests:** tests/unit/research/test_sampling.py: two drawn spaces pinned by identity under CPython 3.12, 3.13 and 3.14, every stratum drawn once, no repeat, halving's kept fraction. tests/integration/test_successive_halving_through_the_ledger.py: rounds as child experiments with 11 counted trials, each round's kept half ranked independently, a resume that runs nothing, candidate_scores ranking as cross-validation selects.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1003,8 +1017,9 @@ Evidence:
 ### WS-08: Research model interfaces, ML datasets, hyperparameter search
 
 - [Hosted CI passed] M7: ADR-0064 accepted (TD-47): the Model protocol, a trained model's identity as its artifact, the reference models and the adapters' place
-- [Pushed] M7: The Model protocol and its artifacts (TD-48, ADR-0064 settled points 1 to 10): ml.protocol's Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore; RidgeRegression (class 2), LogisticRegression (class 3) and GradientBoostedTrees (class 2 with the squared loss), each pinned under CPython 3.12, 3.13 and 3.14
-- [Local validation passed] M7: Point-in-time labels and panels (TD-49, ADR-0064 settled points 11 to 15): fixed-horizon, triple-barrier and meta-labels carrying their ends, weights by uniqueness among the rows taken, and PointInTimePanel joining the factor library's panels for research's purged splits, held by the counterfactual-future test
+- [Hosted CI passed] M7: The Model protocol and its artifacts (TD-48, ADR-0064 settled points 1 to 10): ml.protocol's Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore; RidgeRegression (class 2), LogisticRegression (class 3) and GradientBoostedTrees (class 2 with the squared loss), each pinned under CPython 3.12, 3.13 and 3.14
+- [Pushed] M7: Point-in-time labels and panels (TD-49, ADR-0064 settled points 11 to 15): fixed-horizon, triple-barrier and meta-labels carrying their ends, weights by uniqueness among the rows taken, and PointInTimePanel joining the factor library's panels for research's purged splits, held by the counterfactual-future test
+- [Local validation passed] M7: Searches beyond the grid (TD-50, ADR-0064 settled points 16 to 18): random and Latin hypercube spaces drawn by SHA-256 of their seed, and successive halving whose rounds are child experiments, every configuration a counted trial
 
 ### WS-09: Optional distributions and backends
 

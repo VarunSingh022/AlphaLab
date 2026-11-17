@@ -812,6 +812,21 @@ entry below says otherwise.
     * Changing every price after a boundary changes nothing in the panel
       known by it (`tests/unit/ml/test_point_in_time.py`).
 
+* **Searches beyond the grid, every configuration counted** [plan WS-08, I.4,
+  N17, ADR-0064].
+  * **Drawn spaces.** `research.random_space` and
+    `research.latin_hypercube_space` draw a `ParameterSpace` over uniform,
+    log-uniform, integer and choice axes. They draw from SHA-256 of the seed,
+    so a space and every trial identity built on it are the same on every
+    host. A log-uniform axis maps through `decimal`'s correctly rounded
+    logarithm.
+  * **Successive halving.** `lifecycle.run_successive_halving` runs
+    `research.SuccessiveHalving`'s rounds. Each round is a child experiment,
+    and keeps the best fraction by `lifecycle.candidate_scores`, the mean
+    score that cross-validation selects by. Every configuration any round
+    evaluated is a trial in the ledger, and the `HalvingRecord` counts them
+    all.
+
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
   percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's

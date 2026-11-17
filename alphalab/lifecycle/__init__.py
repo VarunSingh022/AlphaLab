@@ -322,6 +322,7 @@ from alphalab.lifecycle.experiments import (
     TrialRecord,
     TrialRerun,
     TrialSpec,
+    candidate_scores,
     canonical_experiment_key,
     dataset_identity,
     every_trial,
@@ -493,6 +494,7 @@ from alphalab.lifecycle.reproducibility import (
     verify_manifest,
 )
 from alphalab.lifecycle.rerun import RERUN_DIFFERENCE_LIMIT, RerunReport, rerun_from_manifest
+from alphalab.lifecycle.search import HalvingRecord, HalvingRound, run_successive_halving
 from alphalab.lifecycle.selection import (
     CaptureAssessment,
     assess_captures,
@@ -635,6 +637,8 @@ __all__ = [
     "FullSample",
     "Governance",
     "GovernedAct",
+    "HalvingRecord",
+    "HalvingRound",
     "HealthCategory",
     "HealthFinding",
     "HealthReport",
@@ -745,6 +749,7 @@ __all__ = [
     "build_evidence",
     "build_fingerprint",
     "build_specification",
+    "candidate_scores",
     "canonical_experiment_key",
     "canonical_fingerprint_key",
     "canonical_manifest_key",
@@ -819,6 +824,7 @@ __all__ = [
     "rollback_environment",
     "run_experiment",
     "run_plan",
+    "run_successive_halving",
     "run_trial",
     "running_build",
     "running_engine",

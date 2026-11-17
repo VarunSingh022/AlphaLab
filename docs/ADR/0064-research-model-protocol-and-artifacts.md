@@ -216,6 +216,33 @@ Building the point-in-time data settled these points
     research's `cross_validation_splits` and `combinatorial_purged_splits`
     purge a panel as they purge any series.
 
+Building the search settled these points (`tests/unit/research/test_sampling.py`,
+`tests/integration/test_successive_halving_through_the_ledger.py`).
+
+16. **Drawn spaces are the same everywhere.** `research.random_space` and
+    `research.latin_hypercube_space` draw over `UniformAxis`,
+    `LogUniformAxis`, `IntegerAxis` and `ChoiceAxis`.
+    - Every coordinate is 53 bits of SHA-256 of the seed, the draw and the
+      axis.
+    - A log-uniform axis maps its coordinate through `decimal`'s correctly
+      rounded `ln` and `exp`.
+    - A `SampledSpace` keeps the method and the seed beside the space.
+    - A random space passes over a repeated candidate. A Latin hypercube
+      deals each axis's strata in an order ranked by SHA-256.
+17. **Sobol comes through `alphalab-compute`.** Its direction numbers are a
+    published table (Joe and Kuo's), which belongs where it can be verified
+    against its source. The core writes none.
+18. **Successive halving is rounds of experiments.**
+    - `research.SuccessiveHalving` is the schedule: the budgets, the fraction
+      kept, and the parameter the budget is passed as.
+    - `lifecycle.run_successive_halving` runs each round as a child
+      experiment of the round before it.
+    - It ranks by `lifecycle.candidate_scores`: the mean score that
+      cross-validation selects by.
+    - Every configuration any round evaluated is a recorded, counted trial. A
+      `HalvingRecord` keeps the configurations the search began with and
+      every round's counts.
+
 # Compatibility
 
 - Additive: two modules, `ml.protocol` and `ml.models`, and new names.
