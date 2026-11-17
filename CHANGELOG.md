@@ -768,6 +768,32 @@ entry below says otherwise.
     coefficients sum above one, is now among the recovery cases, and only the
     right sign reaches it.
 
+* **The research model protocol: a trained model is its bytes** [plan WS-08,
+  N8, GAP-12, ADR-0064].
+  * **`ml.Model`.** A model states its `model_kind` and every hyperparameter
+    as a parameter value, and `fit` returns a new fitted model without
+    changing itself. `predict` gives one value per row, a probability for a
+    classifier, and refuses rows that name other features or name them in
+    another order. `capture` gives canonical bytes, and `restore` refuses
+    bytes that are not the model's own capture.
+  * **`ml.TrainingSet`** states its feature names, rows, labels and any
+    positive weights, and its `training_id` is derived from those values.
+  * **The artifact binding.** `ml.train_model` fits, files the capture in an
+    `ArtifactStore` and returns a `TrainingRecord`: the artifact id
+    (`alphalab-artifact:sha256:<hex>`), the kind, the hyperparameters, the seed
+    and the training set's identity. `ml.restore_model` reads the bytes back
+    through the store's verification. A strategy that declares the id among
+    its parameters carries the model in its fingerprint.
+  * **Three reference models, in pure Python, captured as canonical JSON.**
+    * `RidgeRegression`, class 2: the same bytes on every host.
+    * `LogisticRegression`, by Newton's method. Separated classes are refused
+      without a penalty.
+    * `GradientBoostedTrees`, the oracle for boosting adapters. It is class 2
+      with the squared loss, and subsamples by SHA-256 of its seed.
+
+    Their artifacts are pinned under CPython 3.12, 3.13 and 3.14
+    (`tests/regression/test_model_artifacts_are_pinned.py`).
+
 * **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
   At M5's checkpoint, a hosted runner measured series and trace at 15.0
   percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's

@@ -873,6 +873,19 @@
       "compatibility": "Additive: ml.protocol and new names. build_dataset_from_feature_store is kept, documented as not point-in-time.",
       "record": "docs/ADR/0064-research-model-protocol-and-artifacts.md",
       "tests": "Protocol conformance for every reference model; capture, restore and capture again byte-identical; a restore from altered bytes refused; INPUTS_DIFFER on another artifact; a model-holding strategy restored byte for byte (S-07)."
+    },
+    {
+      "id": "TD-48",
+      "date": "2026-11-17",
+      "workstream": "WS-08",
+      "title": "The Model protocol, its artifacts and three reference models (ADR-0064's settled points)",
+      "problem": "ADR-0064 fixed the contract. Implementing it had to settle the training set's identity, the canonical capture, the binding to an artifact store and the reference models' numerics, and keep a model's bytes host-independent wherever its arithmetic is.",
+      "alternatives": "A capture by pickle, by free-form JSON, or by canonical JSON captured again on restore. A tree threshold at the midpoint between values, or at the largest value on the left. A subsample by random.sample, or by SHA-256 ranks. A fitted linear state named LinearFit, the name common.statistics already exports, and tree nodes named Split, the name v3.13 removed from ml; or names of their own.",
+      "decision": "ml.protocol holds Model, FeatureMatrix, TrainingSet (its identity the SHA-256 of its values by shortest repr), the canonical capture alphalab.model.v1 (five keys, sorted, ASCII, no whitespace, finite floats by shortest repr, re-captured on restore) and the binding: train_model, file_model and restore_model through an ArtifactStore, with a TrainingRecord beside the artifact. ml.models holds RidgeRegression (QR on sqrt-weighted rows with sqrt-penalty rows, class 2), LogisticRegression (Newton steps solved as weighted least squares, ConvergenceError past its limit, separated classes refused without a penalty, class 3) and GradientBoostedTrees (Newton boosting, exact greedy splits, ties to the first feature and lowest threshold, the threshold the largest left value, a subsample ranked by SHA-256 of seed, tree and row). A fit its hyperparameters could not have produced is refused. BoostingLoss's values are pinned as a persisted format. The fitted linear state is LinearModelFit, and a tree's nodes are TreeSplit and TreeLeaf: ml.Split was renamed TrainTestSplit in v3.13 (API-001) and stays removed.",
+      "rationale": "One model has one artifact only if its bytes are canonical and checked, and a class-2 model is the same bytes on every host only if every step is correctly rounded and every draw comes from a hash rather than an interpreter's algorithm. A midpoint can round onto the next value and put it on the wrong side.",
+      "compatibility": "Additive: ml.protocol and ml.models, and 24 names in alphalab.ml (3,053 exports). No existing identity, signature or persisted format moves.",
+      "record": "docs/ADR/0064-research-model-protocol-and-artifacts.md (settled points 1 to 10)",
+      "tests": "tests/unit/ml/test_model_protocol.py: conformance of every reference model, the training set's identity and refusals, canonical capture, the binding through memory and file stores, altered bytes refused. tests/unit/ml/test_reference_models.py: the ridge against its normal equations solved exactly, the logistic regression's closed form and score equations, the trees against hand computation. tests/regression/test_model_artifacts_are_pinned.py: digests and values pinned under CPython 3.12, 3.13 and 3.14."
     }
   ],
   "plan_changes": [
@@ -1098,17 +1111,18 @@
       "deliverables": "`econometrics`; Fama–MacBeth; PCA factors",
       "exit_gate": "Known-DGP recovery; MacKinnon values; S-02 screening stage",
       "size": "L",
-      "status": "Pushed",
+      "status": "Hosted CI passed",
       "evidence": [
         "Exit gate, known-DGP recovery: every M6 model recovers parameters it simulated within tolerances its own standard errors justify -- the unit-root tests' rejection behaviour on random walks and stationary AR(1)s; Engle-Granger's hedge ratio and Johansen's ranks on cointegrated systems; the VECM's relations; the OU fit's theta, mu, sigma and half-life; the VAR's coefficients and order; GARCH, GJR and EGARCH; the local level and the time-varying beta, with the filter at its closed-form steady state; two- and three-state HMMs, a Markov-switching regression and a switching autoregression; ARMA by both methods; Fama-MacBeth's premiums on a simulated factor DGP (tests/unit/econometrics/, tests/unit/factor_library/test_fama_macbeth.py, tests/unit/analytics/test_statistical_factors.py).",
         "Exit gate, MacKinnon's values: the 2010 response surfaces generated from the paper and held row by row (a widely used transcription differs from it in four rows), the 1994 p-values and the KPSS table held to their published values, and MacKinnon, Haug and Michelis's 1996 Johansen tables decoded from the paper and verified three ways (TD-37).",
         "Exit gate, S-02's screening stage: research.cointegration_screen screens 200 candidate pairs under Holm's family correction, every pair counted, the five planted pairs alone selected; the same 200 run as a ledgered experiment's trials in spawned workers, each fitting its pair on its own window, every trial recorded (tests/unit/research/test_cointegration_screen.py, tests/integration/test_pairs_screen_through_the_ledger.py). The combo order the selected pair trades as is M8's (ADR-0062, ADR-0074 section 8).",
         "Every fit returns an Estimate with its parameters, standard errors, method scheme, derived data identity, stated settings and convergence report; least-squares results are class 2 and pinned bit for bit, likelihood fits class 3 and held across hosts by a stated tolerance, all computed identically under CPython 3.12, 3.13 and 3.14 before pinning (tests/regression/test_econometrics_values_are_pinned.py, tests/regression/test_factor_research_values_are_pinned.py).",
         "OFE-007 (a fitted half-life) and OFE-010 (statistical regime models) reopened by ADR-0074 and ADR-0075 and delivered; the ledger records both.",
-        "WS-07 item 15's budgets: Johansen with five series of 2,520 points in 0.048 CPU s against 2, and a GARCH fit to 2,520 returns in 0.081 CPU s against 5 (benchmarks/benchmark_econometrics.py, the reference machine); hosted figures follow at M6's checkpoint.",
+        "WS-07 item 15's budgets: Johansen with five series of 2,520 points in 0.048 CPU s against 2, and a GARCH fit to 2,520 returns in 0.081 CPU s against 5 (benchmarks/benchmark_econometrics.py, the reference machine); on hosted Linux at M6's checkpoint (benchmarks run 43928771613), Johansen took 0.085 to 0.093 CPU s and the GARCH fit 0.158 to 0.179 under CPython 3.12, 3.13 and 3.14.",
         "Guide: docs/ECONOMETRICS.md, indexed.",
         "Mutation series EC (WS-07, WS-25, ADR-0074, ADR-0075), 40 mutations, each caught -- the history below says on which tree -- by: EC01 (the ADF statistic reads the constant's t-ratio, not the level's): test_econometrics_values_are_pinned::test_the_unit_root_statistics_and_their_regressions_are_pinned; EC02 (a statistic below MacKinnon's table reports a bound from below): test_critical_values::test_a_statistic_beyond_the_approximations_range_is_a_bound; EC03 (MacKinnon's response surface drops its 1/T term): test_econometrics_values_are_pinned::test_engle_grangers_statistic_hedge_ratio_and_identities_are_pinned; EC04 (KPSS's long-run variance takes no lags): test_econometrics_values_are_pinned::test_the_unit_root_statistics_and_their_regressions_are_pinned; EC05 (Engle and Granger's residual regression takes a constant): test_econometrics_values_are_pinned::test_engle_grangers_statistic_hedge_ratio_and_identities_are_pinned and the 200-pair screen: the extra constant breaks the residual regression's own unpacking, so every Engle-Granger call fails (the screen's integration test failed first); EC06 (Engle and Granger's critical values count the regressors, not every series): test_econometrics_values_are_pinned::test_engle_grangers_statistic_hedge_ratio_and_identities_are_pinned; EC07 (Johansen's trace leaves out the eigenvalue its null sets to zero): test_econometrics_values_are_pinned::test_johansens_eigenvalues_statistics_and_identity_are_pinned; EC08 (the half-life is 1 / theta, not ln 2 / theta): test_econometrics_values_are_pinned::test_the_ornstein_uhlenbeck_fit_and_its_half_life_are_pinned; EC09 (an explosive coefficient, no mean reversion, is accepted): test_mean_reversion::test_what_the_fit_cannot_take_is_refused[values0-0.003968253968253968-EconometricsInputError-no mean reversion]; EC10 (BIC's penalty is AIC's): test_econometrics_values_are_pinned::test_the_vars_chosen_order_coefficients_and_identities_are_pinned; EC11 (each VAR candidate is fitted on its own sample, not the maximum's): test_var::test_each_criterion_chooses_its_least_value_over_the_maximums_sample; EC12 (GJR's asymmetry moves the variance on good news): test_volatility::test_known_parameters_are_recovered_within_their_standard_errors[VolatilityModel.GJR]; EC13 (EGARCH centres |z| at one, not at its expectation): test_econometrics_values_are_pinned::test_a_volatility_fit_agrees_across_hosts_within_its_stated_tolerance[VolatilityModel.EGARCH-expected1]; EC14 (Joseph's form forgets the observation noise's term): test_econometrics_values_are_pinned::test_the_kalman_filter_and_rts_smoother_are_pinned; EC15 (a random walk's prediction leaves out its drift): test_econometrics_values_are_pinned::test_the_kalman_filter_and_rts_smoother_are_pinned; EC16 (the smoother's spread is against the filtered, not the predicted, covariance): test_econometrics_values_are_pinned::test_the_kalman_filter_and_rts_smoother_are_pinned; EC17 (the diffuse start counts one drift too many): test_econometrics_values_are_pinned::test_a_state_space_fit_agrees_across_hosts_within_its_stated_tolerance; EC18 (a state-space variance's standard error drops the delta method's factor): test_state_space::test_known_variances_are_recovered_within_their_standard_errors[local level]; EC19 (the backward recursion forgets the normaliser): test_econometrics_values_are_pinned::test_a_regime_fit_agrees_across_hosts_within_its_stated_tolerance; EC20 (an HMM's states are ordered by descending mean): test_econometrics_values_are_pinned::test_a_regime_fit_agrees_across_hosts_within_its_stated_tolerance; EC21 (the initial distribution keeps an even start): test_econometrics_values_are_pinned::test_a_regime_fit_agrees_across_hosts_within_its_stated_tolerance; EC22 (a state whose variance collapses to zero is accepted): test_regimes::test_a_collapsing_state_is_refused_and_named; EC23 (Viterbi's tie goes to the higher state): test_regimes::test_a_viterbi_tie_goes_to_the_lower_state; EC24 (a structural zero is a free coordinate): test_regimes::test_a_structural_zero_is_kept_with_no_standard_error; EC25 (EM stops at a change a thousand times its tolerance): test_econometrics_values_are_pinned::test_a_regime_fit_agrees_across_hosts_within_its_stated_tolerance; EC26 (ARMA's coordinate map is not its inverse's): test_econometrics_values_are_pinned::test_arma_by_least_squares_is_pinned_and_by_likelihood_agrees_across_hosts; EC27 (Durbin and Levinson's recursion adds where it subtracts): test_econometrics_values_are_pinned::test_arma_by_least_squares_is_pinned_and_by_likelihood_agrees_across_hosts; EC28 (the MA polynomial keeps the recursion's sign): test_arma::test_known_parameters_are_recovered_within_their_standard_errors[ma(2) with complex roots], by both methods (added for it); EC29 (Harvey's transition leaves the AR coefficients out): test_econometrics_values_are_pinned::test_arma_by_least_squares_is_pinned_and_by_likelihood_agrees_across_hosts; EC30 (ARMA's variance error is over m, not 2 / m): test_econometrics_values_are_pinned::test_arma_by_least_squares_is_pinned_and_by_likelihood_agrees_across_hosts; EC31 (ARMA's selection conditions every candidate on none): test_econometrics_values_are_pinned::test_arma_by_least_squares_is_pinned_and_by_likelihood_agrees_across_hosts; EC32 (the curvature's off-diagonal is halved): test_arma::test_known_parameters_are_recovered_within_their_standard_errors[arma(1,1) about a mean], and directly test_likelihood_curvature::test_a_quadratics_covariance_is_its_matrix_inverted; EC33 (Fama-MacBeth's standard error ignores the stated lag): test_fama_macbeth::test_the_standard_error_is_newey_and_wests_at_the_stated_lag; EC34 (a cross-section too small is regressed anyway): test_fama_macbeth::test_a_cross_section_too_small_or_singular_is_skipped_and_counted; EC35 (Fama-MacBeth's data identity leaves out the values read): test_factor_research_values_are_pinned::test_fama_macbeths_premiums_errors_and_identities_are_pinned; EC36 (the specific variances come from the components kept): test_factor_research_values_are_pinned::test_principal_component_factors_and_their_identity_are_pinned; EC37 (a singular covariance is decomposed): test_statistical_factors::test_a_singular_covariance_is_refused_for_the_caller_to_regularize; EC38 (a refused pair leaves the screen's family): test_cointegration_screen::test_a_refused_pair_is_counted_with_a_p_value_of_one_and_never_selected; EC39 (a p-value bounded from below enters the family as its bound): test_cointegration_screen::test_a_bound_enters_the_family_on_its_conservative_side; EC40 (the screen's identity leaves out its sample): test_econometrics_values_are_pinned::test_a_pair_screens_identity_statistics_and_hedge_ratios_are_pinned.",
-        "Mutation history: the first run caught 39 of 40 on the working tree, which held the tests written ahead of it for what the pins could not see -- the Viterbi tie, Fama-MacBeth's stated lag, the quadratic's covariance and the VAR's common sample, for EC23, EC33, EC32 and EC11 -- committed with this close; the filter's closed-form steady state (plan H.3) was written after its snapshot. EC28 survived: it flips the MA polynomial's sign, and for an MA(1) that only mirrors the coordinate, u to -u, exactly, since negation is exact in floating point, so every recovery case and pin, all of MA order one or none, fitted the same. An MA(2) with complex roots whose coefficients sum above one, outside the flipped region, was added to the recovery cases -- under EC28 least squares lands seven to eight standard errors away and the exact likelihood refuses its curvature -- and EC28 was run again: caught. Two first failures were checked by hand: EC05's, the 200-pair screen, is every Engle-Granger call failing, since the extra constant breaks the residual regression's own unpacking, and the pinned statistic and the pinned screen fail with it; EC32's, an ARMA(1,1)'s standard errors, is backed by the quadratic's covariance, which fails under it directly. No first failure was a test that reads a clock. Baselines: 13,811 and 13,814 passed (the second with the steady state and the MA(2) cases), 90 deselected (the tests that read a clock, and the certificate's source digest)."
+        "Mutation history: the first run caught 39 of 40 on the working tree, which held the tests written ahead of it for what the pins could not see -- the Viterbi tie, Fama-MacBeth's stated lag, the quadratic's covariance and the VAR's common sample, for EC23, EC33, EC32 and EC11 -- committed with this close; the filter's closed-form steady state (plan H.3) was written after its snapshot. EC28 survived: it flips the MA polynomial's sign, and for an MA(1) that only mirrors the coordinate, u to -u, exactly, since negation is exact in floating point, so every recovery case and pin, all of MA order one or none, fitted the same. An MA(2) with complex roots whose coefficients sum above one, outside the flipped region, was added to the recovery cases -- under EC28 least squares lands seven to eight standard errors away and the exact likelihood refuses its curvature -- and EC28 was run again: caught. Two first failures were checked by hand: EC05's, the 200-pair screen, is every Engle-Granger call failing, since the extra constant breaks the residual regression's own unpacking, and the pinned statistic and the pinned screen fail with it; EC32's, an ARMA(1,1)'s standard errors, is backed by the quadratic's covariance, which fails under it directly. No first failure was a test that reads a clock. Baselines: 13,811 and 13,814 passed (the second with the steady state and the MA(2) cases), 90 deselected (the tests that read a clock, and the certificate's source digest).",
+        "Hosted CI: every M6 commit passed all six cells and CodeQL. On 7b6bdc0, 04b4e0f and 13c437c, macOS cells GitHub never acquired a runner for ended cancelled; 7b6bdc0's and 04b4e0f's were re-run and passed, and 13c437c's code and tests passed all six cells in 6bc417e's run (43930430840), which adds only two ADRs and the register."
       ]
     },
     {
@@ -1632,7 +1646,7 @@
       "milestones": [
         "M6"
       ],
-      "status": "In progress",
+      "status": "Hosted CI passed",
       "items": [
         {
           "milestone": "M6",
@@ -1692,17 +1706,17 @@
         {
           "milestone": "M6",
           "item": "S-02's screening stage (TD-44, ADR-0074 settled point 20): research.cointegration_screen tests every candidate pair on a stated sample with Engle and Granger's test and corrects the whole family by research.multiple_testing; a refused pair and a p-value bounded from below enter with one, a bound from above as its bound; screen_id over the pairs, the series' identities, the choices and the class-2 statistics; 200 candidates screened, the planted pairs alone selected under Holm; the same 200 a ledgered experiment's trials in spawned workers, each fitting its own window, every one recorded; the econometrics guide, docs/ECONOMETRICS.md; pinned across CPython 3.12, 3.13 and 3.14",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M6",
           "item": "ARMA (TD-45, ADR-0074 settled point 21): conditional least squares (class 2) and the exact Gaussian likelihood by the Kalman filter from the stationary covariance (class 3), in partial-autocorrelation coordinates that keep every estimate stationary and invertible; Gauss-Newton and curvature standard errors; select_arma by AIC or BIC on one sample, Decimal logarithms under least squares; the recursion and its inverse, the exact likelihood held to the joint density, known parameters recovered by both methods; pinned across CPython 3.12, 3.13 and 3.14",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M6",
           "item": "Mutation series EC (40): the unit-root tests and MacKinnon's tables, Engle-Granger, Johansen, the half-life, the VAR's criterion and sample, the GARCH family, the filter, smoother and diffuse start, the regime models, ARMA, the shared curvature, Fama-MacBeth, principal components and S-02's screen -- 40 of 40 caught, EC28 after the MA(2) case it asked for",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -1718,6 +1732,11 @@
         {
           "milestone": "M7",
           "item": "ADR-0064 accepted (TD-47): the Model protocol, a trained model's identity as its artifact, the reference models and the adapters' place",
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M7",
+          "item": "The Model protocol and its artifacts (TD-48, ADR-0064 settled points 1 to 10): ml.protocol's Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore; RidgeRegression (class 2), LogisticRegression (class 3) and GradientBoostedTrees (class 2 with the squared loss), each pinned under CPython 3.12, 3.13 and 3.14",
           "status": "Local validation passed"
         }
       ],
@@ -1735,7 +1754,7 @@
         {
           "milestone": "M7",
           "item": "ADR-0057 accepted (TD-46): optional distributions under distributions/, AC-38 enforced by an AST sweep, tzdata read as data, discovery explicit",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -2958,8 +2977,8 @@
     ]
   },
   "state": {
-    "updated": "2026-11-16",
-    "remote_head": "13c437c",
+    "updated": "2026-11-17",
+    "remote_head": "6bc417e",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -3645,10 +3664,52 @@
         "workflow": "CodeQL",
         "run": 43912097311,
         "result": "success"
+      },
+      {
+        "sha": "7b6bdc0",
+        "workflow": "Continuous Integration",
+        "run": 43910489150,
+        "result": "success on attempt 2: macOS 3.12 and 3.13, never acquired on attempt 1, were re-run and passed, so all six cells passed, carrying S-02's screen and the guide"
+      },
+      {
+        "sha": "04b4e0f",
+        "workflow": "Continuous Integration",
+        "run": 43912097470,
+        "result": "success on attempt 2: macOS 3.12, never acquired on attempt 1, was re-run and passed, so all six cells passed, carrying ARMA"
+      },
+      {
+        "sha": "13c437c",
+        "workflow": "Continuous Integration",
+        "run": 43928758566,
+        "result": "failure on attempt 1 with no test failing: five cells passed; macOS 3.14 was never acquired by a hosted runner and ended cancelled. Re-run as attempt 2, in progress at this record and not counted as passed. The same code and tests passed all six cells in 6bc417e's run, which adds only two ADRs and the register"
+      },
+      {
+        "sha": "13c437c",
+        "workflow": "CodeQL",
+        "run": 43928758581,
+        "result": "success"
+      },
+      {
+        "sha": "13c437c",
+        "workflow": "Benchmarks",
+        "run": 43928771613,
+        "result": "success on every cell, dispatched at M6's checkpoint. Linux, authoritative, on CPython 3.12, 3.13 and 3.14: Johansen 0.085, 0.090 and 0.093 CPU s against 2; GARCH(1, 1) on 2,520 returns 0.158, 0.172 and 0.179 CPU s against 5; PC-07's series 1.17 to 3.97 percent against 10, and series and trace 6.67 to 8.88 against 15. macOS diagnostic"
+      },
+      {
+        "sha": "6bc417e",
+        "workflow": "Continuous Integration",
+        "run": 43930430840,
+        "result": "success: all six quality-gate cells, carrying ADR-0057, ADR-0064 and M6's close's code and tests"
+      },
+      {
+        "sha": "6bc417e",
+        "workflow": "CodeQL",
+        "run": 43930430883,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M6 on hosted CI: 13c437c's run, the re-run macOS cells of 7b6bdc0 and 04b4e0f, and the benchmarks dispatched at M6's checkpoint (run 43928771613), WS-07 item 15's hosted figures and PC-07 read on its Linux cells. M7 (WS-08, WS-09, WS-20): the Model protocol and its artifacts with the reference models, point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series.",
+    "next": "M7 (WS-08, WS-09, WS-20), after the Model protocol: point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. 13c437c's re-run macOS cell is read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -3955,6 +4016,10 @@
     {
       "date": "2026-11-16",
       "entry": "M6's close (13c437c) passed the full gate (13,904 tests) and was pushed; the benchmarks workflow was dispatched at M6's checkpoint (run 43928771613), and PR #22's description records M6's state, the cancelled macOS cells included. M7 begins: ADR-0057 (optional distributions beside a dependency-free core, D-V2) and ADR-0064 (the research model protocol, a trained model's identity as its artifact) accepted (TD-46, TD-47). Measured for ADR-0057: no alphalab module imports a third-party package by an import statement; lifecycle.environment imports tzdata by name, and is to read its version as data instead (AC-38)."
+    },
+    {
+      "date": "2026-11-17",
+      "entry": "6bc417e (ADR-0057 and ADR-0064) passed the full gate (13,904 tests) and was pushed, and passed hosted CI on all six cells and CodeQL. The re-run macOS cells of 7b6bdc0 and 04b4e0f passed, so both passed all six cells. 13c437c (M6's close) lost macOS 3.14 to runner capacity and was re-run; its code and tests passed all six cells in 6bc417e's run, so M6 and WS-07 passed hosted CI. The benchmarks dispatched at M6's checkpoint passed every cell: on Linux, Johansen 0.085 to 0.093 CPU s against 2, GARCH 0.158 to 0.179 against 5, and PC-07's series and trace 6.67 to 8.88 percent against 15. The host restarted during a network outage; /private/tmp was cleared and the scratch toolchain rebuilt (a CPython 3.12.4 venv; uv's 3.13.18 and 3.14.10) and checked against the checkout. One uncommitted test edit had been reverted on disk before the restart and was re-applied. The Model protocol validated locally (TD-48): ml.protocol and ml.models, the three reference models pinned under CPython 3.12, 3.13 and 3.14."
     }
   ]
 }

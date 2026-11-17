@@ -111,9 +111,78 @@ below:
 - samplers on `research.ParameterSpace`, each evaluated configuration a trial
   in the ledger.
 
+# Settled at implementation (2026-11-17)
+
+Building the protocol settled these points, each held by a test
+(`tests/unit/ml/test_model_protocol.py`, `tests/unit/ml/test_reference_models.py`,
+`tests/regression/test_model_artifacts_are_pinned.py`).
+
+1. **Two modules.** `ml.protocol` holds the protocol, `FeatureMatrix`,
+   `TrainingSet`, the canonical capture and the artifact binding. `ml.models`
+   holds the three reference models. A model's fit is a public attribute,
+   `fitted`: a `LinearModelFit` or a `TreeEnsembleFit`, or `None` before a fit.
+2. **A training set's identity.** `training_id` is the SHA-256 of the scheme
+   tag `alphalab.training_set.v1`, the feature names as JSON, and one line per
+   row: its values, its label and any weight, each by its shortest `repr`. An
+   integer enters as the float it is. An integer no float holds exactly is
+   refused. A weight is positive: a row weighted at zero is a row to leave out.
+3. **Canonical capture.** `alphalab.model.v1` holds exactly five keys: the
+   scheme, the model kind, the hyperparameters, the feature names and the
+   state. The keys are sorted, the text is ASCII with no whitespace, floats
+   are rendered by their shortest `repr`, and a value that is not finite is
+   refused when writing and when reading. A float is read only from a JSON
+   float, never from an integer. A restore captures what it read again and
+   refuses bytes that differ, so one model has one artifact.
+4. **A fit its hyperparameters could not have produced is refused** at
+   construction: an intercept on a model stated without one, a tree count
+   other than the one stated, a tree deeper than the stated depth.
+5. **The binding.** `train_model` fits, files and returns the fitted model
+   with its `TrainingRecord`: the artifact id, the kind, the hyperparameters,
+   the seed and the training set's identity. `file_model` files under the
+   generic media type: the store does not sniff bytes, and a media type for
+   one kind would be a guess for an adapter's. `restore_model(kind, store, id)`
+   reads through the store's verification, so altered bytes are refused before
+   any model reads them.
+6. **The ridge.** Each row is scaled by `sqrt(w)`, a `sqrt(penalty)` row is
+   added for every coefficient but the intercept, and each column is scaled to
+   unit length by `sqrt(fsum)` before M2's QR, under a stated
+   `maximum_condition`. A prediction is the `fsum` of the intercept and the
+   products. Every step is correctly rounded: class 2.
+7. **Logistic regression** maximizes the weighted log-likelihood less
+   `(penalty / 2) ||b||^2`, by Newton steps solved as weighted least squares.
+   It stops when no coefficient moves more than `tolerance`, and raises
+   `ConvergenceError` past `max_iterations`. A probability that rounds to 0 or
+   1 refuses the fit: without a penalty, the classes are separated or a
+   feature is too large. It is class 3.
+8. **The tree ensemble** boosts by Newton steps: the residuals with unit
+   Hessians for the squared loss, and `y - p` with `p (1 - p)` for the
+   logistic loss.
+   - **Splits.** Exact greedy splits over every boundary between distinct
+     values maximize `G_L^2 / H_L + G_R^2 / H_R - G^2 / H`. Ties go to the
+     first feature, then the lowest threshold, and a split is made only when
+     its gain is positive.
+   - **Thresholds.** A threshold is the largest value on the left, never a
+     midpoint, which can round onto the next value.
+   - **Leaves and predictions.** A leaf adds `learning_rate * G / H`, and a
+     prediction adds the trees in their order, as training did.
+   - **Subsampling.** A subsample is the rows ranked first by SHA-256 of the
+     seed, the tree and the row. That is the same on every interpreter, unlike
+     `random.sample`, whose algorithm is CPython's.
+   - **Class.** The ensemble is class 2 with the squared loss and class 3 with
+     the logistic loss.
+9. **`BoostingLoss`'s values are a persisted format.** Every capture states
+   the loss, so its values are pinned beside the other enums a decoder reads
+   (`tests/regression/test_persisted_enum_names.py`).
+10. **Names that mean one thing.** The fitted linear state is
+    `LinearModelFit`, not `LinearFit`: `common.statistics` already exports a
+    `LinearFit`, a different object. A tree's nodes are `TreeSplit` and
+    `TreeLeaf`, not `Split`: v3.13 renamed `ml.Split`, a cross-validation
+    index split, to `TrainTestSplit` without an alias (ledger API-001), and
+    the removed name stays removed.
+
 # Compatibility
 
-- Additive: a module, `ml.protocol`, and new names.
+- Additive: two modules, `ml.protocol` and `ml.models`, and new names.
 - `build_dataset_from_feature_store` is kept, and documented as not
   point-in-time.
 - No existing identity, signature or persisted format moves.

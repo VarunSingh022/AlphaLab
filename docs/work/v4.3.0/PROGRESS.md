@@ -41,14 +41,14 @@ Never:
 - Deleting Git history or force-pushing.
 - Disabling security controls or rulesets to bypass a failure.
 
-## Current state (2026-11-16)
+## Current state (2026-11-17)
 
 | | |
 | --- | --- |
-| Remote head | `13c437c` |
+| Remote head | `6bc417e` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M6 on hosted CI: 13c437c's run, the re-run macOS cells of 7b6bdc0 and 04b4e0f, and the benchmarks dispatched at M6's checkpoint (run 43928771613), WS-07 item 15's hosted figures and PC-07 read on its Linux cells. M7 (WS-08, WS-09, WS-20): the Model protocol and its artifacts with the reference models, point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. |
+| Next | M7 (WS-08, WS-09, WS-20), after the Model protocol: point-in-time panels, labels and weights, the samplers, feature_store's as-of reads, alphalab-models with its scikit-learn adapter and CI cells, the AC-38 sweep with tzdata read as data, S-07, the ML guide and M7's mutation series. 13c437c's re-run macOS cell is read once at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -166,6 +166,13 @@ Never:
 | `7b6bdc0` | CodeQL | 43910489046 | success |
 | `04b4e0f` | Continuous Integration | 43912097470 | failure on attempt 1 with no test failing: the three Linux cells and macOS 3.13 and 3.14 passed; macOS 3.12 was never acquired by a hosted runner and ended cancelled. It was re-run as attempt 2, in progress at this record and not counted as passed |
 | `04b4e0f` | CodeQL | 43912097311 | success |
+| `7b6bdc0` | Continuous Integration | 43910489150 | success on attempt 2: macOS 3.12 and 3.13, never acquired on attempt 1, were re-run and passed, so all six cells passed, carrying S-02's screen and the guide |
+| `04b4e0f` | Continuous Integration | 43912097470 | success on attempt 2: macOS 3.12, never acquired on attempt 1, was re-run and passed, so all six cells passed, carrying ARMA |
+| `13c437c` | Continuous Integration | 43928758566 | failure on attempt 1 with no test failing: five cells passed; macOS 3.14 was never acquired by a hosted runner and ended cancelled. Re-run as attempt 2, in progress at this record and not counted as passed. The same code and tests passed all six cells in 6bc417e's run, which adds only two ADRs and the register |
+| `13c437c` | CodeQL | 43928758581 | success |
+| `13c437c` | Benchmarks | 43928771613 | success on every cell, dispatched at M6's checkpoint. Linux, authoritative, on CPython 3.12, 3.13 and 3.14: Johansen 0.085, 0.090 and 0.093 CPU s against 2; GARCH(1, 1) on 2,520 returns 0.158, 0.172 and 0.179 CPU s against 5; PC-07's series 1.17 to 3.97 percent against 10, and series and trace 6.67 to 8.88 against 15. macOS diagnostic |
+| `6bc417e` | Continuous Integration | 43930430840 | success: all six quality-gate cells, carrying ADR-0057, ADR-0064 and M6's close's code and tests |
+| `6bc417e` | CodeQL | 43930430883 | success |
 
 ## Continuation log
 
@@ -245,6 +252,7 @@ Never:
 - **2026-11-16** ARMA validated locally (TD-45): conditional least squares, class 2, and the exact Gaussian likelihood, both in coordinates that keep every estimate stationary and invertible, the order chosen by AIC or BIC on one sample; the exact likelihood held to the joint density; known parameters recovered; pinned across CPython 3.12, 3.13 and 3.14.
 - **2026-11-16** 7b6bdc0 (S-02's screen and the guide) and 04b4e0f (ARMA) passed the full local gate and were pushed; 5513213 (regime models) and 50f9632 (WS-25) passed hosted CI on all six cells and CodeQL. On 7b6bdc0 and 04b4e0f CodeQL passed and so did every cell a runner took, but three macOS cells were never acquired by a hosted runner (GitHub's capacity notice for macOS arm64) and ended cancelled, so neither run counts as passed; the cancelled jobs were re-run and are read once at the next boundary. M6's close: the EC mutation series caught 39 of 40 on the first run; EC28, the MA polynomial's sign, cannot move an MA(1) -- flipping it only mirrors the coordinate -- so an MA(2) with complex roots joined the recovery cases and EC28 was caught when run again. GAP-11 closed; WS-25's characteristic portfolios and incremental evaluator recorded for M11.
 - **2026-11-16** M6's close (13c437c) passed the full gate (13,904 tests) and was pushed; the benchmarks workflow was dispatched at M6's checkpoint (run 43928771613), and PR #22's description records M6's state, the cancelled macOS cells included. M7 begins: ADR-0057 (optional distributions beside a dependency-free core, D-V2) and ADR-0064 (the research model protocol, a trained model's identity as its artifact) accepted (TD-46, TD-47). Measured for ADR-0057: no alphalab module imports a third-party package by an import statement; lifecycle.environment imports tzdata by name, and is to read its version as data instead (AC-38).
+- **2026-11-17** 6bc417e (ADR-0057 and ADR-0064) passed the full gate (13,904 tests) and was pushed, and passed hosted CI on all six cells and CodeQL. The re-run macOS cells of 7b6bdc0 and 04b4e0f passed, so both passed all six cells. 13c437c (M6's close) lost macOS 3.14 to runner capacity and was re-run; its code and tests passed all six cells in 6bc417e's run, so M6 and WS-07 passed hosted CI. The benchmarks dispatched at M6's checkpoint passed every cell: on Linux, Johansen 0.085 to 0.093 CPU s against 2, GARCH 0.158 to 0.179 against 5, and PC-07's series and trace 6.67 to 8.88 percent against 15. The host restarted during a network outage; /private/tmp was cleared and the scratch toolchain rebuilt (a CPython 3.12.4 venv; uv's 3.13.18 and 3.14.10) and checked against the checkout. One uncommitted test edit had been reverted on disk before the restart and was re-applied. The Model protocol validated locally (TD-48): ml.protocol and ml.models, the three reference models pinned under CPython 3.12, 3.13 and 3.14.
 
 ## Milestones
 
@@ -257,7 +265,7 @@ Never:
 | M3 | Hosted CI passed | WS-04, WS-06, WS-13 | 16-variant PBO from captures = from full history; capture ≤ 10 %; GR-5 |
 | M4 | Hosted CI passed | WS-05, WS-23, WS-19 | 48-trial ledgered experiment with failures and an insolvency counted; spawn = sequential; spy-on-import refusal |
 | M5 | Hosted CI passed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
-| M6 | Pushed | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
+| M6 | Hosted CI passed | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | In progress | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Not started | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
 | M9 | Not started | WS-12 | A rebalancing backtest with CVaR, certified |
@@ -781,6 +789,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md
 - **Tests:** Protocol conformance for every reference model; capture, restore and capture again byte-identical; a restore from altered bytes refused; INPUTS_DIFFER on another artifact; a model-holding strategy restored byte for byte (S-07).
 
+### TD-48: The Model protocol, its artifacts and three reference models (ADR-0064's settled points) (WS-08, 2026-11-17)
+
+- **Problem:** ADR-0064 fixed the contract. Implementing it had to settle the training set's identity, the canonical capture, the binding to an artifact store and the reference models' numerics, and keep a model's bytes host-independent wherever its arithmetic is.
+- **Alternatives:** A capture by pickle, by free-form JSON, or by canonical JSON captured again on restore. A tree threshold at the midpoint between values, or at the largest value on the left. A subsample by random.sample, or by SHA-256 ranks. A fitted linear state named LinearFit, the name common.statistics already exports, and tree nodes named Split, the name v3.13 removed from ml; or names of their own.
+- **Decision:** ml.protocol holds Model, FeatureMatrix, TrainingSet (its identity the SHA-256 of its values by shortest repr), the canonical capture alphalab.model.v1 (five keys, sorted, ASCII, no whitespace, finite floats by shortest repr, re-captured on restore) and the binding: train_model, file_model and restore_model through an ArtifactStore, with a TrainingRecord beside the artifact. ml.models holds RidgeRegression (QR on sqrt-weighted rows with sqrt-penalty rows, class 2), LogisticRegression (Newton steps solved as weighted least squares, ConvergenceError past its limit, separated classes refused without a penalty, class 3) and GradientBoostedTrees (Newton boosting, exact greedy splits, ties to the first feature and lowest threshold, the threshold the largest left value, a subsample ranked by SHA-256 of seed, tree and row). A fit its hyperparameters could not have produced is refused. BoostingLoss's values are pinned as a persisted format. The fitted linear state is LinearModelFit, and a tree's nodes are TreeSplit and TreeLeaf: ml.Split was renamed TrainTestSplit in v3.13 (API-001) and stays removed.
+- **Rationale:** One model has one artifact only if its bytes are canonical and checked, and a class-2 model is the same bytes on every host only if every step is correctly rounded and every draw comes from a hash rather than an interpreter's algorithm. A midpoint can round onto the next value and put it on the wrong side.
+- **Compatibility:** Additive: ml.protocol and ml.models, and 24 names in alphalab.ml (3,053 exports). No existing identity, signature or persisted format moves.
+- **Recorded in:** docs/ADR/0064-research-model-protocol-and-artifacts.md (settled points 1 to 10)
+- **Tests:** tests/unit/ml/test_model_protocol.py: conformance of every reference model, the training set's identity and refusals, canonical capture, the binding through memory and file stores, altered bytes refused. tests/unit/ml/test_reference_models.py: the ridge against its normal equations solved exactly, the logistic regression's closed form and score equations, the trees against hand computation. tests/regression/test_model_artifacts_are_pinned.py: digests and values pinned under CPython 3.12, 3.13 and 3.14.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -804,7 +822,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-04 | Streaming research-result capture | M3 | In progress |
 | WS-05 | Experiment and trial ledger, executor, runner registry | M4 | In progress |
 | WS-06 | Statistical research functions | M2, M3, M5 | In progress |
-| WS-07 | Econometrics and time series | M6 | In progress |
+| WS-07 | Econometrics and time series | M6 | Hosted CI passed |
 | WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | In progress |
 | WS-09 | Optional distributions and backends | M7, M11 | In progress |
 | WS-10 | Strategy authoring and safe extensibility | M8 | Not started |
@@ -964,17 +982,18 @@ Evidence:
 - [Hosted CI passed] M6: GARCH, GJR-GARCH and EGARCH by Gaussian likelihood in admissible coordinates (TD-40): every choice stated, standard errors from the curvature, class 3 with the convergence report; known parameters recovered for each model; hosts agreeing within 1e-4; 2,520 returns in 0.081 CPU s against the plan's 5 s
 - [Hosted CI passed] M6: State space (TD-41): the Kalman filter in Joseph's form and the RTS smoother back to the initial state, class 2 for given parameters with a class-3 log-likelihood; the local level and the time-varying beta (each beta a random walk, the intercept absent, fixed or drifting) fitted by likelihood from an exact diffuse start, standard errors from the curvature in the variances' logarithms; the filter held to the joint density, Bayesian least squares and the exact posterior in rationals, the start to a 10^30 prior's limit, known variances recovered, every refusal held; pinned across CPython 3.12, 3.13 and 3.14
 - [Hosted CI passed] M6: Regime models (ADR-0075, OFE-010 reopened and delivered, TD-42): the Gaussian HMM and the Markov-switching regression by EM through Hamilton's filter and Kim's smoother, scaled; QuantileStart or an explicit start; the ADR's labelling; standard errors from the observed information, structural zeros kept; filtered and smoothed probabilities and the Viterbi path, each held to exact fractions; two- and three-state chains, a switching regression and a switching autoregression recovered; a collapsing state, a flat transition and every malformed choice refused; pinned across CPython 3.12, 3.13 and 3.14
-- [Pushed] M6: S-02's screening stage (TD-44, ADR-0074 settled point 20): research.cointegration_screen tests every candidate pair on a stated sample with Engle and Granger's test and corrects the whole family by research.multiple_testing; a refused pair and a p-value bounded from below enter with one, a bound from above as its bound; screen_id over the pairs, the series' identities, the choices and the class-2 statistics; 200 candidates screened, the planted pairs alone selected under Holm; the same 200 a ledgered experiment's trials in spawned workers, each fitting its own window, every one recorded; the econometrics guide, docs/ECONOMETRICS.md; pinned across CPython 3.12, 3.13 and 3.14
-- [Pushed] M6: ARMA (TD-45, ADR-0074 settled point 21): conditional least squares (class 2) and the exact Gaussian likelihood by the Kalman filter from the stationary covariance (class 3), in partial-autocorrelation coordinates that keep every estimate stationary and invertible; Gauss-Newton and curvature standard errors; select_arma by AIC or BIC on one sample, Decimal logarithms under least squares; the recursion and its inverse, the exact likelihood held to the joint density, known parameters recovered by both methods; pinned across CPython 3.12, 3.13 and 3.14
-- [Pushed] M6: Mutation series EC (40): the unit-root tests and MacKinnon's tables, Engle-Granger, Johansen, the half-life, the VAR's criterion and sample, the GARCH family, the filter, smoother and diffuse start, the regime models, ARMA, the shared curvature, Fama-MacBeth, principal components and S-02's screen -- 40 of 40 caught, EC28 after the MA(2) case it asked for
+- [Hosted CI passed] M6: S-02's screening stage (TD-44, ADR-0074 settled point 20): research.cointegration_screen tests every candidate pair on a stated sample with Engle and Granger's test and corrects the whole family by research.multiple_testing; a refused pair and a p-value bounded from below enter with one, a bound from above as its bound; screen_id over the pairs, the series' identities, the choices and the class-2 statistics; 200 candidates screened, the planted pairs alone selected under Holm; the same 200 a ledgered experiment's trials in spawned workers, each fitting its own window, every one recorded; the econometrics guide, docs/ECONOMETRICS.md; pinned across CPython 3.12, 3.13 and 3.14
+- [Hosted CI passed] M6: ARMA (TD-45, ADR-0074 settled point 21): conditional least squares (class 2) and the exact Gaussian likelihood by the Kalman filter from the stationary covariance (class 3), in partial-autocorrelation coordinates that keep every estimate stationary and invertible; Gauss-Newton and curvature standard errors; select_arma by AIC or BIC on one sample, Decimal logarithms under least squares; the recursion and its inverse, the exact likelihood held to the joint density, known parameters recovered by both methods; pinned across CPython 3.12, 3.13 and 3.14
+- [Hosted CI passed] M6: Mutation series EC (40): the unit-root tests and MacKinnon's tables, Engle-Granger, Johansen, the half-life, the VAR's criterion and sample, the GARCH family, the filter, smoother and diffuse start, the regime models, ARMA, the shared curvature, Fama-MacBeth, principal components and S-02's screen -- 40 of 40 caught, EC28 after the MA(2) case it asked for
 
 ### WS-08: Research model interfaces, ML datasets, hyperparameter search
 
-- [Local validation passed] M7: ADR-0064 accepted (TD-47): the Model protocol, a trained model's identity as its artifact, the reference models and the adapters' place
+- [Hosted CI passed] M7: ADR-0064 accepted (TD-47): the Model protocol, a trained model's identity as its artifact, the reference models and the adapters' place
+- [Local validation passed] M7: The Model protocol and its artifacts (TD-48, ADR-0064 settled points 1 to 10): ml.protocol's Model, FeatureMatrix, TrainingSet and canonical capture; train_model, file_model and restore_model through an ArtifactStore; RidgeRegression (class 2), LogisticRegression (class 3) and GradientBoostedTrees (class 2 with the squared loss), each pinned under CPython 3.12, 3.13 and 3.14
 
 ### WS-09: Optional distributions and backends
 
-- [Local validation passed] M7: ADR-0057 accepted (TD-46): optional distributions under distributions/, AC-38 enforced by an AST sweep, tzdata read as data, discovery explicit
+- [Hosted CI passed] M7: ADR-0057 accepted (TD-46): optional distributions under distributions/, AC-38 enforced by an AST sweep, tzdata read as data, discovery explicit
 
 ### WS-13: Global conventions, reference data and historical universes
 
