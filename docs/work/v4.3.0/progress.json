@@ -1094,6 +1094,19 @@
       "compatibility": "Additive: an appended topic member, one event, one protocol and one helper (three exports), a BaseStrategy default answering nothing, a static method, and a keyword-only parameter defaulting to None on algorithmic.work. StrategyProtocol is unchanged, and a run whose strategies do not define the hook is unchanged.",
       "record": "docs/ADR/0061-per-venue-execution-plans-with-queues-and-child-fills.md (settled point 2); docs/COMPOSING_STRATEGIES.md; CHANGELOG",
       "tests": "tests/integration/test_child_fill_feedback.py (6): from the queue suite's records a strategy hears its child's fills of 20, 50 and 30, each its whole share, a buy, by the parent's execution ids, and without the queue the one fill of 100; an answer of a sale of 10 is placed at the fill it answers, adopted, filled at 99.985 two records later, and its child's fill heard with a share of -10; a strategy without the hook, or not subscribed, hears nothing and fills as the plain run does; a replay hears what the backtest hears, and a replay paused at each boundary resumes to the same result."
+    },
+    {
+      "id": "TD-65",
+      "date": "2026-11-21",
+      "workstream": "WS-11",
+      "title": "Package intents: legs netted, sized and approved whole, linked by metadata, filled all or none at a slice close (ADR-0062 settled point 1, GAP-26)",
+      "problem": "Every intent named one instrument, so a pair's legs were sized, approved and filled apart, and one could fill while the other was refused, capped or blocked (GAP-26). Allocation nets by asset and terms and sizes deltas by the run's model; a run's steps record its orders, so a new order field would move every run's record; legs must trade at one instant, which only a slice close knows; and the slice close ran only when a strategy wanted it.",
+      "alternatives": "A package as a new intent type, or an intent kind with legs. Netting inside the run's one allocation call, or a call per package. The package identifier as an order field, or in the leg's metadata. Execution at the last leg's event, or at a slice close. Shape errors raised as invalid intents, or refused by the run and recorded.",
+      "decision": "IntentKind.PACKAGE and Intent.legs of Leg(instrument, ratio). validate_intent refuses only what is not a package's shape; the run refuses fewer than two legs, a duplicate, a zero ratio, an unpriced leg, non-market terms, a leg off whole units, or non-simulated routing, recording a PackageRefused. Packages enter with the batch's instructions after cancels and amends, at every intake. Packages with the same legs and terms net; each netted package is allocated in its own call as leg deltas under FixedQuantitySizing, and must be placed exactly as stated. Risk evaluates each leg against the book with the legs before it; any refusal returns the state from before the package. Legs carry package_id, package_legs and package_label in metadata. They take no turn at their asset's events, no auction part and no computed-auction interest, and a cancel or amend naming one is refused. ExecutionPipeline.close_slice works every package with a leg in the instant's assets before delivering the slice, by the run's fill policy, which RunEngine.close_slice passes; it runs when a package is working whether or not slices are wanted. At its turn a package ends with a leg ended otherwise, expires whole past its day, waits for its timing's instant, an instant pricing every leg and each leg's latency, rests under a venue block, and fills every leg in full at its own price, or none. Unfilled, it is withdrawn under CANCEL or keeps a remainder's rest. Fill and order events carry package_id; an older event decodes it as empty. AllocationEngine.allocate refuses a package given to it directly.",
+      "rationale": "An intent kind keeps StrategyProtocol's return type. A call per package nets a leg only with the same leg of the same package, and FixedQuantitySizing states the ADR's quantity exactly. Metadata keeps every run's record and snapshot bytes, as ADR-0060's remainders and latency do. A slice close is the one point at which the run knows every leg's price at one instant. Refusing what a strategy asks for, rather than failing the strategy, is how every other refused instruction is treated.",
+      "compatibility": "Additive: an appended intent kind, a trailing field on Intent, a Leg type and a PackageRefused event (two exports), a trailing package_id on FillEvent and OrderEvent, a keyword on close_slice. A run placing no package keeps its record, snapshot bytes and identities; its slice closes still return at once.",
+      "record": "docs/ADR/0062-combo-and-multi-leg-intents.md (settled point 1); CHANGELOG",
+      "tests": "tests/integration/test_package_intents.py (18): a pair at one instant, A at 100 and B at 50; NEXT_EVENT and NEXT_OPEN at 101 and 49; a package waiting for an instant that priced every leg, at 102 and 48; a cap filling neither leg, and a resting remainder filling at the next instant, or spent; risk refusing the package whole; six and four packages netting into ten, apart from an order for one leg, each leg's fill divided six to four; a cancel naming a leg refused; every refusal, and the refusal under a plan; each leg's fill and order event carrying its package; a replay paused at each boundary resuming to the same result. tests/regression/test_allocation_semantics.py: allocation refuses a package whole."
     }
   ],
   "plan_changes": [
@@ -2056,7 +2069,7 @@
         {
           "milestone": "M8",
           "item": "ChildFillStrategyProtocol and the optional-protocol pattern codified (ADR-0061 section 3, GAP-45)",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M13",
@@ -2102,7 +2115,12 @@
         {
           "milestone": "M8",
           "item": "Plans with queues (TD-63, ADR-0061 settled point 1, GAP-44): an execution plan's limit children rest in the queue book, each joined at its release event, filling only as far as the model allows; AlgorithmicQueuedResult holds both books; a paused replay resumes to the same books",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M8",
+          "item": "Package intents (TD-65, ADR-0062 settled point 1, GAP-26): IntentKind.PACKAGE with Leg ratios, netted and approved whole, legs linked in metadata and worked only together, filled all or none at a slice close; PackageRefused recorded",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -2775,8 +2793,8 @@
       "id": "GAP-26",
       "problem": "No combo orders",
       "severity": "M/P2",
-      "status": "Open",
-      "status_note": "",
+      "status": "Closed",
+      "status_note": "Closed at M8 (WS-11, ADR-0062, TD-65): a package intent trades its legs as one order -- netted, sized and approved whole, linked, and filled at the close of an instant that priced every leg, every leg in full or none. Refused whole, recorded.",
       "workstreams": [
         "WS-11"
       ],
@@ -3317,7 +3335,7 @@
   },
   "state": {
     "updated": "2026-11-21",
-    "remote_head": "5497ea1",
+    "remote_head": "e679ce2",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4350,7 +4368,7 @@
         "sha": "5497ea1",
         "workflow": "Continuous Integration",
         "run": 44872211295,
-        "result": "macOS 3.13 passed; five cells running at this record, not counted as passed"
+        "result": "success: all six quality-gate cells"
       },
       {
         "sha": "5497ea1",
@@ -4363,10 +4381,28 @@
         "workflow": "Optional Distributions",
         "run": 44872211315,
         "result": "success"
+      },
+      {
+        "sha": "e679ce2",
+        "workflow": "Continuous Integration",
+        "run": 44873619921,
+        "result": "success: all six quality-gate cells"
+      },
+      {
+        "sha": "e679ce2",
+        "workflow": "CodeQL",
+        "run": 44873619922,
+        "result": "success"
+      },
+      {
+        "sha": "e679ce2",
+        "workflow": "Optional Distributions",
+        "run": 44873619949,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M8, in the plan's commit order: package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close. 5497ea1's CI is read once at the next boundary.",
+    "next": "M8, in the plan's commit order: conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close.",
     "open_questions": []
   },
   "log": [
@@ -4741,6 +4777,10 @@
     {
       "date": "2026-11-21",
       "entry": "5497ea1 (plans with queues, TD-63) passed the full gate (14,190 tests) and was pushed. 939ba55's run passed all six cells, so latency pricing is Hosted CI passed. Child-fill feedback validated locally (TD-64): a strategy that defines on_child_fill and subscribes to child_fills hears each child's fill at the event it happened, divided as a fill is, and its answers route as any intent, under a plan as new parents. The event lives in the strategy layer beside FillEvent, since the backtesting layer's ChildFill is above it, and has its own topic, as slices and observations have theirs. The optional-protocol pattern is codified in the protocol's docstring, the strategy package's and the strategy guide."
+    },
+    {
+      "date": "2026-11-21",
+      "entry": "e679ce2 (child fills, TD-64) passed the full gate on its first run (14,196 tests) and was pushed; 5497ea1's and e679ce2's runs passed all six cells, so plans with queues and child fills are Hosted CI passed. Package intents validated locally (TD-65): a package's legs are netted, sized and approved whole, linked in their metadata, and filled all or none at the close of an instant that priced every leg. Two places a run's record would have moved were kept still: the package identifier lives in each leg's metadata, since a run's steps record its orders, and the new feedback field decodes as empty from an older event. The slice close, which ran only when a strategy wanted slices, now also runs when a package is working; a run with neither returns at once, as before. The commit's first gate failed on one test, the pinned list of intent kinds. It also showed that allocation, given a package directly, would have sized it as a delta of its label; it now refuses one, as it refuses every instruction that is not one order."
     }
   ]
 }

@@ -1129,6 +1129,31 @@ entry below says otherwise.
   * **The tests.** `tests/integration/test_child_fill_feedback.py` holds
     hand-calculated deliveries from the queue suite's records.
 
+* **A package trades its legs together, all or none** [plan WS-11, GAP-26,
+  ADR-0062]. An intent of `IntentKind.PACKAGE` names its legs in `Intent.legs`,
+  each a `Leg(instrument, ratio)`. Its `target` is the signed number of
+  packages, so a leg trades `target * strength * ratio`.
+  * **Netted whole, approved whole.** Packages with the same legs and terms net
+    across strategies, and never with an order for one instrument. Each is
+    allocated as its legs at their ratios whatever the run's sizing model, and
+    risk approves or refuses it as one decision.
+  * **Filled at one instant.** The legs are linked orders, worked only
+    together, at the close of an instant that priced every leg, under the run's
+    fill timing. Every leg fills in full or none does. Under `CANCEL` an
+    unfilled package is withdrawn whole; under a resting remainder it keeps its
+    turns. `RunEngine.close_slice` and `ExecutionPipeline.close_slice` do this
+    work, and `close_slice` takes the run's fill policy as a keyword.
+  * **Refused whole, and recorded.** A package of fewer than two legs, a leg
+    twice, a zero ratio, an unpriced leg, terms other than a market order's, a
+    leg off the run's whole units, or under an execution plan or a venue is
+    refused and recorded as a `PackageRefused`. A cancel or amend naming one leg
+    is refused.
+  * **What is recorded.** Each leg's metadata holds its package, and each leg's
+    `FillEvent` and `OrderEvent` carry `package_id`. No snapshot schema moves,
+    and a run that places no package is unchanged.
+  * **The tests.** `tests/integration/test_package_intents.py` holds
+    hand-calculated fills of a pair.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

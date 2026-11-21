@@ -250,6 +250,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "HoldersRecorded",
         "LifecycleTransitioned",
         "OrderEvent",
+        # v4.3 (ADR-0062): written only when a strategy's package is refused.
+        "PackageRefused",
         "SliceClosed",
         # Phase 5 (FUT-038): written only when an action's terms are corrected.
         "TermsAnnounced",

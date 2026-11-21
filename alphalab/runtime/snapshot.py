@@ -240,6 +240,7 @@ from alphalab.strategy.events import (
     HoldersRecorded,
     LifecycleTransitioned,
     OrderEvent,
+    PackageRefused,
     SliceClosed,
     StrategyRuntimeEvent,
     TermsAnnounced,
@@ -879,6 +880,8 @@ _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
     # Phase 5 (ledger FUT-038): written only by a run whose elective action's
     # terms were corrected.
     TermsAnnounced,
+    # v4.3 (ADR-0062): written only by a run whose strategy's package was refused.
+    PackageRefused,
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,
@@ -1831,6 +1834,8 @@ def _event[EventT](
     payload = as_mapping(require(record, "event"), f"{where}.event")
     kwargs: dict[str, Any] = {}
     for member in fields(cls):  # type: ignore[arg-type]
+        if member.name in _ADDED_EVENT_FIELDS and member.name not in payload:
+            continue  # written before the field existed: its default (ADR-0062)
         raw = require(payload, member.name)
         decoder = decoders.get(member.name)
         kwargs[member.name] = (
@@ -2385,6 +2390,11 @@ def _assets(value: Any, where: str) -> tuple[str, ...]:
         as_str(item, f"{where}[{index}]") for index, item in enumerate(as_sequence(value, where))
     )
 
+
+#: Event fields added after events carrying them could be written: a payload
+#: from before reads each as its default. ``package_id`` (v4.3, ADR-0062) is a
+#: fill's or an order event's package, empty for an order that is no leg.
+_ADDED_EVENT_FIELDS: Final = frozenset({"package_id"})
 
 _STRATEGY_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,

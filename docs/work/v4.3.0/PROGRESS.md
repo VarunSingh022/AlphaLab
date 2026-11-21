@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `5497ea1` |
+| Remote head | `e679ce2` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M8, in the plan's commit order: package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close. 5497ea1's CI is read once at the next boundary. |
+| Next | M8, in the plan's commit order: conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -223,9 +223,12 @@ Never:
 | `939ba55` | Continuous Integration | 44869945073 | success: all six quality-gate cells |
 | `939ba55` | CodeQL | 44869945079 | success |
 | `939ba55` | Optional Distributions | 44869945078 | success |
-| `5497ea1` | Continuous Integration | 44872211295 | macOS 3.13 passed; five cells running at this record, not counted as passed |
+| `5497ea1` | Continuous Integration | 44872211295 | success: all six quality-gate cells |
 | `5497ea1` | CodeQL | 44872211298 | success |
 | `5497ea1` | Optional Distributions | 44872211315 | success |
+| `e679ce2` | Continuous Integration | 44873619921 | success: all six quality-gate cells |
+| `e679ce2` | CodeQL | 44873619922 | success |
+| `e679ce2` | Optional Distributions | 44873619949 | success |
 
 ## Continuation log
 
@@ -322,6 +325,7 @@ Never:
 - **2026-11-21** bc11621 (remainders and strict caps, TD-61) passed the full gate (14,150 tests) and was pushed. baaa305's and bc11621's runs passed all six cells, with CodeQL and the optional distributions, so NEXT_OPEN, the remainders and M8's ADRs are Hosted CI passed. ec1ca9b's own re-run macOS cells were again never acquired by a runner: not counted, and re-run once more. Latency pricing validated locally (TD-62). Implementing it found that section 5's rule, a bar's open under NEXT_OPEN, would fill an order whose latency ends inside an intraday bar at a price from before it reached the market -- the combination conservative_execution states. ADR-0060 settled point 3 makes that turn an arriving one, the bar's close alone, and meets a daily bar's session from its open. Its first tests found that the rule must hold at the first turn only: the reopening tests' minute bars are stamped a second apart, so every later bar's interval held the ready instant too. The first turn is now recorded on the order.
 - **2026-11-21** 939ba55 (latency pricing, TD-62) passed the full gate on its first run (14,182 tests) and was pushed. ec1ca9b's third attempt passed all six cells. Plans with queues validated locally (TD-63): an execution plan and a queue model run together, the plan's limit children resting in the queue book, each joined at the event it was released at, and the result an AlgorithmicQueuedResult holding both books. A paused replay already kept both books in optional fields, so no schema moved; its pause now keeps the working children's places rather than the run's own orders', which a plan's run has none of. The new tests' two first failures were the tests': a replay's result_id differs from a backtest's by the run's mode, and a RunConfig derives its routing from its mode. The commit's first gate failed on mypy alone, every test passing: strict mode found the new test reading replace through the queue suite's module, an implicit re-export; unpacking a book typed Any; and narrowing a result to its base class before reading its queue. mypy had been run on the package, not on the whole tree as CI runs it.
 - **2026-11-21** 5497ea1 (plans with queues, TD-63) passed the full gate (14,190 tests) and was pushed. 939ba55's run passed all six cells, so latency pricing is Hosted CI passed. Child-fill feedback validated locally (TD-64): a strategy that defines on_child_fill and subscribes to child_fills hears each child's fill at the event it happened, divided as a fill is, and its answers route as any intent, under a plan as new parents. The event lives in the strategy layer beside FillEvent, since the backtesting layer's ChildFill is above it, and has its own topic, as slices and observations have theirs. The optional-protocol pattern is codified in the protocol's docstring, the strategy package's and the strategy guide.
+- **2026-11-21** e679ce2 (child fills, TD-64) passed the full gate on its first run (14,196 tests) and was pushed; 5497ea1's and e679ce2's runs passed all six cells, so plans with queues and child fills are Hosted CI passed. Package intents validated locally (TD-65): a package's legs are netted, sized and approved whole, linked in their metadata, and filled all or none at the close of an instant that priced every leg. Two places a run's record would have moved were kept still: the package identifier lives in each leg's metadata, since a run's steps record its orders, and the new feedback field decodes as empty from an older event. The slice close, which ran only when a strategy wanted slices, now also runs when a package is working; a run with neither returns at once, as before. The commit's first gate failed on one test, the pinned list of intent kinds. It also showed that allocation, given a package directly, would have sized it as a delta of its label; it now refuses one, as it refuses every instruction that is not one order.
 
 ## Milestones
 
@@ -1028,6 +1032,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0061-per-venue-execution-plans-with-queues-and-child-fills.md (settled point 2); docs/COMPOSING_STRATEGIES.md; CHANGELOG
 - **Tests:** tests/integration/test_child_fill_feedback.py (6): from the queue suite's records a strategy hears its child's fills of 20, 50 and 30, each its whole share, a buy, by the parent's execution ids, and without the queue the one fill of 100; an answer of a sale of 10 is placed at the fill it answers, adopted, filled at 99.985 two records later, and its child's fill heard with a share of -10; a strategy without the hook, or not subscribed, hears nothing and fills as the plain run does; a replay hears what the backtest hears, and a replay paused at each boundary resumes to the same result.
 
+### TD-65: Package intents: legs netted, sized and approved whole, linked by metadata, filled all or none at a slice close (ADR-0062 settled point 1, GAP-26) (WS-11, 2026-11-21)
+
+- **Problem:** Every intent named one instrument, so a pair's legs were sized, approved and filled apart, and one could fill while the other was refused, capped or blocked (GAP-26). Allocation nets by asset and terms and sizes deltas by the run's model; a run's steps record its orders, so a new order field would move every run's record; legs must trade at one instant, which only a slice close knows; and the slice close ran only when a strategy wanted it.
+- **Alternatives:** A package as a new intent type, or an intent kind with legs. Netting inside the run's one allocation call, or a call per package. The package identifier as an order field, or in the leg's metadata. Execution at the last leg's event, or at a slice close. Shape errors raised as invalid intents, or refused by the run and recorded.
+- **Decision:** IntentKind.PACKAGE and Intent.legs of Leg(instrument, ratio). validate_intent refuses only what is not a package's shape; the run refuses fewer than two legs, a duplicate, a zero ratio, an unpriced leg, non-market terms, a leg off whole units, or non-simulated routing, recording a PackageRefused. Packages enter with the batch's instructions after cancels and amends, at every intake. Packages with the same legs and terms net; each netted package is allocated in its own call as leg deltas under FixedQuantitySizing, and must be placed exactly as stated. Risk evaluates each leg against the book with the legs before it; any refusal returns the state from before the package. Legs carry package_id, package_legs and package_label in metadata. They take no turn at their asset's events, no auction part and no computed-auction interest, and a cancel or amend naming one is refused. ExecutionPipeline.close_slice works every package with a leg in the instant's assets before delivering the slice, by the run's fill policy, which RunEngine.close_slice passes; it runs when a package is working whether or not slices are wanted. At its turn a package ends with a leg ended otherwise, expires whole past its day, waits for its timing's instant, an instant pricing every leg and each leg's latency, rests under a venue block, and fills every leg in full at its own price, or none. Unfilled, it is withdrawn under CANCEL or keeps a remainder's rest. Fill and order events carry package_id; an older event decodes it as empty. AllocationEngine.allocate refuses a package given to it directly.
+- **Rationale:** An intent kind keeps StrategyProtocol's return type. A call per package nets a leg only with the same leg of the same package, and FixedQuantitySizing states the ADR's quantity exactly. Metadata keeps every run's record and snapshot bytes, as ADR-0060's remainders and latency do. A slice close is the one point at which the run knows every leg's price at one instant. Refusing what a strategy asks for, rather than failing the strategy, is how every other refused instruction is treated.
+- **Compatibility:** Additive: an appended intent kind, a trailing field on Intent, a Leg type and a PackageRefused event (two exports), a trailing package_id on FillEvent and OrderEvent, a keyword on close_slice. A run placing no package keeps its record, snapshot bytes and identities; its slice closes still return at once.
+- **Recorded in:** docs/ADR/0062-combo-and-multi-leg-intents.md (settled point 1); CHANGELOG
+- **Tests:** tests/integration/test_package_intents.py (18): a pair at one instant, A at 100 and B at 50; NEXT_EVENT and NEXT_OPEN at 101 and 49; a package waiting for an instant that priced every leg, at 102 and 48; a cap filling neither leg, and a resting remainder filling at the next instant, or spent; risk refusing the package whole; six and four packages netting into ten, apart from an order for one leg, each leg's fill divided six to four; a cancel naming a leg refused; every refusal, and the refusal under a plan; each leg's fill and order event carrying its package; a replay paused at each boundary resuming to the same result. tests/regression/test_allocation_semantics.py: allocation refuses a package whole.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1238,7 +1252,7 @@ Evidence:
 
 ### WS-10: Strategy authoring and safe extensibility
 
-- [Local validation passed] M8: ChildFillStrategyProtocol and the optional-protocol pattern codified (ADR-0061 section 3, GAP-45)
+- [Hosted CI passed] M8: ChildFillStrategyProtocol and the optional-protocol pattern codified (ADR-0061 section 3, GAP-45)
 - [Not started] M13: strategy.compose helpers, typed-configuration templates and the authoring guide: needed by S-12 at M13. The plan's milestone table gives WS-10 to M8 for its child-fill protocol only, so these are recorded here to be scheduled
 
 ### WS-11: Execution realism: fills, partial fills, latency, plan+queue, combos
@@ -1248,7 +1262,8 @@ Evidence:
 - [Hosted CI passed] M8: FillTiming.NEXT_OPEN and the intraday opening rule (TD-60, ADR-0060 settled point 1, GAP-18): a market order's turn at a bar fills at the open, stamped at the delivering event; a declared calendar's pre- and post-market bars give no turn; pipeline schema 9 written only when declared and read strictly; hand-calculated fills at daily and one-minute bars
 - [Hosted CI passed] M8: RestRemainder and StrictLiquidityCappedFill (TD-61, ADR-0060 settled point 2, GAP-38): a market turn's remainder rests for events or seconds, its allowance on the order through OMSEngine.annotate, and is cancelled when the rest ends; a strict cap refuses an event with no size; version 9 when declared
 - [Hosted CI passed] M8: LatencyPricing.POST_LATENCY_EVENT (TD-62, ADR-0060 settled point 3, GAP-19): an order's first turn is its asset's first event at or after its decision plus its latency, stamped there; at the intraday bar it reaches the market within, the close alone; no turn, queue place or auction part on its way; version 9 when declared
-- [Pushed] M8: Plans with queues (TD-63, ADR-0061 settled point 1, GAP-44): an execution plan's limit children rest in the queue book, each joined at its release event, filling only as far as the model allows; AlgorithmicQueuedResult holds both books; a paused replay resumes to the same books
+- [Hosted CI passed] M8: Plans with queues (TD-63, ADR-0061 settled point 1, GAP-44): an execution plan's limit children rest in the queue book, each joined at its release event, filling only as far as the model allows; AlgorithmicQueuedResult holds both books; a paused replay resumes to the same books
+- [Local validation passed] M8: Package intents (TD-65, ADR-0062 settled point 1, GAP-26): IntentKind.PACKAGE with Leg ratios, netted and approved whole, legs linked in metadata and worked only together, filled all or none at a slice close; PackageRefused recorded
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1339,7 +1354,7 @@ Evidence:
 
 ## Gaps
 
-28 open, 21 closed, 4 discarded.
+27 open, 22 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -1368,7 +1383,7 @@ Evidence:
 | GAP-23 | FX booked as units | M/P2 | Open | WS-27 | M10 |
 | GAP-24 | Fixed income foundation only | H/P2 | Open (D-V3) | WS-14 | M10 |
 | GAP-25 | No volatility models | M/P3 → P2 (needed for S-04) | Open (D-V3) | WS-28 | M10 |
-| GAP-26 | No combo orders | M/P2 | Open | WS-11 | M8 |
+| GAP-26 | No combo orders | M/P2 | Closed at M8 (WS-11, ADR-0062, TD-65): a package intent trades its legs as one order -- netted, sized and approved whole, linked, and filled at the close of an instant that priced every leg, every leg in full or none. Refused whole, recorded. | WS-11 | M8 |
 | GAP-27 | No hypothesis record | L/P1 | Closed at M4 (WS-05, ADR-0072, R54-9): ExperimentSpec.hypothesis is stated, and its SHA-256 enters experiment_id, so an experiment's hypothesis is part of its identity (test_the_experiment_id_moves_with_every_part_of_the_specification). Passed on hosted CI, all six cells, on 08e2264. | WS-05 | M4 |
 | GAP-28 | Researcher boilerplate | M/P2 | Open | WS-19 | M13 |
 | GAP-29 | REL-001 v4.2.1 assets | — | Closed (D-V5): historical limitation | — | — |

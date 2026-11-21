@@ -274,7 +274,30 @@ def test_an_intent_is_a_delta_by_construction() -> None:
         "elect",
         # Phase 3 (FUT-029): a strategy amends its own working order; not an order.
         "amend",
+        # v4.3 (ADR-0062): several orders traded together; allocated leg by leg
+        # by the execution pipeline, never whole -- below.
+        "package",
     ]
+
+
+def test_a_package_is_refused_by_allocation_and_never_sized_whole() -> None:
+    from alphalab.allocation.events import AllocationRejected
+    from alphalab.strategy.events import Leg
+
+    state = AllocationEngine.initialize(BUDGET)
+    package = Intent(
+        "S1",
+        "PAIR",
+        Decimal("10"),
+        kind=IntentKind.PACKAGE,
+        legs=(Leg("AAPL", Decimal("1")), Leg("MSFT", Decimal("-1"))),
+    )
+    state, orders = AllocationEngine.allocate(
+        state, (package,), PRICES, TargetWeightSizing(), AllocationConstraints(), 1.0
+    )
+    assert orders == ()
+    (refusal,) = [e for e in state.events if isinstance(e, AllocationRejected)]
+    assert "package PAIR is not one order" in refusal.reason
 
 
 def test_an_election_is_refused_by_allocation_and_never_sized() -> None:

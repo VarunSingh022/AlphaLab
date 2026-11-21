@@ -212,6 +212,19 @@ class AllocationEngine:
                     )
                 )
                 continue
+            if intent.kind is IntentKind.PACKAGE:
+                # Not one order but several, which the pipeline allocates as its
+                # legs, each package in a batch of its own (ADR-0062): sized
+                # here it would read as a delta of its label.
+                events = events.append(
+                    AllocationRejected(
+                        AllocationEngine._create_id(),
+                        timestamp,
+                        f"{intent.strategy_id}'s package {intent.instrument} is not one order "
+                        "and is not allocated whole: the execution pipeline allocates its legs.",
+                    )
+                )
+                continue
             key = _intent_key(intent)
             if key in seen:
                 events = events.append(

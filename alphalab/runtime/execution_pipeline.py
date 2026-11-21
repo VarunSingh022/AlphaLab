@@ -53,6 +53,7 @@ from alphalab.execution.policy import (
     FillDecision,
     FillPolicy,
     FillTiming,
+    ImmediateFill,
     LatencyPricing,
     LiquidityContext,
     RestRemainder,
@@ -189,6 +190,7 @@ from alphalab.strategy.events import (
     IntentKind,
     ObservationReceived,
     OrderEvent,
+    PackageRefused,
     SliceClosed,
     StrategyInboundEvent,
     TermsAnnounced,
@@ -1831,6 +1833,8 @@ class ExecutionPipeline:
         state: ExecutionPipelineState,
         context_factory: ContextFactory,
         rates: FxRates = NO_RATES,
+        *,
+        fill_policy: FillPolicy | None = None,
     ) -> tuple[ExecutionPipelineState, tuple[Intent, ...], tuple[OMSOrder, ...]]:
         """Deliver the instant of the last event, complete, to ``slices`` subscribers.
 
@@ -1850,10 +1854,18 @@ class ExecutionPipeline:
         at its asset's next event's price; ``OrderTerms.at_open()`` takes the next
         daily bar's open instead.
 
+        Packages (v4.3, ADR-0062) with a leg in the instant's assets have their
+        turn first, by ``fill_policy`` -- the run's, which
+        :meth:`~alphalab.runtime.run.RunEngine.close_slice` gives; an immediate
+        fill when none is. A package fills only when every leg was priced at
+        the instant and would fill in full, each at its own price there, and its
+        fills' feedback is delivered as a step's is; otherwise no leg fills.
+
         Nothing happens -- the same state is returned -- when no event has been
-        published or when no running strategy both subscribes to slices and
-        defines ``on_slice`` (:func:`wants_slices`). Which instants have been
-        closed is the run's to remember, as its record cursor is:
+        published, or when no package is working in the instant and no running
+        strategy both subscribes to slices and defines ``on_slice``
+        (:func:`wants_slices`). Which instants have been closed is the run's to
+        remember, as its record cursor is:
         :meth:`~alphalab.runtime.run.RunEngine.close_slice` closes each once.
 
         Returns:
@@ -1862,14 +1874,42 @@ class ExecutionPipeline:
         """
 
         events = state.market.events
-        if not len(events) or not wants_slices(state.strategy):
+        if not len(events):
             return state, (), ()
         last = events[-1]
         at = last.timestamp
+        assets = _instant_assets(events, at)
+        current = state
+        intents: tuple[Intent, ...] = ()
+        orders: tuple[OMSOrder, ...] = ()
+        if _packages_working(current, assets):
+            policy: FillPolicy = ImmediateFill() if fill_policy is None else fill_policy
+            contributions_before = current.allocation.contributions
+            records_before = len(current.trade_records)
+            current, worked = _work_packages(current, at, assets, policy, rates)
+            current, intents, _, answered = _deliver_feedback(
+                current,
+                last,
+                context_factory,
+                current.market_prices,
+                rates,
+                policy,
+                routed=worked,
+                requests=(),
+                contributions_before=contributions_before,
+                records_before=records_before,
+                at=at,
+            )
+            current = _exercises_requested(current, intents, at, rates)
+            current = _elections_requested(current, intents, at)
+            orders = (*worked.orders, *answered.orders)
+        if not wants_slices(current.strategy):
+            return current, intents, orders
         # Derived, not drawn from the run's identifier stream: closing a slice
         # must not move every identifier minted after it.
-        event = SliceClosed(f"SLICE-{at!r}", at, _instant_assets(events, at))
-        return _deliver_instant(state, event, last, context_factory, rates)
+        event = SliceClosed(f"SLICE-{at!r}", at, assets)
+        current, sliced, placed = _deliver_instant(current, event, last, context_factory, rates)
+        return current, (*intents, *sliced), (*orders, *placed)
 
     @staticmethod
     @in_accounting_context
@@ -3158,6 +3198,7 @@ def _allocate(
     market_prices: Mapping[str, Decimal],
     rates: FxRates,
     timestamp: float,
+    sizing_model: SizingModel | None = None,
 ) -> tuple[AllocationState, tuple[OrderRequest, ...]]:
     """Allocate intents with everything allocation reads and cannot see for itself.
 
@@ -3174,7 +3215,7 @@ def _allocate(
         state.allocation,
         intents,
         market_prices,
-        state.config.sizing_model,
+        state.config.sizing_model if sizing_model is None else sizing_model,
         constraints,
         timestamp,
         _budget_prices(state, market_prices, rates, timestamp),
@@ -5546,7 +5587,14 @@ def _book_package(
     return current
 
 
-_NOT_ORDERS: Final = (IntentKind.EXERCISE, IntentKind.CANCEL, IntentKind.ELECT, IntentKind.AMEND)
+_NOT_ORDERS: Final = (
+    IntentKind.EXERCISE,
+    IntentKind.CANCEL,
+    IntentKind.ELECT,
+    IntentKind.AMEND,
+    # Placed whole, by _packages_requested (ADR-0062).
+    IntentKind.PACKAGE,
+)
 
 
 def _cancels_requested(
@@ -5583,6 +5631,13 @@ def _cancels_requested(
                         "would withdraw theirs.",
                     )  # fmt: skip
                 continue
+            if _PACKAGE in current.oms.orders.find(order_id).metadata:
+                current = _refuse_cancel(
+                    current, intent, order_id, timestamp,
+                    "The order is a leg of a package, whose legs are worked and withdrawn only "
+                    "together (ADR-0062).",
+                )  # fmt: skip
+                continue
             routing = current.config.routing
             if routing is ExecutionRouting.EXTERNAL:
                 current = _refuse_cancel(
@@ -5612,17 +5667,19 @@ def _instructions_requested(
     rates: FxRates,
     rest: bool = False,
 ) -> tuple[ExecutionPipelineState, tuple[Intent, ...], _Routed]:
-    """Carry out the batch's cancels and amends: the intents left to size, and the amends' routing.
+    """Carry out the batch's cancels, amends and packages: the intents left to size, and routing.
 
     Cancels first, then amends -- each replacement placed atomically, before
-    the batch's own orders (FUT-031).
+    the batch's own orders (FUT-031) -- then packages, each placed whole or
+    refused whole (ADR-0062).
     """
 
     current = _cancels_requested(state, intents, timestamp)
     current, routed = _amends_requested(
         current, intents, timestamp, event=event, policy=policy, rates=rates, rest=rest
     )
-    return current, _for_orders(intents), routed
+    current, packaged = _packages_requested(current, intents, timestamp, event=event, rest=rest)
+    return current, _for_orders(intents), routed.then(packaged)
 
 
 def _amends_requested(
@@ -5782,6 +5839,12 @@ def _amendable(state: ExecutionPipelineState, intent: Intent) -> tuple[str | Non
                 "The order is netted with another strategy's, and amending it would amend theirs.",
                 None,
             )
+        if _PACKAGE in state.oms.orders.find(order_id).metadata:
+            return (
+                "The order is a leg of a package, whose legs are worked and amended only "
+                "together (ADR-0062).",
+                None,
+            )
         own.append(state.oms.orders.find(order_id))
     if len(own) != 1:
         return (
@@ -5922,6 +5985,375 @@ def _refuse_cancel(
     return evolve(
         state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, refused), ())
     )
+
+
+# --------------------------------------------------------------------------- #
+# Packages: legs traded together, all or none at one instant (ADR-0062)
+# --------------------------------------------------------------------------- #
+
+#: Where a leg records its package's identity -- the first leg's order id --
+#: and its legs' order ids, in its metadata, which every snapshot carries.
+_PACKAGE: Final = "package_id"
+_PACKAGE_LEGS: Final = "package_legs"
+#: The package's label, its intent's ``instrument``: recorded, never resolved.
+_PACKAGE_LABEL: Final = "package_label"
+#: When a package may first fill: at the close of the instant it was decided in
+#: (``_PACKAGE_FROM``) or of a later one (``_PACKAGE_AFTER``) -- the run's fill
+#: timing, or a package placed from feedback, which rests.
+_PACKAGE_FROM: Final = "package_from"
+_PACKAGE_AFTER: Final = "package_after"
+
+#: The times in force a market package may have: it works until it fills, or
+#: its day ends.
+_PACKAGE_TIMES: Final = frozenset({TimeInForce.DAY, TimeInForce.GTC})
+
+
+def _packages_requested(
+    state: ExecutionPipelineState,
+    intents: tuple[Intent, ...],
+    timestamp: float,
+    *,
+    event: MarketEvent | None,
+    rest: bool,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Place each package the batch asks for, whole, or refuse it whole (ADR-0062).
+
+    Packages with the same legs and terms net across strategies into one; a
+    package never nets with an order for one instrument. Each is allocated as
+    its legs, sized ``target * strength * ratio`` whatever the run's sizing
+    model, approved by risk as one decision against the book projected with
+    every leg, and placed as linked leg orders, worked together at a slice
+    close. One that cannot be -- its shape, its prices, its units, allocation or
+    risk -- is refused, recorded as a
+    :class:`~alphalab.strategy.events.PackageRefused`, and holds nothing. A run
+    whose strategies ask for no package takes one test per intent.
+    """
+
+    if not any(intent.kind is IntentKind.PACKAGE for intent in intents):
+        return state, _NO_ROUTING
+    current = state
+    groups: dict[tuple[tuple[tuple[str, Decimal], ...], OrderTerms], list[Intent]] = {}
+    for intent in intents:
+        if intent.kind is not IntentKind.PACKAGE:
+            continue
+        refusal = _package_refusal(current, intent)
+        if refusal is not None:
+            current = _refuse_package(current, intent, timestamp, refusal)
+            continue
+        key = (tuple(sorted((leg.instrument, leg.ratio) for leg in intent.legs)), intent.terms)
+        groups.setdefault(key, []).append(intent)
+    routed = _NO_ROUTING
+    for group in groups.values():
+        current, placed = _place_package(current, tuple(group), timestamp, event=event, rest=rest)
+        routed = routed.then(placed)
+    return current, routed
+
+
+def _package_refusal(state: ExecutionPipelineState, intent: Intent) -> str | None:
+    """Why ``intent`` cannot be a package at all, or ``None`` (ADR-0062 section 1)."""
+
+    if state.config.routing is not ExecutionRouting.SIMULATED:
+        return (
+            f"A package's legs are worked together by the simulator, and this run routes "
+            f"{state.config.routing.name}."
+        )
+    legs = intent.legs
+    if len(legs) < 2:
+        return f"A package trades two legs or more; this one names {len(legs)}."
+    seen: set[str] = set()
+    for leg in legs:
+        if leg.instrument in seen:
+            return f"A package names each leg once; {leg.instrument} appears twice."
+        seen.add(leg.instrument)
+        if leg.ratio == 0:
+            return f"A leg's ratio is not zero; {leg.instrument}'s is."
+        if leg.instrument not in state.market_prices:
+            return f"Leg {leg.instrument} has no price the run has observed."
+    terms = intent.terms
+    if terms.order_type is not OrderType.MARKET or terms.time_in_force not in _PACKAGE_TIMES:
+        return (
+            f"A package is a market order, good for the day or until cancelled; this one is "
+            f"{terms.order_type.name}, {terms.time_in_force.name}."
+        )
+    return None
+
+
+def _refuse_package(
+    state: ExecutionPipelineState, intent: Intent, timestamp: float, reason: str
+) -> ExecutionPipelineState:
+    """Record that ``intent``'s package was refused whole, in the strategy runtime's log."""
+
+    refused = PackageRefused(
+        str(new_id()), timestamp, intent.strategy_id, intent.instrument, reason
+    )
+    strategy = state.strategy
+    return evolve(
+        state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, refused), ())
+    )
+
+
+def _place_package(
+    state: ExecutionPipelineState,
+    group: tuple[Intent, ...],
+    timestamp: float,
+    *,
+    event: MarketEvent | None,
+    rest: bool,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Allocate, approve and place one netted package as its legs, or refuse it whole."""
+
+    legs = group[0].legs
+    net = sum((intent.target * intent.strength for intent in group), Decimal("0"))
+    if net == 0:
+        return state, _NO_ROUTING  # the strategies' packages net to nothing
+    whole = _whole_units(state)
+
+    def refuse(reason: str) -> tuple[ExecutionPipelineState, _Routed]:
+        refused = state
+        for intent in group:
+            refused = _refuse_package(refused, intent, timestamp, reason)
+        return evolve(refused, id_position=current_id_position()), _NO_ROUTING
+
+    if whole:
+        for leg in legs:
+            quantity = net * leg.ratio
+            if quantity != quantity.to_integral_value():
+                return refuse(
+                    f"Leg {leg.instrument} would trade {quantity}, and the run trades whole units."
+                )
+    leg_intents = tuple(
+        Intent(
+            intent.strategy_id,
+            leg.instrument,
+            intent.target * leg.ratio,
+            strength=intent.strength,
+            horizon=intent.horizon,
+            terms=intent.terms,
+            correlation_id=intent.correlation_id,
+            timestamp=intent.timestamp,
+            metadata=intent.metadata,
+        )
+        for leg in legs
+        for intent in group
+    )
+    allocation, requests = _allocate(
+        state, leg_intents, state.market_prices, NO_RATES, timestamp, FixedQuantitySizing()
+    )
+    expected = {leg.instrument: net * leg.ratio for leg in legs}
+    placed = {
+        request.asset_id: (request.quantity if request.side is CoreSide.BUY else -request.quantity)
+        for request in requests
+    }
+    if placed != expected:
+        return refuse(
+            "Allocation could not place every leg as the package states: "
+            + ", ".join(
+                f"{asset} {placed.get(asset, Decimal('0'))} of {quantity}"
+                for asset, quantity in expected.items()
+            )
+            + "."
+        )
+    current = evolve(state, allocation=allocation)
+    decisions: list[RiskDecision] = []
+    for request in requests:
+        current, decision = _evaluate_risk(current, request, timestamp, NO_RATES)
+        decisions.append(decision)
+        if not decision.approved:
+            return refuse(f"Risk refused leg {request.asset_id}: {decision.reason}")
+    orders: list[OMSOrder] = []
+    for request in requests:
+        current, order = _submit_and_accept_order(current, request, timestamp)
+        orders.append(order)
+    package_id = str(orders[0].order_id.value)
+    entries = {
+        _PACKAGE: package_id,
+        _PACKAGE_LEGS: ",".join(str(order.order_id.value) for order in orders),
+        _PACKAGE_LABEL: group[0].instrument,
+        (
+            _PACKAGE_FROM
+            if current.config.fill_timing is FillTiming.SAME_EVENT and not rest
+            else _PACKAGE_AFTER
+        ): repr(timestamp),
+    }
+    for order in orders:
+        current = evolve(current, oms=OMSEngine.annotate(current.oms, order.order_id, entries))
+        current, _ = _await_latency(
+            current, current.oms.orders.find(order.order_id), timestamp, timestamp
+        )
+    held = tuple(current.oms.orders.find(order.order_id) for order in orders)
+    return evolve(current, id_position=current_id_position()), _Routed(
+        decisions=tuple(decisions), orders=held
+    )
+
+
+def _packages_working(state: ExecutionPipelineState, assets: Iterable[str]) -> bool:
+    """Whether a package has a leg working in one of ``assets`` (ADR-0062)."""
+
+    oms = state.oms
+    return any(
+        _PACKAGE in oms.orders.find(order_id).metadata
+        for asset_id in assets
+        for order_id in oms.working_orders_for(asset_id)
+    )
+
+
+def _work_packages(
+    state: ExecutionPipelineState,
+    at: float,
+    assets: tuple[str, ...],
+    policy: FillPolicy,
+    rates: FxRates,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Each package working in the instant's assets, at its close: all legs or none (ADR-0062)."""
+
+    current = state
+    routed = _NO_ROUTING
+    seen: set[str] = set()
+    for asset_id in assets:
+        for order_id in tuple(current.oms.working_orders_for(asset_id)):
+            order = current.oms.orders.find(order_id)
+            package = order.metadata.get(_PACKAGE)
+            if package is None or package in seen:
+                continue
+            seen.add(package)
+            legs = tuple(
+                current.oms.orders.find(OrderId(UUID(leg)))
+                for leg in order.metadata[_PACKAGE_LEGS].split(",")
+            )
+            current, turned = _package_turn(current, legs, at, assets, policy, rates)
+            routed = routed.then(turned)
+    return evolve(current, id_position=current_id_position()), routed
+
+
+def _package_turn(
+    state: ExecutionPipelineState,
+    legs: tuple[OMSOrder, ...],
+    at: float,
+    assets: tuple[str, ...],
+    policy: FillPolicy,
+    rates: FxRates,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """One package's turn at the close of instant ``at``."""
+
+    current = state
+    if not all(leg.is_open for leg in legs):
+        # A leg ended otherwise -- an expiry, a settlement, a split -- and the
+        # package ends with it: its legs become terminal together.
+        for leg in legs:
+            if leg.is_open:
+                current = _end_unfilled(current, leg, at)
+        return current, _Routed(orders=tuple(current.oms.orders.find(leg.order_id) for leg in legs))
+    if any(leg.expire_at is not None and at >= leg.expire_at for leg in legs):
+        # Its day ended unfilled: every leg expires with it, as a day order does.
+        for leg in legs:
+            current = _expire(current, leg, at)
+        return current, _Routed(orders=tuple(current.oms.orders.find(leg.order_id) for leg in legs))
+    first = legs[0]
+    after, from_ = first.metadata.get(_PACKAGE_AFTER), first.metadata.get(_PACKAGE_FROM)
+    if (after is not None and at <= float(after)) or (from_ is not None and at < float(from_)):
+        return current, _NO_ROUTING
+    if any(leg.asset_id not in assets or not _ready(leg, at) for leg in legs):
+        return current, _NO_ROUTING  # an instant that prices every leg, after its latency
+    if _rest_over(first, at):
+        return _end_package(current, legs, at)
+    events = _instant_events(current.market.events, at)
+    decided: list[tuple[OMSOrder, MarketEvent, Decimal, FillDecision]] = []
+    for leg in legs:
+        leg_event = events[leg.asset_id]
+        price = _opening(current, leg, leg_event)
+        if price is None:
+            price = current.market_prices[leg.asset_id]
+        if _venue_blocks(current, leg.asset_id, at, price):
+            return current, _NO_ROUTING  # a block on any leg blocks the package: it rests
+        decided.append(
+            (
+                leg,
+                leg_event,
+                price,
+                _decide_fill(policy, leg, leg_event, price, _whole_units(current)),
+            )
+        )
+    if not all(
+        decision.status is FillStatus.FULL_FILL
+        and (decision.quantity is None or decision.quantity >= leg.remaining_quantity)
+        for leg, _, _, decision in decided
+    ):
+        return _package_unfilled(current, legs, at)
+    reports: list[ExecutionReport] = []
+    fills: list[CoreFill] = []
+    trades: list[CoreTrade] = []
+    for leg, leg_event, price, _ in decided:
+        whole = FillDecision(FillStatus.FULL_FILL, leg.remaining_quantity)
+        current, new_reports = _execute_order(
+            current, leg, whole, leg_event, price=price, stamped_at_event=_latency_spent(current)
+        )
+        current, new_fills, new_trades = _apply_reports(current, leg, new_reports, rates)
+        reports.extend(new_reports)
+        fills.extend(new_fills)
+        trades.extend(new_trades)
+    return current, _Routed(
+        orders=tuple(current.oms.orders.find(leg.order_id) for leg in legs),
+        reports=tuple(reports),
+        fills=tuple(fills),
+        trades=tuple(trades),
+    )
+
+
+def _package_unfilled(
+    state: ExecutionPipelineState, legs: tuple[OMSOrder, ...], at: float
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """A turn at which not every leg would fill in full: none fills (ADR-0062 section 5).
+
+    Withdrawn after it, every leg together, unless the run declares a resting
+    remainder (ADR-0060), when the package keeps its turns until its rest ends.
+    """
+
+    rest = state.config.remainder
+    if rest is None:
+        return _end_package(state, legs, at)
+    current = state
+    first = legs[0]
+    if rest.events is not None:
+        held = first.metadata.get(_REST_TURNS)
+        if held is None:
+            entries = {_REST_TURNS: str(rest.events)}  # its rest begins: that many more turns
+        else:
+            left = int(held) - 1
+            if left <= 0:
+                return _end_package(current, legs, at)
+            entries = {_REST_TURNS: str(left)}
+    else:
+        if _REST_UNTIL in first.metadata:
+            return current, _NO_ROUTING
+        assert rest.seconds is not None
+        entries = {_REST_UNTIL: repr(at + rest.seconds)}
+    for leg in legs:
+        current = evolve(current, oms=OMSEngine.annotate(current.oms, leg.order_id, entries))
+    return current, _NO_ROUTING
+
+
+def _end_package(
+    state: ExecutionPipelineState, legs: tuple[OMSOrder, ...], at: float
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Withdraw every leg of a package that did not fill, and free what each held."""
+
+    current = state
+    for leg in legs:
+        current = _end_unfilled(current, current.oms.orders.find(leg.order_id), at)
+    return current, _Routed(orders=tuple(current.oms.orders.find(leg.order_id) for leg in legs))
+
+
+def _instant_events(events: AppendOnlyLog[MarketEvent], at: float) -> dict[str, MarketEvent]:
+    """Each asset's last event at instant ``at``, read back from the newest by index."""
+
+    found: dict[str, MarketEvent] = {}
+    index = len(events) - 1
+    while index >= 0 and events[index].timestamp == at:
+        priced = _market_price(events[index])
+        if priced is not None and priced[0] not in found:
+            found[priced[0]] = events[index]
+        index -= 1
+    return found
 
 
 def _for_orders(intents: tuple[Intent, ...]) -> tuple[Intent, ...]:
@@ -6543,6 +6975,7 @@ def _feedback_events(
                             side=order.side.value,
                             attributed_quantity=share,
                             execution_id=report.execution_id,
+                            package_id=order.metadata.get(_PACKAGE, ""),
                         ),
                     )
                 )
@@ -6558,6 +6991,7 @@ def _feedback_events(
                         order.status.value,
                         quantity=order.quantity,
                         filled_quantity=order.filled_quantity,
+                        package_id=order.metadata.get(_PACKAGE, ""),
                     ),
                 )
             )
@@ -7560,7 +7994,9 @@ def _computed_uncross(
     own = [
         order
         for order in (state.oms.orders.find(i) for i in state.oms.working_orders_for(asset_id))
-        if _arrived_at(order) < ended and order.order_type in (OrderType.MARKET, OrderType.LIMIT)
+        if _arrived_at(order) < ended
+        and order.order_type in (OrderType.MARKET, OrderType.LIMIT)
+        and _PACKAGE not in order.metadata
     ]
     zero = Decimal("0")
 
@@ -7691,6 +8127,8 @@ def _uncross(
     trades: list[CoreTrade] = []
     for order_id in state.oms.working_orders_for(asset_id):
         order = current.oms.orders.find(order_id)
+        if _PACKAGE in order.metadata:
+            continue  # a leg trades with its package, never in an auction alone (ADR-0062)
         if not _ready(order, event.timestamp):
             # Still on its way to the market (ADR-0060): it takes no part -- but
             # one whose life ends meanwhile expires, as at any event.
@@ -7778,6 +8216,9 @@ def _fill_working_orders(
     trades: list[CoreTrade] = []
     for order_id in state.oms.working_orders_for(asset_id):
         order = current.oms.orders.find(order_id)
+        if _PACKAGE in order.metadata:
+            # A leg is worked with its package, at a slice close (ADR-0062).
+            continue
         if not _ready(order, event.timestamp):
             # Still on its way to the market (ADR-0060): no turn, no queue place --
             # but an order whose life ends meanwhile expires, as at any event.

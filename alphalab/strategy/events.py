@@ -45,9 +45,11 @@ __all__ = [
     "FillEvent",
     "Intent",
     "IntentKind",
+    "Leg",
     "LifecycleTransitioned",
     "ObservationReceived",
     "OrderEvent",
+    "PackageRefused",
     "SliceClosed",
     "StrategyInboundEvent",
     "StrategyRuntimeEvent",
@@ -130,6 +132,31 @@ class IntentKind(StrEnum):
     #: of its queue. One the run cannot make is recorded as an
     #: :class:`AmendRefused`. ``strength`` must be one.
     AMEND = "amend"
+    #: A package (v4.3, ADR-0062): several instruments traded together, all or
+    #: none at one instant. :attr:`Intent.legs` names them, each with its signed
+    #: ratio, and ``target`` is the signed number of packages to trade now, so a
+    #: leg's quantity is ``target * strength * ratio``. ``instrument`` is the
+    #: package's label, the strategy's own, recorded and never resolved.
+    #: Packages with the same legs and terms net across strategies, never with
+    #: an order for one instrument. Risk approves the package whole, its legs
+    #: are worked only together, and it fills at the close of an instant that
+    #: priced every leg, every leg in full or none. A market package is the
+    #: first form: one of other terms, of fewer than two legs, naming a leg
+    #: twice or with a ratio of zero is refused whole, and recorded.
+    PACKAGE = "package"
+
+
+@dataclass(frozen=True, slots=True)
+class Leg:
+    """One instrument of a package intent, and its signed ratio (v4.3, ADR-0062).
+
+    Attributes:
+        instrument: The leg's ``asset_id``.
+        ratio: Its signed quantity per package -- a sale's negative.
+    """
+
+    instrument: str
+    ratio: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,6 +186,8 @@ class Intent:
             equal: a limit and a market order for one asset are two orders.
         kind: What ``target`` states: a delta (the default), a target
             quantity or a target weight. See :class:`IntentKind`.
+        legs: A ``PACKAGE`` intent's legs, in the order given (v4.3,
+            ADR-0062); empty for every other kind.
     """
 
     strategy_id: str
@@ -171,6 +200,7 @@ class Intent:
     timestamp: float = 0.0
     metadata: Mapping[str, str] = field(default_factory=dict)
     kind: IntentKind = IntentKind.DELTA
+    legs: tuple[Leg, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,6 +367,24 @@ class CancelRefused(StrategyRuntimeEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class PackageRefused(StrategyRuntimeEvent):
+    """A package intent the run refused whole (v4.3, ADR-0062).
+
+    Recorded in the strategy runtime's event log; no leg was placed, and nothing
+    allocation reserved for it is held. The strategy keeps running.
+
+    Attributes:
+        strategy_id: The strategy that asked.
+        label: The package's label, its intent's ``instrument``.
+        reason: Why, in a sentence.
+    """
+
+    strategy_id: str
+    label: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class TimerEvent(StrategyRuntimeEvent):
     """Synthetic event injected by the Scheduler to wake up strategies."""
 
@@ -363,6 +411,8 @@ class OrderEvent(StrategyRuntimeEvent):
         reason: Why, for a rejection. Empty otherwise.
         quantity: The order's quantity, when there is an order.
         filled_quantity: How much of it has filled, when there is an order.
+        package_id: For a leg of a package, the package it belongs to (v4.3,
+            ADR-0062): its legs share it. Empty otherwise.
     """
 
     order_id: str
@@ -371,6 +421,7 @@ class OrderEvent(StrategyRuntimeEvent):
     reason: str = ""
     quantity: Decimal | None = None
     filled_quantity: Decimal | None = None
+    package_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,6 +444,8 @@ class FillEvent(StrategyRuntimeEvent):
             signed contributions, exactly as realized P&L is. For an order one
             strategy asked for alone, the signed fill itself.
         execution_id: The fill's identity. A fill is delivered once.
+        package_id: For a leg of a package, the package it belongs to (v4.3,
+            ADR-0062). Empty otherwise.
     """
 
     order_id: str
@@ -402,6 +455,7 @@ class FillEvent(StrategyRuntimeEvent):
     side: str = ""
     attributed_quantity: Decimal | None = None
     execution_id: str = ""
+    package_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
