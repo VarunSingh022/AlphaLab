@@ -252,6 +252,35 @@ def test_a_run_paused_with_an_order_working_resumes_with_its_venues() -> None:
         restore(snapshot, objects(router=None))
 
 
+def test_venues_routed_by_listing_alone_are_recorded_and_resume() -> None:
+    """Venues declared without a router are an M8 option: version 9, held on restore."""
+
+    listed = {**VENUES, "XNAS": _venue("0.03", 0.0)}
+    config = _config(venues=listed, fill_timing=FillTiming.NEXT_EVENT)
+    state = ExecutionPipeline.initialize(config, running_strategy_state(S, Buys()), 0.5)
+    decided = ExecutionPipeline.process_market_event(state, _bar(1.0, "100"), context_factory)
+    payload = deserialize(serialize(capture(decided.state)))
+    assert payload["schema_version"] == 9
+    assert [v["code"] for v in payload["config"]["venues"]] == ["ALPHA", "BETA", "XNAS"]
+    assert "router_type" not in payload["config"]
+
+    strategy = decided.state.strategy.strategies[S].instance
+    objects = RuntimeObjects(
+        sizing_model=config.sizing_model,
+        simulator=config.simulator,
+        strategies={S: strategy},
+        instruments=config.instruments,
+        venues=listed,
+    )
+    resumed = restore(from_primitives(payload), objects)
+    again = ExecutionPipeline.process_market_event(resumed, _bar(2.0, "101"), context_factory)
+    assert [(f.price, f.commission, f.filled_at) for f in again.fills] == [
+        (D("101"), D("0.30"), 2.0)
+    ]
+    with pytest.raises(StateDecodeError, match="venues"):
+        restore(from_primitives(payload), replace(objects, venues={}))
+
+
 def test_terms_naming_no_venue_keep_their_form() -> None:
     assert "venue" not in deserialize(serialize(MARKET))
     named = OrderTerms(venue="ALPHA")

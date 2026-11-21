@@ -141,6 +141,64 @@ def test_a_strategy_hears_each_childs_fill_with_its_share() -> None:
     assert [f.execution_id for f in result.algorithms.fills] == reports
 
 
+class HearsAs(Hears):
+    """``Hears`` as ``strategy_id``, buying ``quantity`` at the limit at the first instant."""
+
+    def __init__(self, strategy_id: str, quantity: str) -> None:
+        super().__init__()
+        self._id = strategy_id
+        self._quantity = D(quantity)
+
+    def _place(self, timestamp: float) -> Iterable[Intent]:
+        if timestamp != T0:
+            return ()
+        return (Intent(self._id, queues.ACME, self._quantity, terms=self._terms, timestamp=T0),)
+
+
+def test_each_contributor_to_a_netted_parent_hears_its_own_share() -> None:
+    """Sixty from S and forty from T net into one parent of 100, worked in one child.
+
+    Each of its fills -- 20, 50 and 30 -- is divided by contribution: S hears
+    12, 30 and 18, and T the rest, 8, 20 and 12.
+    """
+
+    s, t = HearsAs("S", "60"), HearsAs("T", "40")
+    state = create_runtime()
+    for strategy_id, strategy in (("S", s), ("T", t)):
+        state = register_strategy(state, strategy_id, strategy)
+    running = {}
+    for strategy_id, entry in state.strategies.items():
+        configured, _ = RuntimeSupervisor.configure(entry, {}, 1.0)
+        initialized, _ = RuntimeSupervisor.initialize(configured, 1.1)
+        subscribed, _ = RuntimeSupervisor.subscribe(initialized, EVERYTHING, 1.2)
+        running[strategy_id], _ = RuntimeSupervisor.start(subscribed, 1.3)
+    config = queues.config()
+    budget = config.pipeline.budget
+    half = budget.global_capital / 2
+    shared = replace(budget, strategy_budgets={"S": half, "T": half})
+    result = BacktestEngine.run(
+        replace(config, pipeline=replace(config.pipeline, budget=shared)),
+        queues.dataset(queues.DEPLETION),
+        replace(state, strategies=running),
+        context_factory,
+        execution=WHOLE,
+        queue=queues.QUEUE,
+    )
+    parent = queues.only_order(result)
+    assert parent.quantity == D("100") and parent.status is OrderStatus.FILLED
+    assert _heard(s) == [
+        (2.0, D("20"), D("12"), LIMIT, "buy"),
+        (3.0, D("50"), D("30"), LIMIT, "buy"),
+        (4.0, D("30"), D("18"), LIMIT, "buy"),
+    ]
+    assert _heard(t) == [
+        (2.0, D("20"), D("8"), LIMIT, "buy"),
+        (3.0, D("50"), D("20"), LIMIT, "buy"),
+        (4.0, D("30"), D("12"), LIMIT, "buy"),
+    ]
+    assert [e.execution_id for e in s.heard] == [e.execution_id for e in t.heard]
+
+
 def test_without_a_queue_the_one_fill_is_heard_once() -> None:
     strategy = Hears()
     _run(strategy, model=None)

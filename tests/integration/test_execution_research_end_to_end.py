@@ -19,7 +19,10 @@ figure below is calculated by hand from its bars and those costs.
   close of the bar they end within, 50.04 plus the half-spread, at 120 seconds.
 * **GR-4.** A thousand shares to each venue in one run: ALPHA's at 50.03 with
   2.00 of commission, BETA's at 50.025 with 5.00, and the run's commission and
-  spend their sum.
+  spend their sum. The library's own venue measures read the venue each order
+  was routed to: ``venue_quality`` finds ALPHA's thousand six basis points
+  above the 50.00 arrival and BETA's five, and attribution's venue dimension
+  covers both trades through the reports they share their ids with.
 """
 
 from __future__ import annotations
@@ -32,8 +35,12 @@ from types import ModuleType
 
 import pytest
 
+from alphalab.analytics import AttributionDimension, Availability, TradeFacts, attribute
 from alphalab.backtesting import AlgorithmicQueuedResult
+from alphalab.core.contribution import StrategyContribution
+from alphalab.core.order_request import OrderRequest
 from alphalab.execution.policy import LatencyPricing
+from alphalab.execution.quality import OrderExecution, ReferencePrice, venue_quality
 
 D = Decimal
 ROOT = Path(__file__).resolve().parents[2]
@@ -110,6 +117,69 @@ def test_gr4_a_two_venue_run_reconciles_venue_by_venue(example: ModuleType) -> N
     assert sum((f.commission for f in result.fills), D("0")) == commission == D("7.00")
     starting = result.config.pipeline.starting_cash
     assert starting - result.valuation.cash == spent == D("100062.00")
+
+
+def test_the_venue_measures_read_the_venue_each_order_was_routed_to(example: ModuleType) -> None:
+    """Analytics measures the routed venue and decides nothing (section J, AC-30).
+
+    ``venue_quality`` groups fills by their report's venue, now the routed one.
+    A trade record carries no venue; attribution reads it from the report the
+    trade shares its id with (ADR-0061 settled point 3).
+    """
+
+    result = example.two_venues()
+    history = result.state.execution.history
+    executions = []
+    for order in result.state.oms.orders.orders():
+        order_id = str(order.order_id.value)
+        request = OrderRequest(
+            order_id=order_id,
+            strategy_id=example.STRATEGY_ID,
+            asset_id=order.asset_id,
+            side=order.side,
+            quantity=order.quantity,
+            price=example.price(0),
+            timestamp=order.created_at,
+            contributions=(StrategyContribution(example.STRATEGY_ID, order.quantity),),
+        )
+        executions.append(
+            OrderExecution(
+                order=request,
+                fills=tuple(report for report in history if report.order_id == order_id),
+                currency="USD",
+                outcome=order.status,
+                benchmarks=example.benchmarks(),
+                limit_price=None,
+                timeline=None,
+                fill_midpoints=None,
+                account_id="ACC-EX82",
+            )
+        )
+    measured = venue_quality(
+        executions,
+        (),
+        reference=ReferencePrice.ARRIVAL,
+        window_start=example.OPEN,
+        window_end=example.at(example.MINUTES),
+    )
+    assert [(q.venue, q.fills, q.filled_quantity, q.slippage_bps) for q in measured] == [
+        ("ALPHA", 1, D("1000"), D("6")),
+        ("BETA", 1, D("1000"), D("5")),
+    ]
+
+    facts = {
+        report.execution_id: TradeFacts(report.execution_id, report.currency, report.venue)
+        for report in history
+    }
+    by_venue = attribute(
+        tuple(result.state.trade_records), facts, (AttributionDimension.VENUE,)
+    ).dimensions[AttributionDimension.VENUE]
+    assert by_venue.availability is Availability.AVAILABLE
+    assert (sorted(by_venue.buckets), by_venue.covered, by_venue.reconciles) == (
+        ["ALPHA", "BETA"],
+        2,
+        True,
+    )
 
 
 def test_the_example_runs_end_to_end(

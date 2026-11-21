@@ -1215,10 +1215,19 @@ entry below says otherwise.
 
 * **The execution-realism guide** [plan WS-11, GAP-53]. `docs/EXECUTION_REALISM.md`
   sets out what a simulated fill assumes by default and how to state the
-  cautious choice in each role. It covers fill timing and the next open, fill
-  policies and resting remainders, latency pricing, `conservative_execution`,
-  queues, plans and their children's fills, package intents, and an execution
-  model per venue with routing, with what each records and what is not here.
+  cautious choice in each role, starting from `conservative_execution`. It
+  covers fill timing and the next open, fill policies and resting remainders,
+  latency pricing, queues, plans and their children's fills, package intents,
+  and an execution model per venue with routing. It reads `execution_assumptions`
+  field by field, naming what each declared option adds, and says what each
+  records and what is not here.
+* **The independent accounting ledger holds M8's execution** [plan WS-11,
+  ADR-0061, ADR-0062]. Its seeded bar runs now draw two declared venues as well:
+  each order is charged its routed venue's commission, and its routing is
+  recorded. New seeded runs of packages and single orders are booked to the
+  cent too. Each package fills at one instant, every leg at its ratio, or no
+  leg fills; under an immediate fill, it fills at the first instant that priced
+  every leg after its decision and latency.
 
 ## Changed
 

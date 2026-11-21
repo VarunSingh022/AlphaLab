@@ -7,7 +7,9 @@ meant in the release that wrote it. v4.3 (ADR-0060, ADR-0061, ADR-0062) adds the
 cautious alternative to each, opt-in, and one call that states them all.
 
 None of this says a strategy works. It says what a run assumed, so a figure can
-be read with its assumptions beside it.
+be read with its assumptions beside it. Start from the conservative choice in
+one call, below, and relax a role only where you know what your market and
+your orders do.
 
 ---
 
@@ -28,6 +30,31 @@ version 9; one that declares none writes version 8, byte for byte.
 **Nothing is invented.** No option fills a role with a number nobody chose. A
 cost model that charges nothing is a stated choice (`FREE`), a venue is used only
 when declared, and an order no declared venue can route is refused.
+
+---
+
+## Start here: the conservative choice in one call
+
+```python
+from alphalab.runtime import conservative_execution
+
+pipeline, fill_policy = conservative_execution(
+    pipeline,  # your configuration; everything else kept
+    costs=venue_costs,  # an ExecutionCostModel that charges something
+    participation_rate=Decimal("0.10"),  # no fill above a tenth of what an event shows
+    latency=ConstantLatency(0.25),  # the latency you measured, not one invented
+)
+config = replace(config, pipeline=pipeline, fill_policy=fill_policy)
+```
+
+It states the cautious choice in each role the sections below describe:
+`NEXT_OPEN` for when an order fills, a `StrictLiquidityCappedFill` for how much,
+and `POST_LATENCY_EVENT` for what latency costs, with your costs and latency as
+the simulator's. All three arguments are required, and a cost model that
+charges nothing is refused: a builder that invented costs would put a number
+nobody chose into a run. It changes no default, and `execution_assumptions`
+names no optimism for its output. A queue model, an execution plan, packages
+and venues are your strategy's own choices, each declared as its section says.
 
 ---
 
@@ -98,26 +125,6 @@ the bar's open or through its range, so it meets the bar's close alone, under
 latency is taken to be shorter than the break between sessions. On its way an
 order has no queue place and takes no part in a reopening auction, though an
 expiry it reaches still expires it.
-
-## The conservative choice in one call
-
-```python
-from alphalab.runtime import conservative_execution
-
-pipeline, fill_policy = conservative_execution(
-    pipeline,  # your configuration; everything else kept
-    costs=venue_costs,  # an ExecutionCostModel that charges something
-    participation_rate=Decimal("0.10"),  # no fill above a tenth of what an event shows
-    latency=ConstantLatency(0.25),  # the latency you measured, not one invented
-)
-config = replace(config, pipeline=pipeline, fill_policy=fill_policy)
-```
-
-It states `NEXT_OPEN`, `POST_LATENCY_EVENT` and a `StrictLiquidityCappedFill`,
-with your costs and latency as the simulator's. All three arguments are
-required, and a cost model that charges nothing is refused: a builder that
-invented costs would put a number nobody chose into a run. It changes no
-default, and `execution_assumptions` names no optimism for its output.
 
 ---
 
@@ -208,12 +215,35 @@ venue's latency; and a two-venue run whose costs reconcile venue by venue
 
 ---
 
-## What is recorded
+## Reading `execution_assumptions`
 
-- **The assumptions.** `execution_assumptions` describes each choice. The fill
-  policy's description carries a resting remainder, the latency's
-  `; pricing=post_latency_event`, and the costs' the declared venues and router,
-  each only when declared, so a run declaring none is identified as before.
+`execution_assumptions(pipeline, fill_policy, queue_model=None)` -- or a
+result's own `execution_assumptions` -- reports the model a run's figures were
+measured under. Each declared option extends the field it belongs to, so a run
+declaring none reads as it always did:
+
+| Field | What it holds | What a declared option adds |
+| --- | --- | --- |
+| `routing` | `SIMULATED`; `ALGORITHMIC`, each order simulated in children; or `EXTERNAL`, nothing simulated | -- |
+| `fill_timing` | `SAME_EVENT`, `NEXT_EVENT` or `NEXT_OPEN` | -- |
+| `fill_policy` | the fill policy, described | `; remainder=...`, a resting remainder |
+| `costs` | the run's simulator's cost model, described | `; maker_commission=...`; `; venues=...` and `; router=...`, each venue's model and the router |
+| `latency` | the latency model, described | `; pricing=post_latency_event` |
+| `frictionless` | whether every cost role charges nothing -- every venue's, when venues are declared | -- |
+| `unlimited_liquidity` | whether the policy is `ImmediateFill` | -- |
+| `queue_model` | the queue model, described, or `None` | -- |
+| `venue_conditions` | what the instrument registry declared -- bands, halts, auctions, margin, borrow, tick and settlement terms -- a sentence each | -- |
+
+`optimistic` names each generous assumption in force: `SAME_EVENT`, a
+frictionless model, unlimited liquidity. `passive_fills` says how a resting
+limit order's fills were decided: at its limit with no queue ahead, or by the
+queue model. `settings()` is what a strategy fingerprint carries: `routing`,
+`fill_timing`, `fill_policy`, `costs` and `latency` always, and `queue_model`
+only when declared. A declared remainder, latency pricing, venue or router
+reaches a fingerprint through the description it extends.
+
+## What else is recorded
+
 - **The snapshot.** The pipeline snapshot writes `NEXT_OPEN`, a remainder,
   latency pricing, venues and a router only when declared, at version 9; a
   restored run is given its venues' models and its router back and is held to

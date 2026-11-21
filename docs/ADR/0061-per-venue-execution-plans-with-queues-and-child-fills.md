@@ -216,6 +216,13 @@ A composed result's two books are captured by the payloads each already has.
      order's taking price. The execution report's `venue` is the routed one.
      A plan's child fills on its parent's venue. Queue places are each
      order's or child's own, so they are per venue already.
+   - **Section 1's "and trade record" is settled differently.** The trade
+     record, the analytics record attribution reads, gains no field: its id
+     is its execution report's, and the report names the routed venue.
+     Attribution's venue dimension reads it from there through `TradeFacts`,
+     as ADR-0062 settled a package's identifier, and `venue_quality` groups
+     fills by the report's venue. Analytics measures the routed venue and
+     decides nothing.
    - **`OrderTerms.venue`.** Written only when set, through the terms' own
      serialization, so every earlier order's terms keep their bytes, and read
      back optionally. Terms naming different venues are different terms, and
@@ -263,7 +270,10 @@ A composed result's two books are captured by the payloads each already has.
      50.045 at 120 seconds, where a stamp says 50.025 at 150;
    - GR-4: a thousand shares to each venue, ALPHA's at 50.03 with 2.00 of
      commission and BETA's at 50.025 with 5.00, the run's commission and spend
-     their sum, 100,062.00.
+     their sum, 100,062.00;
+   - the library's venue measures read the routed venue: `venue_quality`
+     finds ALPHA's fill six basis points above the 50.00 arrival and BETA's
+     five, and attribution's venue dimension covers both trades.
 
    It joins the installed smoke test, and GAP-17 closes with it.
 
