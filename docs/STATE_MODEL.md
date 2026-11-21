@@ -199,9 +199,10 @@ and a typed decoder that refuses what it does not understand. Eleven do (v4.1):
 | `PausedReplay` | `backtesting.replay_snapshot` | `REPLAY_SNAPSHOT_SCHEMA` | 3 |
 
 The pipeline's version 9 (v4.3) is written only when a run declares one of the
-execution options M8 adds, a next-open fill timing first. A run declaring none
-writes version 8, byte for byte, as the checkpoint writes its version 2 when it
-is given no schedule binding (ADR-0060).
+execution options M8 adds: a next-open fill timing, a resting remainder, or
+latency that keeps an order from the market. A run declaring none writes
+version 8, byte for byte, as the checkpoint writes its version 2 when it is
+given no schedule binding (ADR-0060).
 
 `InstrumentRegistry` schema 4 (v4.1.1) carries each instrument's last trading
 instant (FUT-012) and its contract terms (FUT-013) -- `OptionTerms` or

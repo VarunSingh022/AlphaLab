@@ -48,10 +48,12 @@ from alphalab.execution.algorithms import _apportion as _largest_remainder
 from alphalab.execution.auction import AuctionReopening
 from alphalab.execution.engine import ExecutionEngine
 from alphalab.execution.fill import FillStatus, OrderInstruction
+from alphalab.execution.latency import ConstantLatency
 from alphalab.execution.policy import (
     FillDecision,
     FillPolicy,
     FillTiming,
+    LatencyPricing,
     LiquidityContext,
     RestRemainder,
     StaticFill,
@@ -347,6 +349,13 @@ class ExecutionPipelineConfig:
             :class:`~alphalab.execution.policy.RestRemainder` keeps it working
             for a stated number of its asset's events or seconds (ADR-0060).
             Carried by the pipeline snapshot, and only when declared.
+        latency_pricing: What the simulator's latency model does: ``STAMP``,
+            the default, moves a fill's timestamp and nothing else, as every
+            run before v4.3 did; ``POST_LATENCY_EVENT`` keeps an order from the
+            market until its latency has passed, its first turn its asset's
+            first event at or after then, and the fill stamped there
+            (ADR-0060). See :class:`~alphalab.execution.policy.LatencyPricing`.
+            Carried by the pipeline snapshot, and only when declared.
     """
 
     account: Account
@@ -365,6 +374,7 @@ class ExecutionPipelineConfig:
     calendars: VenueCalendars = field(default_factory=VenueCalendars)
     retention: RetentionPolicy = field(default_factory=RetentionPolicy)
     remainder: RestRemainder | None = None
+    latency_pricing: LatencyPricing = LatencyPricing.STAMP
 
     def __post_init__(self) -> None:
         if not self.currency:
@@ -1251,7 +1261,8 @@ class ExecutionPipeline:
         # decides on a book that includes what they did (EXE-001). Under
         # NEXT_EVENT or NEXT_OPEN every simulated order is one; under SAME_EVENT only an order
         # that rests: one a strategy placed from a fill or an order event
-        # (EXE-005), which fills at its asset's next event.
+        # (EXE-005), which fills at its asset's next event, or one its latency
+        # keeps from the market (POST_LATENCY_EVENT, ADR-0060).
         earlier = _NO_ROUTING
         if (
             update is not None
@@ -2929,6 +2940,13 @@ def _route_requests(
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
         current, order = _submit_and_accept_order(current, request, instant)
+        if current.config.routing is ExecutionRouting.SIMULATED:
+            current, held = _await_latency(current, order, instant, event.timestamp)
+            if held is not None:
+                # Kept from the market until its latency has passed: its first
+                # turn is its asset's first event at or after then (ADR-0060).
+                orders.append(held)
+                continue
         if current.config.routing is not ExecutionRouting.SIMULATED:
             # The order is now working and belongs to whoever routes it -- the
             # venue, or the execution algorithm working it in children. No fill
@@ -6528,7 +6546,9 @@ def _simulate_fill(
     decision = _decide_fill(policy, order, event, base, _whole_units(state))
     if _kills(order, decision):
         return _end_unfilled(state, order, event.timestamp), (), (), ()
-    current, reports = _execute_order(state, order, decision, event, price=base)
+    current, reports = _execute_order(
+        state, order, decision, event, price=base, stamped_at_event=_latency_spent(state)
+    )
     # A rejected, expired or unfilled execution produces no report. The order
     # never trades, so close it out of the OMS instead of leaving it open
     # forever awaiting a fill, and retire both ledgers it holds. The order is
@@ -6615,6 +6635,98 @@ def _rest_over(order: OMSOrder, timestamp: float) -> bool:
 #: Times in force whose orders end at their first attempt, whatever a
 #: ``RestRemainder`` says (ADR-0060).
 _IMMEDIATE: Final = frozenset({TimeInForce.IOC, TimeInForce.FOK})
+
+#: Where an order kept from the market by its latency records the instant it
+#: may first meet it, in its metadata (ADR-0060).
+_READY_AT: Final = "latency_ready_at"
+
+#: Where an order kept from the market by its latency records the instant of
+#: its first turn after it: the one turn that can be an arriving one (ADR-0060).
+_FIRST_TURN: Final = "latency_first_turn_at"
+
+#: The latency model a fill is simulated with once its latency was spent
+#: waiting for its event: stamped at that event (ADR-0060).
+_NO_LATENCY: Final = ConstantLatency(0.0)
+
+
+def _await_latency(
+    state: ExecutionPipelineState, order: OMSOrder, decided: float, now: float
+) -> tuple[ExecutionPipelineState, OMSOrder | None]:
+    """Hold ``order`` until its latency has passed, under ``POST_LATENCY_EVENT``.
+
+    ``(state, None)`` -- the order goes on as it would -- under ``STAMP``, or
+    when the latency model's draw puts it in the market by ``now``: a
+    same-event order with no latency trades at its event, as it always has.
+    """
+
+    if state.config.latency_pricing is not LatencyPricing.POST_LATENCY_EVENT:
+        return state, None
+    model = state.config.simulator.latency_model
+    ready = decided + model.calculate(str(order.order_id.value), decided)
+    if ready <= now:
+        return state, None
+    annotated = evolve(
+        state, oms=OMSEngine.annotate(state.oms, order.order_id, {_READY_AT: repr(ready)})
+    )
+    return annotated, annotated.oms.orders.find(order.order_id)
+
+
+def _ready(order: OMSOrder, timestamp: float) -> bool:
+    """Whether ``order`` may meet the market at ``timestamp``: its latency has passed."""
+
+    ready = order.metadata.get(_READY_AT)
+    return ready is None or timestamp >= float(ready)
+
+
+def _arrives_within(order: OMSOrder, event: MarketEvent) -> bool:
+    """Whether ``order``'s latency ended within ``event``'s bar: its turn there is an arriving one.
+
+    Under ``POST_LATENCY_EVENT`` an order that reached the market inside an
+    intraday bar of its asset was not in it at the bar's open or through its
+    range before then: at its first turn it meets the bar's close alone, as an
+    order placed at that bar does, and from then it is in the market. A
+    daily-or-longer bar is a session, which the order meets from its open: its
+    interval holds the break between sessions, and a latency is taken to be
+    shorter than that break (ADR-0060).
+    """
+
+    ready = order.metadata.get(_READY_AT)
+    if ready is None or _FIRST_TURN in order.metadata or not isinstance(event, BarClosed):
+        return False
+    bar = event.bar
+    seconds = bar.timeframe.seconds
+    if bar.asset_id != order.asset_id or bar.timeframe.unit in _SESSION_UNITS or seconds is None:
+        return False
+    return bar.timestamp - seconds < float(ready)
+
+
+def _first_turn(
+    state: ExecutionPipelineState, order: OMSOrder, timestamp: float
+) -> tuple[ExecutionPipelineState, OMSOrder]:
+    """``order`` at its first turn after its latency, recorded as having had it (ADR-0060).
+
+    Unchanged for an order its latency never kept, and for one already recorded:
+    only the first turn can be an arriving one, whatever a later event's
+    interval holds -- a coarser bar's, say.
+    """
+
+    if _READY_AT not in order.metadata or _FIRST_TURN in order.metadata:
+        return state, order
+    oms = OMSEngine.annotate(state.oms, order.order_id, {_FIRST_TURN: repr(timestamp)})
+    return evolve(state, oms=oms), oms.orders.find(order.order_id)
+
+
+def _arrived_at(order: OMSOrder) -> float:
+    """When ``order`` reached the market: when placed, or when its latency ended (ADR-0060)."""
+
+    ready = order.metadata.get(_READY_AT)
+    return order.created_at if ready is None else float(ready)
+
+
+def _latency_spent(state: ExecutionPipelineState) -> bool:
+    """Whether a simulated fill is stamped at its event: its latency was spent waiting."""
+
+    return state.config.latency_pricing is LatencyPricing.POST_LATENCY_EVENT
 
 
 #: The daily-or-longer interval units: a bar of one of these opens and closes a
@@ -6956,7 +7068,15 @@ def _work_resting(
     if decision.status is FillStatus.NO_FILL:
         current = _end_unfilled(state, order, event.timestamp) if one_shot else state
         return current, (), (), ()
-    current, reports = _execute_order(state, order, decision, event, price=price, passive=passive)
+    current, reports = _execute_order(
+        state,
+        order,
+        decision,
+        event,
+        price=price,
+        passive=passive,
+        stamped_at_event=_latency_spent(state),
+    )
     if not reports and decision.status in _NON_TRADING_STATUSES:
         current = evolve(
             current,
@@ -6986,9 +7106,11 @@ def _work_order(
 ]:
     """One simulated order's turn at ``event`` (ledger EXE-003).
 
-    ``arriving`` is the order's first turn, at the event it was placed on; it
-    sees only that event's price, since everything else the event shows -- a
-    bar's range -- happened before the order existed. The rules:
+    ``arriving`` is the order's first turn, at the event it was placed on -- or,
+    kept from the market by its latency, at the intraday bar it reached the
+    market within (ADR-0060); it sees only that event's price, since everything
+    else the event shows -- a bar's open and range -- happened before the order
+    was there. The rules:
 
     * **Expired** -- a good-til-date or day order at or past ``expire_at`` --
       expires before anything else is considered.
@@ -7040,7 +7162,12 @@ def _work_order(
 
     if order.order_type is OrderType.MARKET:
         return _simulate_fill(
-            state, order, event, policy, rates, price=_opening(state, order, event)
+            state,
+            order,
+            event,
+            policy,
+            rates,
+            price=None if arriving else _opening(state, order, event),
         )
 
     current = state
@@ -7305,7 +7432,7 @@ def _computed_uncross(
     own = [
         order
         for order in (state.oms.orders.find(i) for i in state.oms.working_orders_for(asset_id))
-        if order.created_at < ended and order.order_type in (OrderType.MARKET, OrderType.LIMIT)
+        if _arrived_at(order) < ended and order.order_type in (OrderType.MARKET, OrderType.LIMIT)
     ]
     zero = Decimal("0")
 
@@ -7436,11 +7563,21 @@ def _uncross(
     trades: list[CoreTrade] = []
     for order_id in state.oms.working_orders_for(asset_id):
         order = current.oms.orders.find(order_id)
-        if order.created_at >= ended:
-            # Placed after the halt ended, so it did not rest through it: its
-            # turn is continuous trading's, as at any other event.
+        if not _ready(order, event.timestamp):
+            # Still on its way to the market (ADR-0060): it takes no part -- but
+            # one whose life ends meanwhile expires, as at any event.
+            if order.expire_at is not None and event.timestamp >= order.expire_at:
+                current = _expire(current, order, event.timestamp)
+                orders.append(current.oms.orders.find(order_id))
+            continue
+        arriving = _arrives_within(order, event)
+        current, order = _first_turn(current, order, event.timestamp)
+        if _arrived_at(order) >= ended:
+            # Placed -- or, kept by its latency, arrived -- after the halt ended,
+            # so it did not rest through it: its turn is continuous trading's, as
+            # at any other event.
             current, new_reports, new_fills, new_trades = _work_order(
-                current, order, event, policy, rates, arriving=False
+                current, order, event, policy, rates, arriving=arriving
             )
             orders.append(current.oms.orders.find(order_id))
             reports.extend(new_reports)
@@ -7513,11 +7650,23 @@ def _fill_working_orders(
     trades: list[CoreTrade] = []
     for order_id in state.oms.working_orders_for(asset_id):
         order = current.oms.orders.find(order_id)
+        if not _ready(order, event.timestamp):
+            # Still on its way to the market (ADR-0060): no turn, no queue place --
+            # but an order whose life ends meanwhile expires, as at any event.
+            if order.expire_at is not None and event.timestamp >= order.expire_at:
+                current = _expire(current, order, event.timestamp)
+                orders.append(current.oms.orders.find(order_id))
+                if queue is not None:
+                    queue = queue.without(str(order_id.value))
+            continue
+        # An order whose latency ended within this bar meets its close alone (ADR-0060).
+        arriving = _arrives_within(order, event)
+        current, order = _first_turn(current, order, event.timestamp)
         turn = None
         key = ""
         if queue is not None and observation is not None:
             key = str(order_id.value)
-            if _queued(order):
+            if _queued(order) and not arriving:
                 held = queue.position_of(key)
                 limit = order.limit_price
                 assert limit is not None  # a queued order is a limit order
@@ -7528,7 +7677,7 @@ def _fill_working_orders(
                 if turn.position != held:
                     queue = queue.placed(key, turn.position)
         current, new_reports, new_fills, new_trades = _work_order(
-            current, order, event, policy, rates, arriving=False, queue_turn=turn
+            current, order, event, policy, rates, arriving=arriving, queue_turn=turn
         )
         after = current.oms.orders.find(order_id)
         if queue is not None and observation is not None:
@@ -7537,6 +7686,7 @@ def _fill_working_orders(
                 queue = queue.without(key)
             elif turn is None and _queued(after):
                 # A stop-limit triggered at this event rests from here: it joins now.
+                # So does an order that reached the market within this bar (ADR-0060).
                 limit = after.limit_price
                 assert limit is not None
                 queue = queue.placed(key, queue.model.join(after.side, limit, observation))
@@ -7615,7 +7765,9 @@ def _queue_after_step(
     the step began placing orders: the working orders of an asset are kept in
     the order they were placed. An order placed outside a market event of its
     asset -- by a timer, a slice or an observation -- has no event of its own
-    to join at, and starts its first turn from an unknown queue instead.
+    to join at, and starts its first turn from an unknown queue instead. So does
+    one still on its way to the market (``POST_LATENCY_EVENT``, ADR-0060), which
+    joins at the bar its latency ended within when that is where it arrives.
 
     Orders that end at their turn leave the book there
     (:func:`_fill_working_orders`); one ended otherwise -- a settlement, a
@@ -7634,7 +7786,7 @@ def _queue_after_step(
         if queue.position_of(key) is not None:
             continue
         order = state.oms.orders.find(order_id)
-        if not _queued(order):
+        if not _queued(order) or not _ready(order, event.timestamp):
             continue
         limit = order.limit_price
         assert limit is not None  # a queued order is a limit order
@@ -8236,6 +8388,7 @@ def _execute_order(
     *,
     price: Decimal | None = None,
     passive: bool = False,
+    stamped_at_event: bool = False,
 ) -> tuple[ExecutionPipelineState, tuple[ExecutionReport, ...]]:
     """Simulate the decided fill, priced against what the event actually showed.
 
@@ -8246,15 +8399,20 @@ def _execute_order(
     price the fill starts from when it is not the market's; ``passive`` a
     resting order filled at it (see
     :meth:`~alphalab.execution.simulator.ExecutionSimulator.simulate_fill`).
+    ``stamped_at_event`` stamps the fill at the event itself, the latency having
+    been spent waiting for it (``POST_LATENCY_EVENT``, ADR-0060).
     """
 
     before = len(state.execution.history)
+    simulator = state.config.simulator
+    if stamped_at_event:
+        simulator = replace(simulator, latency_model=_NO_LATENCY)
     instruction = _instruction(order, state)
     quantity = decision.quantity if decision.quantity is not None else order.remaining_quantity
     bid, ask = _available_quote(event) if event is not None else (None, None)
     execution = ExecutionEngine.simulate(
         state.execution,
-        state.config.simulator,
+        simulator,
         instruction,
         quantity,
         instruction.price if price is None else price,

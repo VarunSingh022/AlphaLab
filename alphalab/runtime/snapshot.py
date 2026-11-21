@@ -124,7 +124,7 @@ from alphalab.execution.events import (
 )
 from alphalab.execution.exceptions import ExecutionValidationError
 from alphalab.execution.fill import FillStatus
-from alphalab.execution.policy import FillTiming, RestRemainder
+from alphalab.execution.policy import FillTiming, LatencyPricing, RestRemainder
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.state import ExecutionState
 from alphalab.instrument.controls import (
@@ -331,11 +331,12 @@ __all__ = [
 #: :data:`PIPELINE_SCHEMA_HISTORY`.
 #:
 #: Version 9 (v4.3, ADR-0060) records the execution options M8 adds -- today a
-#: run's ``NEXT_OPEN`` fill timing -- and is written **only when a run declares
-#: one**: a run declaring none writes version 8, byte for byte, as the
-#: checkpoint writes its version 2 when it is given no schedule binding. A
-#: payload declares the version its own configuration implies, and is refused
-#: otherwise, so one state has one payload.
+#: run's ``NEXT_OPEN`` fill timing, a resting remainder and ``POST_LATENCY_EVENT``
+#: latency pricing -- and is written **only when a run declares one**: a run
+#: declaring none writes version 8, byte for byte, as the checkpoint writes its
+#: version 2 when it is given no schedule binding. A payload declares the version
+#: its own configuration implies, and is refused otherwise, so one state has one
+#: payload.
 PIPELINE_SNAPSHOT_SCHEMA: Final = 9
 
 #: The version a run declaring none of M8's execution options writes (ADR-0060).
@@ -994,9 +995,12 @@ class ConfigRecord:
     #: a resting remainder, so every other payload keeps its form and its
     #: identity, and one written before reads as none.
     remainder: RestRemainder | None = None
+    #: What the latency model does (ADR-0060). Written only when a run declares
+    #: ``POST_LATENCY_EVENT``, on the same terms; absent reads as ``STAMP``.
+    latency_pricing: LatencyPricing = LatencyPricing.STAMP
 
     def __serializable__(self) -> dict[str, Any]:
-        """The record's fields, ``remainder`` among them only when it is declared."""
+        """The record's fields, ``remainder`` and ``latency_pricing`` only when declared."""
 
         return {
             "account": self.account,
@@ -1017,6 +1021,11 @@ class ConfigRecord:
             "sizing_model_description": self.sizing_model_description,
             "simulator_description": self.simulator_description,
             **({"remainder": self.remainder} if self.remainder is not None else {}),
+            **(
+                {"latency_pricing": self.latency_pricing}
+                if self.latency_pricing is not LatencyPricing.STAMP
+                else {}
+            ),
         }
 
 
@@ -1256,6 +1265,7 @@ def _capture_config(config: ExecutionPipelineConfig) -> ConfigRecord:
         sizing_model_description=describe(config.sizing_model),
         simulator_description=describe(config.simulator),
         remainder=config.remainder,
+        latency_pricing=config.latency_pricing,
     )
 
 
@@ -1411,11 +1421,16 @@ def _written_version(config: ConfigRecord) -> int:
     """The schema version a pipeline configured as ``config`` is written at (ADR-0060).
 
     :data:`PIPELINE_SNAPSHOT_SCHEMA` when the run declares one of M8's execution
-    options -- a ``NEXT_OPEN`` fill timing, a resting remainder -- and version 8
-    otherwise, so a run declaring none is written as it was before they existed.
+    options -- a ``NEXT_OPEN`` fill timing, a resting remainder, ``POST_LATENCY_EVENT``
+    latency pricing -- and version 8 otherwise, so a run declaring none is
+    written as it was before they existed.
     """
 
-    if config.fill_timing is FillTiming.NEXT_OPEN or config.remainder is not None:
+    if (
+        config.fill_timing is FillTiming.NEXT_OPEN
+        or config.remainder is not None
+        or config.latency_pricing is not LatencyPricing.STAMP
+    ):
         return PIPELINE_SNAPSHOT_SCHEMA
     return _UNDECLARED
 
@@ -1567,6 +1582,7 @@ def _restore_config(record: ConfigRecord, objects: RuntimeObjects) -> ExecutionP
         calendars=record.calendars,
         retention=record.retention,
         remainder=record.remainder,
+        latency_pricing=record.latency_pricing,
     )
 
 
@@ -2469,6 +2485,10 @@ def _config(value: Any) -> ConfigRecord:
         ),
         # Absent from every payload but a version-9 one declaring it (ADR-0060).
         remainder=_rest_remainder(payload.get("remainder"), f"{where}.remainder"),
+        # Likewise absent unless a version-9 payload declares it (ADR-0060).
+        latency_pricing=_latency_pricing(
+            payload.get("latency_pricing"), f"{where}.latency_pricing"
+        ),
     )
 
 
@@ -2487,6 +2507,20 @@ def _rest_remainder(value: Any, where: str) -> RestRemainder | None:
         )
     except ExecutionValidationError as refusal:
         raise StateDecodeError(f"{where}: {refusal}") from refusal
+
+
+def _latency_pricing(value: Any, where: str) -> LatencyPricing:
+    """A declared latency pricing, or the default ``STAMP`` when none is written (ADR-0060)."""
+
+    if value is None:
+        return LatencyPricing.STAMP
+    text = as_str(value, where)
+    try:
+        return LatencyPricing(text)
+    except ValueError as exc:
+        raise StateDecodeError(
+            f"{where} must be one of {[pricing.value for pricing in LatencyPricing]}, got {text!r}."
+        ) from exc
 
 
 def _retention(value: Any, where: str) -> RetentionPolicy:

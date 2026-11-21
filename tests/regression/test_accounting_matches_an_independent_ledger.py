@@ -25,12 +25,15 @@ What it holds the engine to, on every seed:
   shares of a whole-share order.
 
 Since v4.3 the same ledger holds daily bars too, under ``SAME_EVENT``,
-``NEXT_EVENT`` and ``NEXT_OPEN`` and under each remainder policy -- cancelled,
-resting two events, resting three days -- (ADR-0060), with gapped opens. Each fill's
-price is also held to its timing: the deciding bar's close, the next bar's
-close, or the next bar's open. A fill priced away from its event's mark -- at
-an open -- values its position at the fill price until the next event of any
-asset re-marks it (pending marks, PRF-001), so each scenario ends with two
+``NEXT_EVENT`` and ``NEXT_OPEN``, under each remainder policy -- cancelled,
+resting two events, resting three days -- and under each latency pricing -- a
+stamp, or half a minute or a day and a half kept from the market -- (ADR-0060),
+with gapped opens. Each fill's price is also held to its timing: the deciding
+bar's close, the next bar's close, or the next bar's open, of the bar it
+filled at; and no fill comes before its order's latency has passed. A fill
+priced away from its event's mark -- at an open -- values its position at the
+fill price until the next event of any asset re-marks it (pending marks,
+PRF-001), so each scenario ends with two
 quiet instants: the last order can fill at the first, and the second re-marks
 it.
 """
@@ -50,7 +53,8 @@ from alphalab.backtesting import BacktestEngine, ImmediateFill, LiquidityCappedF
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.state import BacktestResult
 from alphalab.execution.commission import PerShareCommission
-from alphalab.execution.policy import FillPolicy, FillTiming, RestRemainder
+from alphalab.execution.latency import ConstantLatency
+from alphalab.execution.policy import FillPolicy, FillTiming, LatencyPricing, RestRemainder
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.market.bar import Bar, TimeFrame
 from alphalab.market.quote import Quote
@@ -297,17 +301,30 @@ def _bar_scenario(seed: int) -> tuple[list[Bar], dict[tuple[str, float], Decimal
     # Drawn last, so every earlier choice of a seed is what it was (ADR-0060).
     remainders = (None, RestRemainder(events=2), RestRemainder(seconds=3 * DAY))
     choices["remainder"] = rng.choice(remainders)
+    # Drawn after it, on the same terms: a stamp and no latency, or a latency
+    # that keeps an order from the market for half a minute -- to the next bar --
+    # or a day and a half, which passes it by one of its asset's bars.
+    pricings = (
+        (LatencyPricing.STAMP, 0.0),
+        (LatencyPricing.POST_LATENCY_EVENT, 30.0),
+        (LatencyPricing.POST_LATENCY_EVENT, 1.5 * DAY),
+    )
+    choices["latency"] = rng.choice(pricings)
     return bars, plan, choices
 
 
 @pytest.mark.parametrize("seed", range(30))
 def test_the_engine_books_what_an_independent_ledger_books_on_bars(seed: int) -> None:
     bars, plan, choices = _bar_scenario(seed)
+    pricing, latency = choices["latency"]
     config = backtest_config(
         STRATEGY,
         seed=seed,
         fill_policy=choices["policy"],
-        simulator=ExecutionSimulator(commission_model=PerShareCommission(choices["commission"])),
+        simulator=ExecutionSimulator(
+            commission_model=PerShareCommission(choices["commission"]),
+            latency_model=ConstantLatency(latency),
+        ),
     )
     config = replace(
         config,
@@ -315,6 +332,7 @@ def test_the_engine_books_what_an_independent_ledger_books_on_bars(seed: int) ->
             config.pipeline,
             fill_timing=choices["timing"],
             remainder=choices["remainder"],
+            latency_pricing=pricing,
             allocation_constraints=AllocationConstraints(
                 allow_shorting=True, enforce_integer_quantities=True
             ),
@@ -330,10 +348,14 @@ def test_the_engine_books_what_an_independent_ledger_books_on_bars(seed: int) ->
     cash = config.pipeline.starting_cash
     held = dict.fromkeys(ASSETS, Decimal(0))
     paid = Decimal(0)
+    placed = {str(o.order_id.value): o.created_at for o in result.state.oms.orders.orders()}
     for fill in result.fills:
         bar = by_key[(fill.asset_id, fill.filled_at)]
         expected = bar.open if choices["timing"] is FillTiming.NEXT_OPEN else bar.close
         assert fill.price == expected, (choices["timing"], fill)
+        # No order meets the market before its latency has passed (ADR-0060).
+        decided = placed[str(fill.order_id)]
+        assert fill.filled_at >= decided + latency, (choices["latency"], fill)
         signed = fill.quantity if fill.side.value == "buy" else -fill.quantity
         cash -= (signed * fill.price).quantize(CENT, ROUND_HALF_EVEN) + fill.commission
         paid += fill.commission

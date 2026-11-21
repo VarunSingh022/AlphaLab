@@ -62,6 +62,34 @@ class FillTiming(StrEnum):
     NEXT_OPEN = "next_open"
 
 
+class LatencyPricing(StrEnum):
+    """What a run's latency model does to a simulated order (v4.3, ADR-0060).
+
+    Recorded with the run, its snapshot -- only when not the default -- and its
+    results, because it decides whether latency costs anything.
+    """
+
+    #: The latency model moves the fill's timestamp and nothing else: the order
+    #: meets the market at the price its fill timing gives it, and the fill is
+    #: stamped that long after. What every run did before v4.3, and the default.
+    STAMP = "stamp"
+    #: An order cannot meet the market before its latency has passed. Its first
+    #: turn is its asset's first event at or after the decision instant plus the
+    #: latency model's draw for the order, and the fill is stamped at that event,
+    #: since the latency was spent waiting for it; events before then pass the
+    #: order by, and a same-event order with no latency trades at its event as
+    #: before. The turn is the run's fill timing's -- at a bar a market order
+    #: fills at the open under ``NEXT_OPEN``, at the close otherwise -- except at
+    #: an intraday bar the latency ended within: the order was not in the market
+    #: at its open or through its range, so it meets the bar's close alone, as an
+    #: order placed at that bar does. A daily-or-longer bar is a session, met
+    #: from its open: its interval holds the break between sessions, and a
+    #: latency is taken to be shorter than that break. Like the fill timings it
+    #: governs simulated orders: an execution plan's children are worked at the
+    #: events their algorithm schedules.
+    POST_LATENCY_EVENT = "post_latency_event"
+
+
 @dataclass(frozen=True, slots=True)
 class RestRemainder:
     """What a partial fill leaves keeps working, for a stated while (v4.3, ADR-0060).

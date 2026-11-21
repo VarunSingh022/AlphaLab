@@ -245,6 +245,60 @@ empty for its output.
      - a resume at version 9.
 
      The bar ledger draws each remainder policy too.
+3. **Latency pricing.**
+   - **The configuration.** `ExecutionPipelineConfig.latency_pricing` is a
+     `LatencyPricing`, `STAMP` by default: today's rule, by the same code path.
+   - **The ready instant lives on the order.** Under `POST_LATENCY_EVENT` a
+     simulated order's ready instant is its decision instant plus the latency
+     model's draw for it, the `calculate(order_id, instant)` the simulator
+     stamps with. When that is after the event, the order is held and the
+     instant is written to its metadata through `OMSEngine.annotate`. A
+     same-event order with no latency trades at its event, as before.
+   - **On its way.** At each event of its asset before then, the order has no
+     turn and moves no queue. It does not join a queue at the event it was
+     placed on, and starts its first turn from an unknown queue, as an order
+     placed at another asset's event does. An order whose expiry an event
+     reaches still expires. In a reopening auction an order counts as having
+     waited when its ready instant, not its placement, came before the halt
+     ended; one still on its way takes no part.
+   - **Section 5's price at a bar's open is settled for the bar the latency
+     ends within.** An order that reached the market inside an intraday bar
+     was not there at its open or through its range. Its first turn there is
+     an arriving one: it meets the bar's close alone, as an order placed at
+     that bar does. A market order fills at the close, under `NEXT_OPEN` too;
+     a limit order takes it when marketable and rests otherwise; a stop is
+     judged at it. Section 5 as written filled the order at an open from
+     before it was in the market, and section 6's `conservative_execution`
+     states `NEXT_OPEN` with `POST_LATENCY_EVENT`. A daily-or-longer bar is a
+     session, met from its open: its interval holds the break between
+     sessions, when nothing trades, and a latency is taken to be shorter than
+     that break.
+   - **Only the first turn arrives.** The order's first turn after its latency
+     is recorded in its metadata too. A later bar whose interval also holds
+     the ready instant, a coarser bar or bars stamped closer together than
+     their interval, gives the order the resting turn any order in the market
+     takes.
+   - **The stamp.** The fill is simulated with no latency, so it is stamped at
+     the event, the latency having been spent waiting for it. An execution
+     plan's children are not governed by it, as with the fill timings.
+   - **What is recorded.** The configuration record writes `latency_pricing`
+     only when it is not `STAMP`, and the payload is then version 9.
+     `execution_assumptions` appends `; pricing=post_latency_event` to the
+     latency's description only when declared: section 7's "gains
+     `latency_pricing`" is settled as the remainder's was.
+   - **Tests.** `tests/regression/test_latency_pricing.py` holds
+     hand-calculated fills:
+     - at one-minute bars with 90 seconds of latency, 102 at the close of the
+       bar the latency ends within, under every timing, where `STAMP` fills at
+       100, 101 or 99;
+     - with 30 seconds, 101 at the next bar's close, never its open of 99;
+     - with none, every timing as under `STAMP`;
+     - at daily bars, 103 at the next session's open.
+
+     They also cover a drawn latency, a limit arriving within a bar, expiry on
+     the way, quotes, queues, both kinds of reopening auction, the description
+     and a resume at version 9. The bar ledger draws each pricing, and checks
+     that no fill comes before its order's latency has passed.
 
 # Compatibility
 

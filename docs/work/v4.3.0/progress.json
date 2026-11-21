@@ -1055,6 +1055,19 @@
       "compatibility": "Additive: a configuration field defaulting to today's rule, two exported classes (four exports), an OMS transition, and a description appended only when declared. A run declaring none keeps its payloads and identities.",
       "record": "docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md (settled point 2); CHANGELOG",
       "tests": "tests/regression/test_remainders_and_strict_caps.py (22): hand-calculated fills -- 30 under cancel, 90 resting two events, 60 resting 1.5 seconds; a turn that fills nothing; an immediate order; the rest's validation; the strict refusal and its equality with the lenient cap where there is size; the descriptions only when declared; a resume at version 9; an undeclared payload unchanged. The bar ledger draws each remainder policy."
+    },
+    {
+      "id": "TD-62",
+      "date": "2026-11-21",
+      "workstream": "WS-11",
+      "title": "LatencyPricing.POST_LATENCY_EVENT: an order meets the market at its asset's first event after its latency, arriving within the bar it reaches the market in (ADR-0060 settled point 3, GAP-19)",
+      "problem": "ADR-0060 section 5 needs latency to delay an order's first turn, which means a per-order ready instant, and prices that turn at the open of a bar under NEXT_OPEN. An order whose latency ends inside an intraday bar was not in the market at the bar's open or through its range, so that rule would fill it at a price from before it arrived -- under the combination section 6's conservative_execution states. A queue would also place the order at the event it was decided on, and a reopening auction would count it as having waited from its placement.",
+      "alternatives": "The ready instant recomputed from the order's creation, or written to its metadata at acceptance. At the bar the latency ends within: the open as section 5 says, the next bar's open, or the bar's close alone. Daily bars measured by their nominal interval, by a declared calendar's session opening, or met from the open. The arriving rule at every bar whose interval holds the ready instant, or at the first turn only. The fill stamped by the simulator's latency model, or at the event.",
+      "decision": "ExecutionPipelineConfig.latency_pricing, STAMP by default, taking today's code path. Under POST_LATENCY_EVENT a simulated order's ready instant -- its decision instant plus the latency model's calculate(order_id, instant) -- is written to its metadata (latency_ready_at) through OMSEngine.annotate when it is after the event, and the order is held; a same-event order with no latency trades at its event. Until then the order has no turn, no queue place and no part in a reopening auction, though an expiry it reaches still expires it; it joins no queue at its placing event and starts from an unknown queue. Its first turn after its latency is recorded on it (latency_first_turn_at), and at an intraday bar whose interval began before its ready instant that turn is an arriving one: the bar's close alone, under NEXT_OPEN too. A daily-or-longer bar is a session, met from its open. A reopening auction counts an order as having waited by its ready instant. The fill is simulated with no latency, so it is stamped at its event. An execution plan's children are not governed by it. The configuration record writes latency_pricing only when declared, at version 9, and execution_assumptions appends '; pricing=post_latency_event' to the latency's description only when declared.",
+      "rationale": "Writing the draw down keeps one ready instant per order whatever the model, and the OMS snapshot already carries an order's metadata. The arriving rule is the one an order placed at a bar already has: it takes no price from before the order was in the market, which section 5's open would, and the next bar's open would hold a NEXT_EVENT order past a close it can take. A daily bar's nominal interval holds the break between sessions, so measuring it would move every NEXT_OPEN daily fill to the close for any latency at all. Recording the first turn keeps the rule to the bar the order arrived in where bars overlap, or are stamped closer together than their interval, as the reopening tests' minute bars are.",
+      "compatibility": "Additive: a configuration field defaulting to today's rule, one exported enum (one export), two metadata keys only in a run that declares it, and a description appended only when declared. A run declaring none keeps its payloads and identities.",
+      "record": "docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md (settled point 3); CHANGELOG",
+      "tests": "tests/regression/test_latency_pricing.py (31): hand-calculated fills at one-minute bars with 90 seconds of latency (102 at the close of the bar the latency ends within, under every timing, where STAMP fills at 100, 101 or 99), with 30 seconds (101, never the open of 99) and with none (as STAMP); at daily bars (103 at the next session's open); a drawn latency; limits arriving within a bar; expiry on the way; quotes; a queue place withheld and an unknown queue; both kinds of reopening auction; the description; a resume at version 9; a stamped payload unchanged and an unknown pricing refused. The bar ledger draws each pricing and checks that no fill comes before its order's latency has passed."
     }
   ],
   "plan_changes": [
@@ -2038,21 +2051,26 @@
         {
           "milestone": "M8",
           "item": "ADR-0060 accepted (TD-57): NEXT_OPEN and the intraday opening rule, RemainderPolicy, strict caps, latency pricing, conservative builders (D-V4)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M8",
           "item": "ADR-0062 accepted (TD-59): package intents, all legs or none at one instant (N16)",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M8",
           "item": "FillTiming.NEXT_OPEN and the intraday opening rule (TD-60, ADR-0060 settled point 1, GAP-18): a market order's turn at a bar fills at the open, stamped at the delivering event; a declared calendar's pre- and post-market bars give no turn; pipeline schema 9 written only when declared and read strictly; hand-calculated fills at daily and one-minute bars",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M8",
           "item": "RestRemainder and StrictLiquidityCappedFill (TD-61, ADR-0060 settled point 2, GAP-38): a market turn's remainder rests for events or seconds, its allowance on the order through OMSEngine.annotate, and is cancelled when the rest ends; a strict cap refuses an event with no size; version 9 when declared",
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M8",
+          "item": "LatencyPricing.POST_LATENCY_EVENT (TD-62, ADR-0060 settled point 3, GAP-19): an order's first turn is its asset's first event at or after its decision plus its latency, stamped there; at the intraday bar it reaches the market within, the close alone; no turn, queue place or auction part on its way; version 9 when declared",
           "status": "Local validation passed"
         }
       ],
@@ -2365,7 +2383,7 @@
         {
           "milestone": "M8",
           "item": "ADR-0061 accepted (TD-58): per-venue execution models and routing (FUT-045), plans with queues, child fills",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -2642,8 +2660,8 @@
       "id": "GAP-19",
       "problem": "Latency costs nothing",
       "severity": "M/P2",
-      "status": "Open",
-      "status_note": "",
+      "status": "Closed",
+      "status_note": "Closed at M8 (WS-11, ADR-0060, TD-62): LatencyPricing.POST_LATENCY_EVENT keeps an order from the market until its latency has passed. Its first turn is its asset's first event at or after then, stamped there, and at the intraday bar it reaches the market within it meets the close alone. Opt-in; a run under STAMP, the default, is unchanged.",
       "workstreams": [
         "WS-11"
       ],
@@ -3267,8 +3285,8 @@
     ]
   },
   "state": {
-    "updated": "2026-11-17",
-    "remote_head": "baaa305",
+    "updated": "2026-11-21",
+    "remote_head": "bc11621",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4229,7 +4247,7 @@
         "sha": "ec1ca9b",
         "workflow": "Continuous Integration",
         "run": 44140689034,
-        "result": "four cells passed; macOS 3.12 and 3.14 were never acquired by a runner; re-run, queued at this record, not counted as passed"
+        "result": "four cells passed; macOS 3.12 and 3.14 were never acquired by a runner on attempts 1 and 2 and ended cancelled, not counted; re-run again (attempt 3), queued at this record. Its tree is held by baaa305's and bc11621's runs, which passed all six cells"
       },
       {
         "sha": "ec1ca9b",
@@ -4242,10 +4260,46 @@
         "workflow": "Optional Distributions",
         "run": 44140688986,
         "result": "success, all four cells"
+      },
+      {
+        "sha": "baaa305",
+        "workflow": "Continuous Integration",
+        "run": 44146161656,
+        "result": "success: all six quality-gate cells"
+      },
+      {
+        "sha": "baaa305",
+        "workflow": "CodeQL",
+        "run": 44146161669,
+        "result": "success"
+      },
+      {
+        "sha": "baaa305",
+        "workflow": "Optional Distributions",
+        "run": 44146161773,
+        "result": "success"
+      },
+      {
+        "sha": "bc11621",
+        "workflow": "Continuous Integration",
+        "run": 44223589275,
+        "result": "success: all six quality-gate cells"
+      },
+      {
+        "sha": "bc11621",
+        "workflow": "CodeQL",
+        "run": 44223589253,
+        "result": "success"
+      },
+      {
+        "sha": "bc11621",
+        "workflow": "Optional Distributions",
+        "run": 44223589202,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M8 (WS-11, WS-26, WS-10's child-fill protocol), in the plan's commit order: NEXT_OPEN and the intraday opening rule; RemainderPolicy and strict caps; latency pricing; plans with queues; child-fill feedback; package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide. M7's re-run macOS cells and the checkpoint benchmarks are read once at the next boundary.",
+    "next": "M8, in the plan's commit order: plans with queues; child-fill feedback; package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close. ec1ca9b's re-run macOS cells are read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -4608,6 +4662,10 @@
     {
       "date": "2026-11-17",
       "entry": "baaa305 (NEXT_OPEN, TD-60) passed the full gate (14,128 tests) and was pushed. M7's re-run macOS cells passed, so every M7 commit passed all six cells: M7 and WS-08 are Hosted CI passed. At M7's checkpoint the authoritative Linux benchmarks built WS-08's 500-asset training set in 28.6 to 31.9 CPU s against 60. RestRemainder and StrictLiquidityCappedFill validated locally (TD-61), each order's allowance kept in its metadata through an event-less OMS transition, as trigger is. The commit's first gate failed on three tests. The pinned reference experiment's identity and an assessment's had moved, because ExecutionAssumptions had gained a remainder field and every experiment's identity holds the assumptions whole. A third test required the changed ExecutionAssumptions to be named in the CHANGELOG. The field was removed and the remainder folded into the fill policy's description only when declared, so every pin holds."
+    },
+    {
+      "date": "2026-11-21",
+      "entry": "bc11621 (remainders and strict caps, TD-61) passed the full gate (14,150 tests) and was pushed. baaa305's and bc11621's runs passed all six cells, with CodeQL and the optional distributions, so NEXT_OPEN, the remainders and M8's ADRs are Hosted CI passed. ec1ca9b's own re-run macOS cells were again never acquired by a runner: not counted, and re-run once more. Latency pricing validated locally (TD-62). Implementing it found that section 5's rule, a bar's open under NEXT_OPEN, would fill an order whose latency ends inside an intraday bar at a price from before it reached the market -- the combination conservative_execution states. ADR-0060 settled point 3 makes that turn an arriving one, the bar's close alone, and meets a daily bar's session from its open. Its first tests found that the rule must hold at the first turn only: the reopening tests' minute bars are stamped a second apart, so every later bar's interval held the ready instant too. The first turn is now recorded on the order."
     }
   ]
 }

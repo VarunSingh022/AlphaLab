@@ -1054,6 +1054,36 @@ entry below says otherwise.
   * **The tests.** `tests/regression/test_remainders_and_strict_caps.py` holds
     hand-calculated fills. The independent ledger draws each remainder policy.
 
+* **Latency can keep an order from the market** [plan WS-11, GAP-19, ADR-0060].
+  `ExecutionPipelineConfig.latency_pricing` says what the simulator's latency
+  model does.
+  * **`LatencyPricing.STAMP`, the default.** The latency moves a fill's
+    timestamp and nothing else, as before.
+  * **`LatencyPricing.POST_LATENCY_EVENT`.** No order meets the market before
+    its latency has passed. Its first turn is its asset's first event at or
+    after the decision instant plus the latency model's draw for the order,
+    and the fill is stamped at that event. Events before then pass it by, so a
+    latency longer than a bar fills at a later bar's price.
+  * **An order arriving within a bar.** At the intraday bar its latency ends
+    within, the order meets the bar's close alone, as an order placed at that
+    bar does: the bar's open and range came before it was in the market. Under
+    `NEXT_OPEN` too it fills at that close, never at an open from before it
+    arrived. A daily-or-longer bar is a session, met from its open.
+  * **On its way.** The order has no turn and no queue place, and starts from
+    an unknown queue when it reaches the market. A day order whose session
+    closes meanwhile expires. One reaching the market after a halt has ended
+    did not wait for the reopening auction.
+  * **What does not change.** A same-event order with no latency trades at its
+    event. An execution plan's children are worked at the events their
+    algorithm schedules.
+  * **What is recorded.** The order's ready instant and first turn live in its
+    metadata. The pipeline snapshot writes the pricing only when declared, at
+    version 9, and `execution_assumptions` appends it to the latency's
+    description only when declared.
+  * **The tests.** `tests/regression/test_latency_pricing.py` holds
+    hand-calculated fills. The independent ledger draws each pricing and checks
+    that no fill comes before its order's latency has passed.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

@@ -22,7 +22,7 @@ from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from alphalab.execution.policy import FillPolicy, FillTiming, ImmediateFill
+from alphalab.execution.policy import FillPolicy, FillTiming, ImmediateFill, LatencyPricing
 from alphalab.execution.queue import QueueModel
 
 if TYPE_CHECKING:
@@ -103,7 +103,9 @@ class ExecutionAssumptions:
         costs: The cost model every simulated fill was priced by, described --
             with the maker commission a resting fill pays instead, when one is
             set (v3.11).
-        latency: The latency model, described.
+        latency: The latency model, described -- with ``pricing=`` and what it
+            does, when a run declares that latency keeps an order from the market
+            rather than only stamping its fill (v4.3, ADR-0060).
         frictionless: Whether every cost role charged nothing by construction
             (:attr:`~alphalab.execution.simulator.ExecutionSimulator.is_frictionless`).
         unlimited_liquidity: Whether every order filled in full
@@ -220,12 +222,18 @@ def execution_assumptions(
         # commission is to the costs: the assumptions keep their shape, and
         # every experiment identity that holds them stays what it was.
         policy = f"{policy}; remainder={describe(pipeline.remainder)}"
+    latency = describe(simulator.latency_model)
+    if pipeline.latency_pricing is not LatencyPricing.STAMP:
+        # Whether latency costs anything is part of the latency model the
+        # evidence was measured under (ADR-0060): appended only when declared,
+        # on the same terms as a remainder.
+        latency = f"{latency}; pricing={pipeline.latency_pricing.value}"
     return ExecutionAssumptions(
         routing=pipeline.routing,
         fill_timing=pipeline.fill_timing,
         fill_policy=policy,
         costs=costs,
-        latency=describe(simulator.latency_model),
+        latency=latency,
         frictionless=simulator.is_frictionless,
         unlimited_liquidity=isinstance(fill_policy, ImmediateFill),
         queue_model=None if queue_model is None else describe(queue_model),

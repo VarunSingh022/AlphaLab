@@ -210,6 +210,9 @@ VALUES: dict[str, tuple[str, ...]] = {
     "alphalab.core.enums.Side": ("buy", "sell"),
     "alphalab.data.feed.TradeAggressor": ("BUYER", "SELLER"),
     "alphalab.execution.policy.FillTiming": ("same_event", "next_event", "next_open"),
+    # v4.3.0 (ADR-0060, plan WS-11): what a run's latency model does, which a
+    # pipeline snapshot declaring it writes.
+    "alphalab.execution.policy.LatencyPricing": ("stamp", "post_latency_event"),
     # v4.3.0 (ADR-0064, plan WS-08): a tree ensemble's loss, which every
     # captured model states and GradientBoostedTrees.restore reads back.
     "alphalab.ml.models.BoostingLoss": ("squared", "logistic"),
