@@ -237,6 +237,42 @@ cardinality is an integer program and stays a boundary.
   certified convex solver. The linear program lifts that boundary when it
   lands; cardinality's and multi-period's stay.
 
+# Settled at implementation (2026-11-22)
+
+1. **The objective protocol.**
+   - **Where it lives.** `Convexity`, `Objective`, `QuadraticObjective` and
+     `QuadraticForm` are in `alphalab.portfolio_optimizer.construction`,
+     exported from the package. `ConstructionProblem.objective` is annotated
+     `Objective`; `ConstructionObjective` stays the union of the shipped five.
+   - **A quadratic form's curvature is the problem's own covariance.** A
+     `QuadraticForm` states a positive multiple of the covariance and a linear
+     term over exactly the universe, not an arbitrary matrix. A problem then
+     holds one risk model, both certified quadratic methods apply -- the
+     factor-structured one included, at its threshold -- and minimum variance,
+     mean-variance and a tracking error are each expressible. Its scale is
+     finite and positive, and its terms are refused unless they cover the
+     universe.
+   - **Admitted before anything is solved.** `construct` checks an objective
+     that is not one of the package's at its start: one stating no
+     `Convexity` and rendering, a `NONCONVEX` one, a `CONVEX` one without a
+     method of its own, a `LINEAR` one, a quadratic one without its form, and
+     a quadratic one under a volatility cap are each refused with the reason.
+     The volatility cap is refused because only minimum variance's check and
+     mean-variance's bisection on its aversion take one. A `LINEAR` objective
+     waits for the linear program.
+   - **Identity.** A shipped objective's lines are its rendering alone, so its
+     problem keeps the identity it had. Another objective's lines are its
+     class's qualified name, its `Convexity`, then its rendering, so two
+     objectives that render alike are two problems.
+   - **Tests.** `tests/unit/portfolio_optimizer/test_objective_protocol.py`:
+     - the five shipped objectives' classes, and their problems' identities
+       pinned as the tree before the protocol computed them;
+     - a tracking error whose feasible benchmark is its own optimum, and one
+       held to the exact rational optimum under a cap;
+     - the dense and factor-structured methods agreeing on a tilted minimum
+       variance at 120 assets, identified apart;
+     - identity by class and kind, and every refusal.
+
 # Compatibility
 
 - Additive: a package, a solver module, objectives and constraints, and a

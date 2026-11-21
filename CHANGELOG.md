@@ -1254,6 +1254,27 @@ entry below says otherwise.
   M8's venues scenario: 4,000 orders routed by size between a per-share and a
   per-order venue, each priced by its own, at a cost per record flat over
   ten times the run.
+* **The objective protocol** [plan WS-12, ADR-0063, GAP-37]. Construction's
+  objectives are open, and every method behind `construct` stays certified.
+  * **An objective states what it is.** An `Objective` declares its
+    `Convexity` -- `LINEAR`, `CONVEX_QUADRATIC`, `CONVEX` or `NONCONVEX` --
+    and its rendering. `construct` sends it to the method its class admits, or
+    refuses it before anything is solved.
+  * **The five shipped objectives declare theirs.** Minimum variance and
+    mean-variance are convex quadratic; maximum diversification, risk parity
+    and the robust objective are convex, with methods of their own. Each keeps
+    its method and every identity.
+  * **A researcher's convex quadratic objective** is a `QuadraticObjective`.
+    It states a `QuadraticForm`: a positive multiple of the problem's own
+    covariance as the curvature, and a linear term over exactly the universe.
+    It is solved by the certified quadratic methods, the factor-structured one
+    included, and is identified by its class, its kind and its rendering.
+  * **What no certified method takes is refused,** naming why: a non-convex
+    objective, a convex one with no method of its own, a quadratic one without
+    its form or under a volatility cap, and, until the linear program lands, a
+    linear one.
+  * `ConstructionProblem`'s objective is annotated `Objective`; the package's
+    union of its own objectives, `ConstructionObjective`, is unchanged.
 
 ## Changed
 

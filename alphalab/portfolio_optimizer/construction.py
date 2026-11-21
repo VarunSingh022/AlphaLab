@@ -63,6 +63,15 @@ universe under :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS`, a structure that
 cannot establish definiteness by itself, or a program the structured method
 does not certify. Its diagnostics are computed through the factors.
 
+Since v4.3 (ADR-0063) the objectives are open. An :class:`Objective` states
+its :class:`Convexity` and its rendering, and :func:`construct` sends it to the
+method its class admits, or refuses it before anything is solved. The five
+objectives above declare theirs and keep their methods and identities. A
+researcher's ``CONVEX_QUADRATIC`` objective states a :class:`QuadraticForm`, a
+positive multiple of the problem's covariance and a linear term, and is solved
+by the certified quadratic methods. A ``NONCONVEX`` objective is always
+refused, since no certified method minimizes one.
+
 What construction does not solve, by design: **cardinality** (at most ``k``
 names) and **joint lot selection** are integer programs, and no integer
 solver is part of this library -- rounding is per asset, toward zero, and
@@ -123,7 +132,7 @@ from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_EVEN, Context, Decimal
 from enum import Enum, auto
 from types import MappingProxyType
-from typing import Final
+from typing import Final, Protocol, runtime_checkable
 
 from alphalab.analytics.exceptions import AnalyticsValidationError
 from alphalab.analytics.risk_model import (
@@ -165,6 +174,7 @@ __all__ = [
     "ConstructionProblem",
     "ConstructionResult",
     "ConstructionStatus",
+    "Convexity",
     "EllipsoidalUncertainty",
     "ExpectedReturns",
     "ExposureRange",
@@ -175,6 +185,9 @@ __all__ = [
     "MeanVariance",
     "MinimumVariance",
     "NotionalLimits",
+    "Objective",
+    "QuadraticForm",
+    "QuadraticObjective",
     "RiskParity",
     "RobustMeanVariance",
     "SolverSettings",
@@ -791,9 +804,96 @@ class ConstraintSet:
 # --------------------------------------------------------------------------- #
 
 
+class Convexity(Enum):
+    """What kind of function an objective is, which decides the method that solves it (v4.3).
+
+    Construction stays one authority, and every method behind it is certified
+    (ADR-0063). So an objective says what it is, and :func:`construct` sends it
+    to the method its class admits, or refuses it before anything is solved.
+
+    ``LINEAR``: a cost on each weight. ``CONVEX_QUADRATIC``: a positive multiple
+    of the problem's covariance as its curvature, and a linear term, stated as a
+    :class:`QuadraticForm`. ``CONVEX``: convex, with a method of its own, as the
+    package's risk parity, maximum diversification and robust objectives have.
+    ``NONCONVEX``: never solved, since no certified method minimizes one.
+    """
+
+    LINEAR = "linear"
+    CONVEX_QUADRATIC = "convex_quadratic"
+    CONVEX = "convex"
+    NONCONVEX = "nonconvex"
+
+
+@dataclass(frozen=True, slots=True)
+class QuadraticForm:
+    """A convex quadratic objective as construction's quadratic methods solve it (v4.3).
+
+    .. code-block:: text
+
+        minimize  (scale / 2) w' C w  +  sum_i linear_i * w_i
+
+    over the problem's constraints, ``C`` its covariance. The curvature is the
+    problem's own risk model, scaled, so the dense and the factor-structured
+    methods both apply and a problem holds one covariance.
+
+    Attributes:
+        scale: The curvature's multiple of the covariance: finite and positive.
+        linear: The coefficient of each weight, for exactly the universe.
+    """
+
+    scale: float
+    linear: Mapping[str, float]
+
+    def __post_init__(self) -> None:
+        scale = _number(self.scale, "QuadraticForm scale")
+        if scale <= 0.0:
+            raise ConstructionInputError(f"QuadraticForm scale must be positive, got {scale!r}.")
+        if not isinstance(self.linear, Mapping):
+            raise ConstructionInputError("QuadraticForm linear must map each asset to a number.")
+        linear = {
+            _text(asset, "QuadraticForm asset"): _number(value, f"QuadraticForm linear[{asset!r}]")
+            for asset, value in self.linear.items()
+        }
+        object.__setattr__(self, "scale", scale)
+        object.__setattr__(self, "linear", MappingProxyType(dict(sorted(linear.items()))))
+
+
+@runtime_checkable
+class Objective(Protocol):
+    """What a construction optimizes, and what kind of function it is (v4.3, ADR-0063).
+
+    The package's five objectives satisfy it, and so may a researcher's own. An
+    objective that is not one of the package's enters the problem's identity by
+    its class's qualified name and its :class:`Convexity`, then its
+    :meth:`rendering`: two objectives that render alike are still two problems.
+    """
+
+    @property
+    def convexity(self) -> Convexity:
+        """The objective's class, which decides the method that solves it."""
+        ...
+
+    def rendering(self) -> list[str]:
+        """The objective's identity lines: every parameter that decides the answer."""
+        ...
+
+
+@runtime_checkable
+class QuadraticObjective(Objective, Protocol):
+    """A ``CONVEX_QUADRATIC`` objective of the protocol, stating its form (v4.3)."""
+
+    def quadratic_form(self, problem: ConstructionProblem) -> QuadraticForm:
+        """The objective over ``problem``: its curvature's scale and its linear term."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class MinimumVariance:
     """Minimize ``w' C w``. No expected return is read."""
+
+    @property
+    def convexity(self) -> Convexity:
+        return Convexity.CONVEX_QUADRATIC
 
     def rendering(self) -> list[str]:
         return ["objective=minimum_variance"]
@@ -826,6 +926,10 @@ class MeanVariance:
         if self.costs is not None and not isinstance(self.costs, LinearCosts):
             raise ConstructionInputError(f"costs must be LinearCosts, got {self.costs!r}.")
 
+    @property
+    def convexity(self) -> Convexity:
+        return Convexity.CONVEX_QUADRATIC
+
     def rendering(self) -> list[str]:
         return [
             "objective=mean_variance",
@@ -849,6 +953,10 @@ class MaximumDiversification:
     which is also why a constraint that is not invariant to rescaling ``w``
     (turnover, a volatility cap) cannot be expressed and is refused.
     """
+
+    @property
+    def convexity(self) -> Convexity:
+        return Convexity.CONVEX
 
     def rendering(self) -> list[str]:
         return ["objective=maximum_diversification"]
@@ -897,6 +1005,10 @@ class RiskParity:
         """Equal risk contribution."""
 
         return cls(None)
+
+    @property
+    def convexity(self) -> Convexity:
+        return Convexity.CONVEX
 
     def rendering(self) -> list[str]:
         if self.budgets is None:
@@ -1041,6 +1153,10 @@ class RobustMeanVariance:
             raise ConstructionInputError(f"risk_aversion is {aversion!r}; it must be positive.")
         object.__setattr__(self, "risk_aversion", aversion)
 
+    @property
+    def convexity(self) -> Convexity:
+        return Convexity.CONVEX
+
     def rendering(self) -> list[str]:
         return [
             "objective=robust_mean_variance",
@@ -1050,9 +1166,33 @@ class RobustMeanVariance:
         ]
 
 
+#: The objectives the package ships. A problem takes any :class:`Objective` (v4.3).
 type ConstructionObjective = (
     MinimumVariance | MeanVariance | MaximumDiversification | RiskParity | RobustMeanVariance
 )
+
+#: The package's own objectives, each solved by a method of its own and identified
+#: by its rendering alone, as before v4.3.
+_SHIPPED: Final = (
+    MinimumVariance,
+    MeanVariance,
+    MaximumDiversification,
+    RiskParity,
+    RobustMeanVariance,
+)
+
+
+def _objective_lines(objective: Objective) -> list[str]:
+    """An objective's identity lines, after its class and kind when it is not the package's."""
+
+    if isinstance(objective, _SHIPPED):
+        return objective.rendering()
+    kind = type(objective)
+    return [
+        f"objective.class={kind.__module__}.{kind.__qualname__}",
+        f"objective.convexity={objective.convexity.value}",
+        *objective.rendering(),
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1071,13 +1211,14 @@ class ConstructionProblem:
             method needs the dense values (ledger PRF-013). Its assets are the
             universe, in canonical order; its currency and period are the units
             of every weight and risk figure.
-        objective: What is optimized.
+        objective: What is optimized: one of the package's objectives, or
+            since v4.3 any of the :class:`Objective` protocol (ADR-0063).
         constraints: What must hold.
         settings: The numerical contract.
     """
 
     covariance: CovarianceMatrix | FactorStructure
-    objective: ConstructionObjective
+    objective: Objective
     constraints: ConstraintSet
     settings: SolverSettings
 
@@ -1095,7 +1236,7 @@ class ConstructionProblem:
             [
                 CONSTRUCTION_PROBLEM_SCHEME,
                 f"covariance={self.covariance.covariance_id}",
-                *self.objective.rendering(),
+                *_objective_lines(self.objective),
                 *self.constraints.rendering(),
                 f"feasibility_tolerance={_render(self.settings.feasibility_tolerance)}",
                 f"convergence_tolerance={_render(self.settings.convergence_tolerance)}",
@@ -2376,9 +2517,13 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
     Raises:
         ConstructionInputError: If the problem is malformed: a covariance that
             is not positive definite, inputs that do not cover exactly the
-            universe or disagree with the covariance's currency or period, or a
-            constraint the objective cannot express.
+            universe or disagree with the covariance's currency or period, a
+            constraint the objective cannot express, or since v4.3 an objective
+            of the protocol whose class no certified method takes (ADR-0063).
     """
+
+    # An objective of the protocol is admitted, or refused, before anything is solved.
+    admitted = None if isinstance(problem.objective, _SHIPPED) else _admitted(problem)
 
     # A structure under a method that reads the dense values -- risk parity, a
     # universe too small for the structured method, a structure that cannot
@@ -2447,6 +2592,74 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
         outcome = _robust(problem, compiled, objective)
     elif isinstance(objective, MaximumDiversification):
         outcome = _maximum_diversification(problem, compiled)
-    else:
+    elif isinstance(objective, RiskParity):
         outcome = _risk_parity(problem, compiled, objective)
+    else:
+        assert admitted is not None  # every objective not the package's was admitted above
+        outcome = _protocol_quadratic(problem, compiled, admitted)
     return _result(stated, method, outcome, compiled, evidence.pivot_ratio, expected)
+
+
+def _admitted(problem: ConstructionProblem) -> QuadraticObjective:
+    """An objective of the protocol that a certified method solves, or a refusal (ADR-0063).
+
+    Raises:
+        ConstructionInputError: If the objective states no class or rendering, or a
+            class no certified method takes: ``NONCONVEX`` always; ``CONVEX``,
+            which only the package's own objectives have methods for; and
+            ``LINEAR``, which no method here solves. Also a ``CONVEX_QUADRATIC``
+            one that states no form, or one under a volatility cap.
+    """
+
+    objective = problem.objective
+    name = type(objective).__name__
+    if not isinstance(objective, Objective) or not isinstance(objective.convexity, Convexity):
+        raise ConstructionInputError(
+            f"{name} is not a construction objective: it states no Convexity and no "
+            "rendering (ADR-0063)."
+        )
+    kind = objective.convexity
+    if kind is Convexity.NONCONVEX:
+        raise ConstructionInputError(
+            f"{name} is NONCONVEX: no certified method minimizes a non-convex objective, so "
+            "construction refuses it rather than return an answer it cannot certify."
+        )
+    if kind is Convexity.CONVEX:
+        raise ConstructionInputError(
+            f"{name} is CONVEX, and only the package's own convex objectives -- risk parity, "
+            "maximum diversification, the robust objective -- have methods of their own: state "
+            "it as CONVEX_QUADRATIC with its QuadraticForm."
+        )
+    if kind is Convexity.LINEAR:
+        raise ConstructionInputError(
+            f"{name} is LINEAR, and construction has no certified method for a linear objective."
+        )
+    if not isinstance(objective, QuadraticObjective):
+        raise ConstructionInputError(f"{name} is CONVEX_QUADRATIC but states no quadratic_form.")
+    if problem.constraints.max_volatility is not None:
+        raise ConstructionInputError(
+            f"A volatility cap under {name} has no certified method: only the package's "
+            "minimum-variance and mean-variance objectives take one."
+        )
+    return objective
+
+
+def _protocol_quadratic(
+    problem: ConstructionProblem, compiled: _Compiled, objective: QuadraticObjective
+) -> _Outcome:
+    """A ``CONVEX_QUADRATIC`` objective of the protocol, by the certified quadratic methods."""
+
+    form = objective.quadratic_form(problem)
+    name = type(objective).__name__
+    if not isinstance(form, QuadraticForm):
+        raise ConstructionInputError(
+            f"{name}.quadratic_form returned {form!r}, not a QuadraticForm."
+        )
+    universe = problem.universe
+    if set(form.linear) != set(universe):
+        raise ConstructionInputError(
+            f"{name}'s QuadraticForm must cover exactly the universe: missing "
+            f"{sorted(set(universe) - set(form.linear))}, outside "
+            f"{sorted(set(form.linear) - set(universe))}."
+        )
+    return _qp(problem, compiled, form.scale, [form.linear[asset] for asset in universe], 0)

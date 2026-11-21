@@ -21,7 +21,9 @@ re-targeted here as the same defect in today's code (``RETARGETED``): X15
 (observation delivery moved into the schedule cursor), A04 (``PausedReplay``
 gained its schedule, book and queue) and G02 (INTEGRATION's commands name
 4.2.1's assets). M8 re-targets a fourth, v3.12's V02: the held fill timings are
-a set since ``NEXT_OPEN`` joined ``NEXT_EVENT`` (ADR-0060).
+a set since ``NEXT_OPEN`` joined ``NEXT_EVENT`` (ADR-0060). M9 re-targets a
+fifth, v3.13's Y50: ``construct``'s last branch is the objective protocol's
+(ADR-0063).
 
 M0's series:
 
@@ -828,6 +830,23 @@ RETARGETED: dict[str, Any] = {
         "docs/INTEGRATION.md",
         'curl -fsSLO "${RELEASE}/SHA256SUMS-4.2.1"\n',
         'curl -fsSLO \\ \n  "${RELEASE}/SHA256SUMS-4.2.1"\n',
+    ),
+    # M9 (ADR-0063): construct's last branch is the objective protocol's now, so
+    # the final result is anchored on that line.
+    "Y50": Mutation(
+        "Y50",
+        "a structure solved densely answers as the matrix's problem (PRF-013)",
+        "alphalab/portfolio_optimizer/construction.py",
+        (
+            "        outcome = _protocol_quadratic(problem, compiled, admitted)\n"
+            "    return _result(stated, method, outcome, compiled, "
+            "evidence.pivot_ratio, expected)\n"
+        ),
+        (
+            "        outcome = _protocol_quadratic(problem, compiled, admitted)\n"
+            "    return _result(problem, method, outcome, compiled, "
+            "evidence.pivot_ratio, expected)\n"
+        ),
     ),
     # M8 (ADR-0060): the held timings are a set since NEXT_OPEN joined NEXT_EVENT.
     "V02": Mutation(
