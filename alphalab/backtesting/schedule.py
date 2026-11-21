@@ -77,6 +77,7 @@ from alphalab.conventions.daycount import DayCount, day_count_days, days_in_year
 from alphalab.data.exceptions import DataValidationError
 from alphalab.data.time import resolve_zone
 from alphalab.instrument.controls import DeliveredAuction
+from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.serializer import serialize
 from alphalab.portfolio.corporate_actions import (
     Assignment,
@@ -103,10 +104,12 @@ from alphalab.portfolio.types import TransactionType
 from alphalab.risk.surfaces import ObservedSurface
 from alphalab.runtime.execution_pipeline import ContextFactory
 from alphalab.runtime.run import RunEngine, RunState
+from alphalab.runtime.schedule_check import ScheduleBinding, verify_schedule_binding
 from alphalab.strategy.events import ElectionMade, HoldersRecorded, TimerEvent, UnitsElected
 
 __all__ = [
     "EMPTY_SCHEDULE",
+    "RUN_SCHEDULE_DIGEST_SCHEME",
     "DailyAccrual",
     "DailyBorrowFee",
     "DailyInterest",
@@ -138,6 +141,15 @@ __all__ = [
     "ScheduledSplit",
     "TermsCorrection",
 ]
+
+#: The formula of :attr:`RunSchedule.digest`, named (ADR-0053, R53-6): SHA-256 over
+#: ``repr`` of the rate table's maximum age, then one line per entry, ``kind|repr(at)|``
+#: and the entry's canonical JSON. The name is never part of the digest, so every
+#: digest a paused replay or a manifest recorded before it was named stays valid; a
+#: change to the formula, to an entry kind's persisted value or to an item's encoded
+#: fields is a new scheme, and ``tests/regression/test_schedule_digest_pins.py``
+#: holds this one to the digests v4.2.1 computed.
+RUN_SCHEDULE_DIGEST_SCHEME: Final = "alphalab.run_schedule.v1"
 
 
 class ScheduleValidationError(BacktestError):
@@ -1324,6 +1336,16 @@ class RunSchedule:
             digest.update(line.encode(DEFAULT_ENCODING))
         return digest.hexdigest()
 
+    @property
+    def binding(self) -> ScheduleBinding:
+        """This schedule as a run is bound to it (ADR-0053): its scheme and digest.
+
+        An empty schedule binds as none, ``digest`` ``None``, which is how a
+        manifest has always recorded a run given no schedule.
+        """
+
+        return ScheduleBinding(RUN_SCHEDULE_DIGEST_SCHEME, self.digest if self else None)
+
     def position_after(self, after: float | None) -> int:
         """How many entries a run handed records up to ``after`` has applied.
 
@@ -1384,16 +1406,43 @@ class ScheduleCursor:
     rates: FxRates
 
     @classmethod
-    def start(cls, schedule: RunSchedule, after: float | None = None) -> ScheduleCursor:
+    def start(
+        cls,
+        schedule: RunSchedule,
+        after: float | None = None,
+        *,
+        expected: ScheduleBinding | None = None,
+    ) -> ScheduleCursor:
         """A cursor for a run handed records up to ``after`` -- none, by default.
 
         ``after`` is the timestamp of the last record the run was handed,
         processed or skipped: to continue a run from a snapshot or a pause, pass
         the timestamp of the record it stopped after.
+
+        ``expected`` (v4.3, ADR-0053) is the binding the run was given -- from
+        its :class:`~alphalab.backtesting.provenance.RunProvenance`, or kept
+        beside its snapshot -- and holds ``schedule`` to it before any entry is
+        applied: a continuation under another schedule, or under none where it
+        had one, is refused. Not given, nothing is checked, as before.
+
+        Raises:
+            ScheduleValidationError: If ``schedule`` is not the one ``expected``
+                binds.
         """
 
+        if expected is not None:
+            try:
+                verify_schedule_binding(expected, schedule.binding)
+            except StateDecodeError as refused:
+                raise ScheduleValidationError(str(refused)) from None
         position = schedule.position_after(after)
         return cls(schedule, position, schedule.rates_through(position))
+
+    @property
+    def binding(self) -> ScheduleBinding:
+        """The binding of the schedule this cursor applies -- the effective one (ADR-0053)."""
+
+        return self.schedule.binding
 
     @property
     def pending(self) -> Sequence[ScheduleEntry]:
@@ -1409,8 +1458,7 @@ class ScheduleCursor:
         Called with the timestamp of the record about to be handed to the run.
         """
 
-        boundary = (timestamp, int(SchedulePlace.RECORDS))
-        return self._apply_while(state, context_factory, lambda entry: entry.key[:2] < boundary)
+        return _before(self, state, timestamp, context_factory, None)
 
     def finish(
         self, state: RunState, context_factory: ContextFactory, last: float | None = None
@@ -1424,28 +1472,76 @@ class ScheduleCursor:
         An entry after it is beyond the data, and is not applied.
         """
 
-        end = state.last_record_timestamp if last is None else last
-        if end is None:
-            return self, state
-        return self._apply_while(state, context_factory, lambda entry: entry.at <= end)
+        return _finish(self, state, context_factory, last, None)
 
-    def _apply_while(
-        self,
-        state: RunState,
-        context_factory: ContextFactory,
-        due: Callable[[ScheduleEntry], bool],
-    ) -> tuple[ScheduleCursor, RunState]:
-        entries = self.schedule.entries
-        position, rates = self.position, self.rates
-        while position < len(entries) and due(entries[position]):
-            entry = entries[position]
-            # The slice of an instant closes before anything later than it.
-            state = RunEngine.close_slice(state, context_factory, rates, before=entry.at)
-            rates, state = _apply(entry, state, rates, context_factory)
-            position += 1
-        if position == self.position:
-            return self, state
-        return ScheduleCursor(self.schedule, position, rates), state
+
+#: Told the run's state, and the rate table it stands at, after each operation a
+#: cursor performs -- each slice it closes, each entry it applies -- by a driver
+#: that observes its run (v4.3, ADR-0055). It reads; it changes nothing.
+_StepObserver = Callable[[RunState, FxRates], None]
+
+
+def _before(
+    cursor: ScheduleCursor,
+    state: RunState,
+    timestamp: float,
+    context_factory: ContextFactory,
+    observe: _StepObserver | None,
+) -> tuple[ScheduleCursor, RunState]:
+    """:meth:`ScheduleCursor.before`, telling ``observe`` of each operation."""
+
+    boundary = (timestamp, int(SchedulePlace.RECORDS))
+    return _apply_while(
+        cursor, state, context_factory, lambda entry: entry.key[:2] < boundary, observe
+    )
+
+
+def _finish(
+    cursor: ScheduleCursor,
+    state: RunState,
+    context_factory: ContextFactory,
+    last: float | None,
+    observe: _StepObserver | None,
+) -> tuple[ScheduleCursor, RunState]:
+    """:meth:`ScheduleCursor.finish`, telling ``observe`` of each operation."""
+
+    end = state.last_record_timestamp if last is None else last
+    if end is None:
+        return cursor, state
+    return _apply_while(cursor, state, context_factory, lambda entry: entry.at <= end, observe)
+
+
+def _apply_while(
+    cursor: ScheduleCursor,
+    state: RunState,
+    context_factory: ContextFactory,
+    due: Callable[[ScheduleEntry], bool],
+    observe: _StepObserver | None,
+) -> tuple[ScheduleCursor, RunState]:
+    """Apply each due entry in order: the one loop every cursor call runs.
+
+    ``observe``, when given, is told the state after each slice closed and
+    after each entry applied -- each with the rate table that operation valued
+    the book at -- so that what one operation booked is never mistaken for
+    another's (ADR-0055). Without it, the loop is the one it always was.
+    """
+
+    entries = cursor.schedule.entries
+    position, rates = cursor.position, cursor.rates
+    while position < len(entries) and due(entries[position]):
+        entry = entries[position]
+        # The slice of an instant closes before anything later than it.
+        state = RunEngine.close_slice(state, context_factory, rates, before=entry.at)
+        if observe is not None:
+            observe(state, rates)
+        valued_at = rates
+        rates, state = _apply(entry, state, rates, context_factory)
+        if observe is not None:
+            observe(state, valued_at)
+        position += 1
+    if position == cursor.position:
+        return cursor, state
+    return ScheduleCursor(cursor.schedule, position, rates), state
 
 
 def _apply(

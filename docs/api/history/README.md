@@ -13,9 +13,11 @@ two of them can be compared entry by entry.
 | `4.1.0.json` | v4.1.0 | `docs/api/public_api.json` as released: 44 packages and 12 documented modules (`alphalab.backtesting.replay_snapshot` added), 2,628 exports, 35 shared names. Against 4.0.0: `alphalab.api.resume_replay`, `alphalab.backtesting.PausedReplay` and `ReplayProgress` and the eight names of `replay_snapshot` added; `alphalab.api.replay` given a keyword-only `pause_when`; none removed. Written by the v4.1 generator, which spells every union as PEP 604 does and `Any` unqualified (API-008): the earlier files keep the spelling of the interpreter that wrote them, and the comparison reads both sides canonically. |
 | `4.2.0.json` | v4.2.0 (commit `0fea4c7`, published 2026-11-01) | `docs/api/public_api.json` as released: 44 packages and 12 documented modules, 2,754 exports, 35 shared names. Against 4.1.0: names added and defaulted keywords or fields only (CHANGELOG `[4.2.0]`). Until v4.2.1 this file was the development tree's manifest as it stood at phase 3 of the 4.2.0 program, 2,730 exports, and was not refreshed after it; v4.2.1 restored the released one, the `v4.2.0` tag's `docs/api/public_api.json` (ledger TST-024). |
 | `4.2.1.json` | v4.2.1 | `docs/api/public_api.json` as released: 4.2.0's but for naming this release -- nothing added, removed or rebound (CHANGELOG `[4.2.1]`). The release preflight requires a release's copy here to be its manifest. |
+| `4.3.0.json` | v4.3.0 | `docs/api/public_api.json` itself: the release preflight requires a release's copy here to be its manifest, so the two change together from the commit that gave the package this version (CHANGELOG `[4.3.0]`, *Changed*). |
 
 `tests/regression/test_api_changes_are_in_the_changelog.py` compares the current
 manifest with the newest file here older than the current release, and requires
 every name removed or changed since then to be named in this release's
-`CHANGELOG.md` section. At each release, the release's own manifest is added
-here, so the next release is compared with it.
+`CHANGELOG.md` section. Each release's own manifest is kept here, so the next
+release is compared with it: since v4.3 from the commit that gives the package
+the release's version, which is the first of its development.

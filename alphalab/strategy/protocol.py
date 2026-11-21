@@ -5,6 +5,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import (
+    ChildFillReceived,
     FillEvent,
     Intent,
     ObservationReceived,
@@ -132,6 +133,30 @@ class ObservationStrategyProtocol(Protocol):
 
 
 @runtime_checkable
+class ChildFillStrategyProtocol(Protocol):
+    """The hook a strategy adds to learn of its orders' children's fills (v4.3, ADR-0061).
+
+    Separate from :class:`StrategyProtocol`, as :class:`SliceStrategyProtocol`
+    and :class:`ObservationStrategyProtocol` are, so every strategy written
+    against the ten hooks keeps satisfying it. Under an execution plan a
+    strategy's order is a parent, worked in children; a strategy defining
+    ``on_child_fill`` and subscribed to ``child_fills`` (or ``*``) is called
+    with each child's fill, its own share of it, at the event the child filled
+    at; one without it is not called, and its run is what it was.
+
+    **The pattern.** A strategy capability added after the ten hooks is an
+    optional protocol like this one, with its own ADR, dispatched only to the
+    strategies that define its hook: never a new method on
+    :class:`StrategyProtocol`, whose every implementation would otherwise have
+    to change (ADR-0061).
+    """
+
+    def on_child_fill(self, context: StrategyContext, event: ChildFillReceived) -> Iterable[Intent]:
+        """React to a fill of a child working an order this strategy contributed to."""
+        ...
+
+
+@runtime_checkable
 class StrategyStateProtocol(Protocol):
     """The second protocol a strategy satisfies when it owns durable state.
 
@@ -249,6 +274,21 @@ class BaseStrategy:
         self, context: StrategyContext, event: ObservationReceived
     ) -> Iterable[Intent]:
         return ()
+
+    def on_child_fill(self, context: StrategyContext, event: ChildFillReceived) -> Iterable[Intent]:
+        return ()
+
+
+def defines_on_child_fill(strategy: object) -> bool:
+    """Whether ``strategy`` has an ``on_child_fill`` of its own (v4.3, ADR-0061).
+
+    :class:`BaseStrategy`'s answers nothing, so a child's fill reaches only a
+    strategy that says what it does with one, and a run whose strategies define
+    none delivers nothing and builds no context: it is the run it was.
+    """
+
+    hook = getattr(type(strategy), "on_child_fill", None)
+    return hook is not None and hook is not BaseStrategy.on_child_fill
 
 
 def defines_on_observation(strategy: object) -> bool:

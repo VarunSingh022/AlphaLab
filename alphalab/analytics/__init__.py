@@ -18,6 +18,10 @@ Performance reports and attribution, v3.3's risk decomposition, and since v3.8
 * :mod:`~alphalab.analytics.benchmark` (v3.11) -- active return, tracking error,
   information ratio, beta, Jensen's alpha and capture ratios against a
   benchmark, aligned on levels so both sides span the same periods.
+* :mod:`~alphalab.analytics.statistical_factors` (v4.3) -- a positive definite
+  covariance's principal components as a ``FactorStructure``: statistical
+  factors, class 2, that construction and the risk decomposition read as any
+  factor model.
 
 The package imports ``alphalab.common`` and ``alphalab.core`` and nothing else.
 """
@@ -140,6 +144,10 @@ from alphalab.analytics.risk_model import (
 )
 from alphalab.analytics.rolling import rolling_return, rolling_sharpe, rolling_volatility
 from alphalab.analytics.state import AnalyticsState
+from alphalab.analytics.statistical_factors import (
+    PrincipalComponents,
+    principal_component_factors,
+)
 from alphalab.analytics.summary import TradeMetrics, calculate_trade_metrics
 from alphalab.analytics.validation import validate_capital, validate_returns
 from alphalab.analytics.views import (
@@ -201,6 +209,7 @@ __all__ = [
     "Periodicity",
     "PortfolioSnapshot",
     "PositionRisk",
+    "PrincipalComponents",
     "ReportGenerated",
     "ReturnSummary",
     "RiskBudget",
@@ -253,6 +262,7 @@ __all__ = [
     "portfolio_beta",
     "portfolio_factor_exposures",
     "portfolio_volatility",
+    "principal_component_factors",
     "risk_contributions",
     "rolling_return",
     "rolling_sharpe",

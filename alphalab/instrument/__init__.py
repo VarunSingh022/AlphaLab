@@ -117,6 +117,14 @@ from alphalab.instrument.margin import (
     PerPositionMargin,
     ScenarioMargin,
 )
+from alphalab.instrument.membership import (
+    HistoricalUniverse,
+    MembershipChange,
+    MembershipKind,
+    universe_from_pack,
+    universe_from_primitives,
+    universe_to_primitives,
+)
 from alphalab.instrument.record import (
     DatedAlias,
     InstrumentRecord,
@@ -140,6 +148,7 @@ from alphalab.instrument.registry import (
     register_dated_alias,
     register_instrument,
     register_instruments,
+    register_universe,
     sector_as_of,
 )
 from alphalab.instrument.terms import (
@@ -177,6 +186,7 @@ __all__ = [
     "DimensionClassification",
     "DimensionHistory",
     "FutureTerms",
+    "HistoricalUniverse",
     "InstrumentEconomics",
     "InstrumentError",
     "InstrumentInputError",
@@ -189,6 +199,8 @@ __all__ = [
     "MarginRequirement",
     "MarginScenario",
     "MarginTerms",
+    "MembershipChange",
+    "MembershipKind",
     "OptionPricing",
     "OptionRisk",
     "OptionTerms",
@@ -223,5 +235,9 @@ __all__ = [
     "register_dated_alias",
     "register_instrument",
     "register_instruments",
+    "register_universe",
     "sector_as_of",
+    "universe_from_pack",
+    "universe_from_primitives",
+    "universe_to_primitives",
 ]

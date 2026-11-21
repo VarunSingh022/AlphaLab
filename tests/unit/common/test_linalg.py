@@ -2,6 +2,8 @@
 
 import math
 import random
+import sys
+from decimal import Decimal, localcontext
 
 import pytest
 
@@ -78,6 +80,49 @@ def test_a_rank_deficient_design_is_refused() -> None:
     with pytest.raises(IllConditionedError, match="rank deficient") as exact:
         least_squares([[1.0, 0.0], [1.0, 0.0], [1.0, 0.0]], [1.0, 2.0, 3.0], 1e6)
     assert exact.value.condition == math.inf
+
+
+def test_a_column_of_rounding_noise_settles_within_the_sweeps_bound() -> None:
+    """The triangular factor of ``[1, x, 2x]`` over five points, as Householder QR leaves it.
+
+    Its third column is exactly twice its second. Rotated together they leave a
+    column of rounding noise, and rotating noise makes new noise: under the
+    strict relative criterion alone the sweeps cycled, and the call raised that
+    they did not converge (v4.3 M6). Every singular value is held to the
+    sweeps' backward-error bound, ``8 n (k + 1) eps ||A||_F``, through Weyl's
+    inequality; the two nonzero ones to their closed form in 50 digits.
+    """
+
+    a, b, c = (
+        float.fromhex("-0x1.1e3779b97f4a8p+1"),
+        float.fromhex("-0x1.7cab0ff945751p+2"),
+        float.fromhex("0x1.e3392ae3c8277p+1"),
+    )
+    factor = [[a, b, 2.0 * b], [0.0, c, 2.0 * c], [0.0, 0.0, 0.0]]
+    values = singular_values(factor)
+
+    bound = 8 * 3 * (2 * 64 + 1) * sys.float_info.epsilon * math.hypot(a, b, 2 * b, c, 2 * c)
+    with localcontext() as context:
+        context.prec = 50
+        da, db, dc = Decimal(a), Decimal(b), Decimal(c)
+        # The rows' Gram matrix is [[a^2 + 5b^2, 5bc], [5bc, 5c^2]] beside a zero.
+        trace = da * da + 5 * db * db + 5 * dc * dc
+        root = (trace * trace - 20 * da * da * dc * dc).sqrt()
+        exact = (((trace + root) / 2).sqrt(), ((trace - root) / 2).sqrt(), Decimal(0))
+    for value, truth in zip(values, exact, strict=True):
+        assert abs(Decimal(value) - truth) <= Decimal(bound)
+
+
+def test_a_design_with_an_exactly_dependent_column_is_refused_as_ill_conditioned() -> None:
+    """Before v4.3 M6, 90 of these 200 designs raised a non-convergence instead."""
+
+    rng = random.Random(1)
+    for _ in range(200):
+        ratio = rng.choice([0.5, 1.0, 2.0, 3.0, -1.0, 7.0])
+        xs = [rng.uniform(-5.0, 5.0) for _ in range(rng.randint(4, 30))]
+        with pytest.raises(IllConditionedError, match="linearly dependent") as refused:
+            least_squares([[1.0, x, ratio * x] for x in xs], xs, 1e10)
+        assert refused.value.condition > 1e15
 
 
 def test_a_nearly_collinear_design_is_refused_above_the_bound_and_solved_below_it() -> None:

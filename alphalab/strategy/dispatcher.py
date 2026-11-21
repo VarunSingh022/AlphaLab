@@ -63,6 +63,7 @@ from collections.abc import Iterable
 from alphalab.common.evolve import evolve
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import (
+    ChildFillReceived,
     FillEvent,
     Intent,
     LifecycleTransitioned,
@@ -213,6 +214,11 @@ class Dispatcher:
                 on_observation = getattr(instance, "on_observation", None)
                 if on_observation is not None:
                     intents_iter = on_observation(context, event)
+            elif isinstance(event, ChildFillReceived):
+                # Optional for the same reason (ChildFillStrategyProtocol, ADR-0061).
+                on_child_fill = getattr(instance, "on_child_fill", None)
+                if on_child_fill is not None:
+                    intents_iter = on_child_fill(context, event)
             else:
                 hook = market_hook_for(event)
                 if hook is not None:

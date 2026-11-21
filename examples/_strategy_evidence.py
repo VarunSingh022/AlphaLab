@@ -131,11 +131,11 @@ DEFINITION = StrategyDefinition(
 
 #: The pre-trade limits every run in these examples is gated by.
 #:
-#: The position quantity cap is wide on purpose. The gate's position check adds
-#: an asset's *notional* exposure to an order's *quantity* before comparing
-#: with this cap (recorded in ADR-0041), so a cap near the real share count
-#: would refuse this strategy's sell for a reason that has nothing to do with
-#: its position.
+#: The caps are wide: these examples are about the evidence a run leaves, not
+#: about this gate. The position check holds the projected signed position to
+#: its cap in units, then in base-currency value. Until v3.10 it added an
+#: asset's notional exposure to an order's quantity (ADR-0041, ledger KD-001),
+#: which is why this cap was first set wide.
 LIMITS = RiskLimits(
     order_size=OrderSizeLimit(Decimal("5000"), Decimal("1000000")),
     position=PositionLimit(Decimal("1000000"), Decimal("2000000")),

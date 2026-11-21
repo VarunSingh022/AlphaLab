@@ -16,20 +16,29 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 from decimal import Decimal
 from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from alphalab.execution.policy import FillPolicy, FillTiming, ImmediateFill
+from alphalab.execution.costs import ExecutionCostModel
+from alphalab.execution.latency import LatencyModel
+from alphalab.execution.policy import (
+    FillPolicy,
+    FillTiming,
+    ImmediateFill,
+    LatencyPricing,
+    StrictLiquidityCappedFill,
+)
 from alphalab.execution.queue import QueueModel
+from alphalab.runtime.exceptions import RuntimeValidationError
 
 if TYPE_CHECKING:
     from alphalab.instrument.registry import InstrumentRegistry
     from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig, ExecutionRouting
 
-__all__ = ["ExecutionAssumptions", "describe", "execution_assumptions"]
+__all__ = ["ExecutionAssumptions", "conservative_execution", "describe", "execution_assumptions"]
 
 
 def describe(value: Any) -> str:
@@ -102,8 +111,11 @@ class ExecutionAssumptions:
         fill_policy: The fill policy, described.
         costs: The cost model every simulated fill was priced by, described --
             with the maker commission a resting fill pays instead, when one is
-            set (v3.11).
-        latency: The latency model, described.
+            set (v3.11), and each declared venue's model and the router among
+            them, when venues are declared (v4.3, ADR-0061).
+        latency: The latency model, described -- with ``pricing=`` and what it
+            does, when a run declares that latency keeps an order from the market
+            rather than only stamping its fill (v4.3, ADR-0060).
         frictionless: Whether every cost role charged nothing by construction
             (:attr:`~alphalab.execution.simulator.ExecutionSimulator.is_frictionless`).
         unlimited_liquidity: Whether every order filled in full
@@ -213,17 +225,93 @@ def execution_assumptions(
         # of the model the run's evidence was measured under, so part of what
         # identifies it; absent when not set, so every other run reads as it did.
         costs = f"{costs}; maker_commission={describe(simulator.maker_commission_model)}"
+    frictionless = simulator.is_frictionless
+    if pipeline.venues:
+        # Each declared venue's model and the router among them price every
+        # simulated order (ADR-0061): appended only when declared, as a maker
+        # commission is, so a one-model run is identified as it was.
+        costs = f"{costs}; venues={describe(dict(pipeline.venues))}"
+        if pipeline.router is not None:
+            costs = f"{costs}; router={describe(pipeline.router)}"
+        frictionless = all(venue.simulator.is_frictionless for venue in pipeline.venues.values())
+    policy = describe(fill_policy)
+    if pipeline.remainder is not None:
+        # What a partial fill leaves is part of the fill model the evidence was
+        # measured under (ADR-0060). Appended only when declared, as a maker
+        # commission is to the costs: the assumptions keep their shape, and
+        # every experiment identity that holds them stays what it was.
+        policy = f"{policy}; remainder={describe(pipeline.remainder)}"
+    latency = describe(simulator.latency_model)
+    if pipeline.latency_pricing is not LatencyPricing.STAMP:
+        # Whether latency costs anything is part of the latency model the
+        # evidence was measured under (ADR-0060): appended only when declared,
+        # on the same terms as a remainder.
+        latency = f"{latency}; pricing={pipeline.latency_pricing.value}"
     return ExecutionAssumptions(
         routing=pipeline.routing,
         fill_timing=pipeline.fill_timing,
-        fill_policy=describe(fill_policy),
+        fill_policy=policy,
         costs=costs,
-        latency=describe(simulator.latency_model),
-        frictionless=simulator.is_frictionless,
+        latency=latency,
+        frictionless=frictionless,
         unlimited_liquidity=isinstance(fill_policy, ImmediateFill),
         queue_model=None if queue_model is None else describe(queue_model),
         venue_conditions=_venue_conditions(pipeline.instruments),
     )
+
+
+def conservative_execution(
+    pipeline: ExecutionPipelineConfig,
+    *,
+    costs: ExecutionCostModel,
+    participation_rate: Decimal,
+    latency: LatencyModel,
+) -> tuple[ExecutionPipelineConfig, FillPolicy]:
+    """``pipeline`` with the conservative choice stated in every execution role (ADR-0060).
+
+    What a run measured to be believed would assume, where the defaults assume
+    the generous thing (v4.3, D-V4):
+
+    * ``NEXT_OPEN`` fill timing -- an order decided at one close trades at the
+      next open, never at the price that decided it;
+    * ``POST_LATENCY_EVENT`` latency pricing -- no order meets the market before
+      ``latency`` has passed;
+    * a :class:`~alphalab.execution.policy.StrictLiquidityCappedFill` at
+      ``participation_rate`` -- no fill larger than that share of what the
+      event showed, and data that shows no size refused rather than filled in
+      full.
+
+    ``costs`` and ``latency`` become the simulator's cost and latency models;
+    everything else ``pipeline`` states is kept. The three are required, and a
+    cost model that charges nothing by construction is refused: a builder that
+    invented costs would put a number nobody chose into a run. It changes no
+    default. Its choices are what :func:`execution_assumptions` reports, whose
+    :attr:`~ExecutionAssumptions.optimistic` is empty for its output.
+
+    Returns:
+        The configuration, and the fill policy to run it with.
+
+    Raises:
+        RuntimeValidationError: If ``costs`` charges nothing in every role.
+        ExecutionValidationError: If ``participation_rate`` is not a ``Decimal``
+            in ``(0, 1]``.
+    """
+
+    simulator = replace(pipeline.simulator, cost_model=costs, latency_model=latency)
+    if simulator.is_frictionless:
+        raise RuntimeValidationError(
+            "A conservative execution states its costs, and this cost model charges nothing in "
+            "every role: give it the spread, slippage, impact, commission, fees and tax the "
+            "venue charges."
+        )
+    policy = StrictLiquidityCappedFill(participation_rate)
+    configured = replace(
+        pipeline,
+        simulator=simulator,
+        fill_timing=FillTiming.NEXT_OPEN,
+        latency_pricing=LatencyPricing.POST_LATENCY_EVENT,
+    )
+    return configured, policy
 
 
 def _count(n: int, one: str, many: str) -> str:

@@ -25,7 +25,8 @@ from decimal import Decimal
 from itertools import pairwise
 from typing import Any
 
-from alphalab.conventions.daycount import DayCount
+from alphalab.conventions.daycount import DayCount, require_accrual_basis
+from alphalab.conventions.exceptions import ConventionInputError
 from alphalab.instrument.exceptions import InstrumentInputError
 
 __all__ = [
@@ -193,6 +194,10 @@ class BorrowTerms:
             )
         if not isinstance(self.day_count, DayCount):
             raise InstrumentInputError(f"day_count is a DayCount, got {self.day_count!r}.")
+        try:
+            require_accrual_basis(self.day_count)
+        except ConventionInputError as error:
+            raise InstrumentInputError(f"A borrow fee accrues daily: {error}") from None
         object.__setattr__(self, "entries", entries)
 
     @property

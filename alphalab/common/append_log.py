@@ -230,3 +230,27 @@ class AppendOnlyLog(Sequence[T]):
 
     def __repr__(self) -> str:
         return f"AppendOnlyLog({list(self)!r})"
+
+
+def _since[E](log: AppendOnlyLog[E], read: int) -> tuple[tuple[E, ...], int, int]:
+    """``(entries, total, kept)`` for a reader that follows ``log`` as it grows.
+
+    ``total`` is how many entries the log's history ever held -- what it keeps
+    plus what it dropped -- and ``kept`` how many it keeps. ``entries`` are those
+    appended after the first ``read`` of that history, oldest first: none when
+    nothing was appended, and only those the log still keeps when retention
+    dropped some of them, which the reader tells by ``total - read > kept``.
+
+    One call where a reader would otherwise ask the length, the dropped count
+    and a slice in turn. A run's capture reads every log it follows after
+    every operation, so the three calls were most of what reading cost
+    (ADR-0055).
+    """
+
+    kept = log._length
+    total = kept + log._dropped
+    added = total - read
+    if added <= 0:
+        return (), total, kept
+    end = log._start + kept
+    return tuple(log._buffer[end - min(added, kept) : end]), total, kept

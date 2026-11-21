@@ -442,8 +442,9 @@ API, its persisted formats and every run's `result_id` are 4.2.0's.
 
 # Deliberate boundaries
 
-Not built, on purpose. Each has a reason, and most have a regression test that a
-future "simplification" would have to break first —
+Not built, on purpose. Each has a reason, and each stands until its own ADR
+reopens it under the principles ADR-0056 binds every such decision to; most
+have a regression test that a future "simplification" would have to break first —
 `tests/regression/test_shared_names_stay_distinct.py` and
 `test_venue_concepts_stay_distinct.py` hold the reasons.
 
@@ -536,10 +537,15 @@ future "simplification" would have to break first —
   decision 11).
 - **No fixed-income engine.** `alphalab.macro.bond` covers what a fixed-rate
   bond with known coupon dates admits exactly. Credit spreads and default,
-  embedded calls and puts, floating and inflation-linked coupons, and the
-  30E/360 and ACT/ACT ISDA day-count variants are each absent because each needs
-  a model or an end-of-month rule whose correct form depends on the instrument's
-  own terms. The module, the example and this line all say *foundation*.
+  embedded calls and puts, and floating and inflation-linked coupons are each
+  absent because each needs a model whose choice is the researcher's. The
+  module, the example and this line all say *foundation*. Since v4.3 the day
+  counts of the world's bond and swap markets are in `conventions.daycount`
+  (N21): 30E/360, 30E/360 (ISDA), ACT/ACT (ISDA), ACT/ACT (ICMA), ACT/365L,
+  NL/365 and BUS/252. A basis that needs an instrument's own terms -- its coupon
+  period, termination date or business calendar -- takes them explicitly and
+  never infers them. ICMA's notional periods for an irregular coupon stay the
+  schedule's own. The rest of this boundary is ADR-0065's, at M10.
 - **No volatility-surface fit; between expiries, only by name — since v3.13.**
   A `VolatilitySurface` interpolates along strikes at a matching expiry. Between
   two quoted expiries it interpolates only when asked to by name
@@ -757,6 +763,34 @@ Built, with a stated limit. Each has a ledger entry that gives its reason.
   which round-trips exactly. Since the v4.2.0 candidate a strategy that declares
   its configuration's type reads it back typed (FUT-002, above); one that
   declares nothing reads back as stated here.
+- **A captured series is in the run's base currency** (LIM-012): converting it
+  needs a rate source the researcher states; capture records the base
+  currency's series exactly (ADR-0055).
+- **A capture's trace costs more than the plan's budget** (LIM-013): series and
+  trace together cost 7.6 to 8.9 percent of a run whose strategy does no work
+  of its own on the reference machine. Shared hosted runners read more: up to
+  16.8 percent on CPython 3.12 before the chain was batched (v4.3 M6). The plan
+  budgeted 10 percent. The series alone costs 1 to 4 percent
+  (`benchmarks/benchmark_capture.py`). The owner approved 15 percent as the
+  ceiling (PC-07): the benchmark enforces it, and a result above it is a failed
+  gate. PC-07 is judged on hosted Linux under CPython 3.12, 3.13 and 3.14, and
+  passed there at 7.41 to 9.92 percent. A fixed reference machine monitors
+  regressions, and hosted macOS timing is diagnostic only (the owner's decision,
+  2026-11-16). The trace is opt-in, and its cost is a fixed amount of work per
+  step.
+- **Selection statistics assume stationarity** (LIM-011): CSCV, the Reality
+  Check and SPA treat a sample as stationary; a regime change inside it violates
+  them, and the result states the assumption rather than testing it (ADR-0054).
+- **Pure-Python numerics at scale** (LIM-010): the core's eigensystems,
+  optimisers and distributions are pure Python, and slow for large problems:
+  a 500 x 500 eigensystem takes about 21 s, and a thin SVD of that size about
+  four minutes (`benchmarks/benchmark_numerical_foundation.py`). Speed is the
+  optional backends', each cross-checked against the core (ADR-0057,
+  ADR-0058).
+- **Run provenance is evidence of integrity, not of authenticity** (LIM-009): a
+  digest match shows the schedule supplied is the one bound, not that it is
+  authentic; a consistent forgery by someone who can run code is detected only
+  by a rerun, and the vocabulary never claims more (ADR-0053).
 - **An insolvent run compiles no analytics** (LIM-008): a run whose net asset
   value falls below zero -- reachable through a financed delivery or a short
   bought back past its cash -- is refused by analytics, whose returns on negative
@@ -815,10 +849,15 @@ Every horizon is a proposal for the maintainer to confirm.
 
 | ID | What it is not yet | Meanwhile | Horizon | Builds on (delivered unless new) |
 |---|---|---|---|---|
-| FUT-042 | **A default manifest that names the registry** (a compatibility decision; options in ADR-0052, proposed) | `manifest_for_run(instruments=True)`; the assessment's finding | v5.0 | REP-006, REP-007 |
+| FUT-042 | **A default manifest that names the registry** (the default flip; ADR-0052's option C is adopted, opt-in) | `manifest_for_run(identity_version=2)` or `instruments=True`; run provenance records the registry; the assessment's finding | v5.0 | REP-006, REP-007, ADR-0053 |
 | FUT-044 | **Halts, bands and references delivered during a live run** | deliver the venue's halt messages as observations; declare known halts | v4.4 | venue controls, published auctions |
-| FUT-045 | **An execution model per venue in one simulated run** | one backtest per venue's model; the costliest for a conservative run | v4.4 | described execution models |
-| FUT-046 | **A run's record naming the schedule it was given** (an identity decision) | give `manifest_for_run` the schedule; a paused replay records it | v4.3 | the schedule in the manifest |
+| FUT-047 | **Every run held to its schedule by its own record** (option B of ADR-0053; an identity reset) | `run_provenance` beside each result; checkpoints written with `schedule=` | v5.0 | run provenance (ADR-0053, delivered in v4.3) |
+| FUT-048 | **Equal TWAP slices tying exactly** (an identity change) | the 34-digit allocation, the same for every caller | v5.0 | EXE-015 |
+| FUT-049 | **Capturing a paused replay** | capture the run end to end; a paused replay is digested | v4.4 | streaming capture (ADR-0055, delivered in v4.3) |
+| FUT-050 | **A delisting settling the positions held through it** | membership ends at the delisting; the caller schedules the settlement | v4.4 | dated membership (ADR-0059, delivered in v4.3); scheduled settlements |
+| FUT-051 | **The deflated Sharpe ratio in promotion evidence** | the assessment reports it; a policy thresholds the exact statistics | v4.4 | a class-2 normal CDF and quantile (ADR-0058); selection-aware evidence (ADR-0073, delivered in v4.3) |
+| FUT-052 | **A hidden Markov model over several series** | model one series at a time, or a switching regression of one on the others | v4.4 | statistical regime models (ADR-0075, delivered in v4.3); the Cholesky factor |
+| FUT-053 | **A small-sample correction for Johansen's tests** | read the asymptotic tables, knowing a small sample over-rejects; or test on more data | v4.4 | Johansen's tests (ADR-0074, delivered in v4.3); MacKinnon, Haug and Michelis's finite-sample response surfaces |
 
 ---
 
@@ -860,7 +899,10 @@ fit or a pairing as a measurement (OFE-007, OFE-018); per-strategy sub-ledgers
 in `PortfolioEngine`, whose question the contribution ledger already answers
 (OFE-015); process supervision, hot reload and hook timeouts, which are the
 host's (OFE-026) — strategy-API versioning, the part of that item a library can
-own, is held since v3.13 by the public API manifest.
+own, is held since v3.13 by the public API manifest. Once ADR-0058 gave an
+estimate an identity, v4.3 reopened and delivered two of them: OFE-007, as the
+Ornstein-Uhlenbeck fit (ADR-0074), and OFE-010, as the Gaussian hidden Markov
+model and the Markov-switching regression (ADR-0075).
 
 **External**: a vendor adapter package (OFE-008) — a venue's request shapes
 belong to the application that connects to it.
@@ -1055,17 +1097,23 @@ tenancy are the host application's, and the lifecycle takes a
 
 # Long-Term Vision
 
-AlphaLab set out to be a complete quantitative research platform -- market data,
-feature engineering, research, portfolio construction, machine learning,
-execution and reproducibility -- while preserving determinism, immutability,
-modular architecture and production readiness. At v4.0 that engine is complete
-and frozen: one execution spine with one run owner and four drivers, a lifecycle
-path joined to it, durable state that round-trips across processes, and a public
-API held stable from here.
+AlphaLab is a universal, strategy-agnostic quantitative research engine for
+global markets (ADR-0056, the product charter). The researcher brings the
+hypothesis; AlphaLab supplies a deterministic, reproducible and auditable path
+from data to a validated result -- original strategy construction, the
+mathematical, statistical and machine-learning methods the research needs,
+realistic execution, systematic experimentation, validation that accounts for
+selection, and the reproduction of every result, in any market the researcher
+declares.
 
-What remains is what this document lists: boundaries that should stay, external
-dependencies that are somebody else's to supply, limitations stated with their
-reasons, and the future work above.
+What v4.0 froze is the contract, not the capability: one execution spine with
+one run owner and four drivers, a lifecycle path joined to it, durable state that
+round-trips across processes, recorded identities that keep their meaning, and a
+public API held stable until 5.0. Capability keeps growing on that contract, and
+the v4.3.0 programme is its next stage. The rest of this document -- boundaries
+that stand until their own ADR reopens them, external dependencies that are
+somebody else's to supply, limitations stated with their reasons, and the future
+work above -- is read through that charter.
 
 ---
 

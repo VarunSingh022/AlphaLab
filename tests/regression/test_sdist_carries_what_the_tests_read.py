@@ -32,6 +32,10 @@ _LOCAL = {
     ".venv",
     "build",
     "dist",
+    # The optional distributions (ADR-0057) are each packaged on their own,
+    # never in the core's sdist; the word the core's tests read is the release
+    # preflight's ``distributions`` command, not this directory.
+    "distributions",
     "htmlcov",
     "venv",
 }

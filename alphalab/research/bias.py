@@ -9,8 +9,15 @@ instant, delisting returns kept, purged and embargoed splits -- and this report
 carries what the run itself shows, for a reviewer to read.
 """
 
+from bisect import bisect_right
+from collections.abc import Iterable
 from dataclasses import dataclass
+from decimal import Decimal
+from enum import Enum, unique
 
+from alphalab.core.fill import Fill
+from alphalab.instrument.membership import HistoricalUniverse, MembershipChange, MembershipKind
+from alphalab.research.exceptions import ResearchValidationError
 from alphalab.research.metrics import calculate_volatility
 from alphalab.research.protocol import ResearchPayload
 
@@ -63,3 +70,126 @@ def detect_bias(payload: ResearchPayload) -> BiasReport:
         observations=len(payload.returns),
         trades_per_parameter=count / parameters if parameters else None,
     )
+
+
+# --- membership as it was known (v4.3, ADR-0059) ------------------------------------
+
+
+@unique
+class MembershipFindingKind(Enum):
+    """How a trade stands against a universe's membership as it was known."""
+
+    #: The asset was not a member when it traded, and nothing announced by then
+    #: said it would be.
+    NOT_A_MEMBER = "NOT_A_MEMBER"
+    #: The asset was not yet a member when it traded, and the addition that made
+    #: it one was announced only later: a list of today's members, or one of
+    #: effective dates alone, would have traded it.
+    BEFORE_ANNOUNCEMENT = "BEFORE_ANNOUNCEMENT"
+
+
+@dataclass(frozen=True, slots=True)
+class MembershipFinding:
+    """One trade made outside a universe's membership as it was known.
+
+    Attributes:
+        asset_id: What traded.
+        at: When it filled.
+        side: ``"buy"`` or ``"sell"``.
+        quantity: How much.
+        kind: :class:`MembershipFindingKind`.
+        announced_at: For :attr:`~MembershipFindingKind.BEFORE_ANNOUNCEMENT`,
+            when the asset's next addition was announced; otherwise ``None``.
+    """
+
+    asset_id: str
+    at: float
+    side: str
+    quantity: Decimal
+    kind: MembershipFindingKind
+    announced_at: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class MembershipReview:
+    """A run's trades against a universe's membership as known at each (ADR-0059).
+
+    It scores nothing (RES-001): it lists what happened, for a reviewer to read.
+    A sale after a removal is how a point-in-time strategy leaves; the finding
+    says when, and the side says which.
+
+    Attributes:
+        universe: The universe reviewed against.
+        trades: How many fills were reviewed.
+        findings: Every fill made outside the membership as known then, in the
+            order given.
+    """
+
+    universe: str
+    trades: int
+    findings: tuple[MembershipFinding, ...]
+
+    @property
+    def clean(self) -> bool:
+        """Whether every trade was in an asset that was a member, as known, when it traded."""
+
+        return not self.findings
+
+
+def membership_review(fills: Iterable[Fill], universe: HistoricalUniverse) -> MembershipReview:
+    """Each of ``fills`` against ``universe``'s membership as it was known when it filled.
+
+    A change takes effect no earlier than it is announced, so membership at an
+    instant was always known by then; what the review adds is when a later
+    addition was known. A fill in an asset that was a member is not reported. One
+    in an asset that was not is reported as
+    :attr:`~MembershipFindingKind.BEFORE_ANNOUNCEMENT` when the asset's next
+    addition was announced after the fill -- the mark of a survivorship-biased
+    list, which knew it would join -- and as
+    :attr:`~MembershipFindingKind.NOT_A_MEMBER` otherwise.
+
+    Raises:
+        ResearchValidationError: If ``universe`` is not a
+            :class:`~alphalab.instrument.membership.HistoricalUniverse`, or a
+            fill is not a :class:`~alphalab.core.fill.Fill`.
+    """
+
+    if not isinstance(universe, HistoricalUniverse):
+        raise ResearchValidationError(
+            f"A membership review reads a HistoricalUniverse, got {universe!r}."
+        )
+    by_asset: dict[str, list[MembershipChange]] = {}
+    for change in universe.changes:
+        by_asset.setdefault(change.asset_id, []).append(change)
+    effective = {
+        asset: [change.effective_at for change in changes] for asset, changes in by_asset.items()
+    }
+    findings: list[MembershipFinding] = []
+    count = 0
+    for fill in fills:
+        if not isinstance(fill, Fill):
+            raise ResearchValidationError(f"A membership review reads fills, got {fill!r}.")
+        count += 1
+        changes = by_asset.get(fill.asset_id, [])
+        taken = bisect_right(effective.get(fill.asset_id, []), fill.filled_at)
+        if taken and changes[taken - 1].kind is MembershipKind.ADDITION:
+            continue
+        later = next(
+            (change for change in changes[taken:] if change.kind is MembershipKind.ADDITION), None
+        )
+        unannounced = later is not None and later.announced_at > fill.filled_at
+        findings.append(
+            MembershipFinding(
+                asset_id=fill.asset_id,
+                at=fill.filled_at,
+                side=fill.side.value,
+                quantity=fill.quantity,
+                kind=(
+                    MembershipFindingKind.BEFORE_ANNOUNCEMENT
+                    if unannounced
+                    else MembershipFindingKind.NOT_A_MEMBER
+                ),
+                announced_at=later.announced_at if unannounced and later is not None else None,
+            )
+        )
+    return MembershipReview(universe=universe.name, trades=count, findings=tuple(findings))

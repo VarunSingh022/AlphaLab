@@ -277,9 +277,10 @@ def test_no_capability_moved_another_ones_boundary() -> None:
     # FX added no field to run configuration and moved no pipeline schema (v3.10
     # moved it to 4, for minor units and the analytics basis; v3.11 to 5, for a
     # bar's interval code; v3.12 to 6, for venue calendars; v3.13 to 7, for the
-    # strategy status enum's name; v4.0 to 8, for the described live objects).
+    # strategy status enum's name; v4.0 to 8, for the described live objects;
+    # v4.3 to 9, for M8's execution options, written only when declared).
     assert "fx_rates" not in {f.name for f in fields(ExecutionPipelineConfig)}
-    assert PIPELINE_SNAPSHOT_SCHEMA == 8
+    assert PIPELINE_SNAPSHOT_SCHEMA == 9
 
     # Governance moved exactly one schema, and only its own.
     from alphalab.common.constants import DEFAULT_SCHEMA_VERSION

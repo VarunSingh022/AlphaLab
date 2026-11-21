@@ -11,7 +11,9 @@ Every subsystem follows the same engineering principles (immutable state, pure f
 > **Design Goals** onward the document describes the architectural *model* —
 > principles, layering rules, extension points and a long-term target. As of
 > v3.10.0 both halves name only packages that exist; where the target half shows a
-> capability AlphaLab does not implement, it says so.
+> capability AlphaLab does not implement, it says so. The product's direction is
+> ADR-0056's charter: a universal research engine whose capability grows on a
+> stable contract, with no single runtime spanning its engines (ADR-0009).
 
 The architecture emphasizes reproducibility, composability, testability, and production readiness.
 
@@ -30,6 +32,21 @@ audit read the rest of this document and found the same defect class throughout
 its target-architecture half — see the v3.0.0 entry in `CHANGELOG.md` for the
 full list. The release checklist now has to touch `README.md`, this section and
 `docs/README.md` together.)*
+
+**v4.2** (v4.1.1 and v4.2.0) moved no boundary. One `RunSchedule` applies every
+timed input at its instant on every driver: observations, rates, fundings, cash
+flows, distributions, splits, timers, exercises, assignments, expiries,
+settlements, financing and borrow periods, holding exchanges and their payment
+amendments, elections' record instants, and volatility surfaces and auction books
+delivered as data. Contracts expire and are exercised, assigned and delivered by
+their declared terms in any market a calendar describes; bonds pay coupons and
+redeem; settlement-date cash, margin calls and forced liquidation follow declared
+terms; venues' bands, halts and reopening auctions gate orders; execution plans
+work orders in children, and queue models hold resting limits until they reach
+the front. Three schemas stepped, each reading every earlier payload --
+instrument 3 -> 4, replay 1 -> 2 -> 3, live 2 -> 3 -- and no run, pipeline or
+portfolio schema moved, so a run of v4.1.0's inputs keeps its identity
+(ADR-0051).
 
 **v4.1** moved no boundary and no existing schema. The replay driver
 (`alphalab.backtesting.replay`) pauses between two records and resumes, and the
@@ -292,7 +309,10 @@ runs of one workload agreed on every number and disagreed on every identity.
 `RunConfig.seed` installs a `DeterministicIdSource` for the run and is
 recorded on the result. With a seed, repeated runs are identical field for
 field — orders, fills, positions, cash, realized and unrealized P&L, analytics.
-Without one, identifiers stay on `uuid4` and only the economics reproduce.
+Without one, identifiers stay on `uuid4` and only the economics reproduce. Either
+way the run's scope is its own: an unseeded run started inside another seeded
+scope installs `uuid4` rather than inheriting that stream, so it neither mints
+from it nor moves it (DET-007; until v4.3 it did both).
 
 The source is an ambient `ContextVar`, deliberately: threading an id-source
 parameter through every engine method would put a reproducibility argument on
@@ -690,7 +710,7 @@ owning module, its own schema constant and its own typed decoder:
 | `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA = 5` | v2.5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA = 2` | v2.5 |
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA = 3` | v2.9 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 8` | v2.9 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA = 9` | v2.9 |
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA = 5` | v2.14 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA = 4` | v2.15 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA = 2` | v2.16 |
@@ -700,9 +720,13 @@ owning module, its own schema constant and its own typed decoder:
 
 Three envelopes carry a payload and version only what they add: the run-state
 store's (`persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, v2.14), an
-incremental checkpoint's (`runtime.checkpoint.CHECKPOINT_SCHEMA = 2`, v3.12; 2
-since v3.13, when a segment began writing the per-order state by its changes)
-and the evidence store's (`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12).
+incremental checkpoint's (`runtime.checkpoint.CHECKPOINT_SCHEMA = 3`, v3.12; 2
+since v3.13, when a segment began writing the per-order state by its changes; 3
+since v4.3, which records the binding of the run's schedule when one is given --
+a checkpoint given none is still written as 2, byte for byte, ADR-0053) and the
+evidence store's (`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12). A run's
+provenance record, filed in that store, versions its own fields
+(`backtesting.provenance.RUN_PROVENANCE_SCHEMA = 1`, v4.3).
 `tests/regression/test_documented_schemas_are_current.py` reads this table, and
 the two like it in `STATE_MODEL.md` and `nowandfuture.md`, against the
 constants: until v3.13 nothing did, and all three had drifted by several
@@ -1035,9 +1059,9 @@ An independent, deterministic, individually tested library that is reached by
 **neither** wired path: `portfolio_optimizer`, `reporting`,
 `feature_store`, `ml`, `deep_learning`,
 `reinforcement_learning`, `options`, `futures`, `crypto`, `macro`,
-`cloud_research`, `cluster_scheduler`, `distributed`,
-`research_assistant`, `brokers`, `scheduler`, `scenario`. (`plugins` and
-`optimizer` were on it until v3.12 — see ADR-0047.)
+`cluster_scheduler`, `research_assistant`, `brokers`, `scheduler`, `scenario`.
+(`plugins` and `optimizer` were on it until v3.12 — see ADR-0047;
+`cloud_research` and `distributed` until v4.3, below.)
 (`production`, `integrations` and `kernel` were on this list until v2.17, which
 removed them — see ADR-0034; `live` and `feed` until v3.10 — see ADR-0045;
 `workbench` until v3.11 — see ADR-0046.)
@@ -1047,6 +1071,13 @@ either.** It is a leaf *library* imported by other packages rather than one
 reached from a run, and its edge set is asserted: `alphalab.common` and nothing
 else in `alphalab`. That constraint is what makes it usable from both sides of
 the `data → options → portfolio` chain at once (ADR-0039 decision 1).
+
+**`econometrics` (v4.3, ADR-0074) is a leaf library too.** It imports
+`alphalab.common` and nothing else in AlphaLab: it returns estimates and test
+results over a caller's series, and is reached from neither path.
+`tests/regression/test_documented_dependencies_are_measured.py` holds its edge.
+`research` may import it, as it imports `factor_library`, and nothing in it
+imports `research`.
 
 **`scenario` joined this list in v3.3**, and its being there is the design
 rather than an omission. A `Scenario` applies to a `ScenarioState` — a flat
@@ -1073,6 +1104,18 @@ lifecycle path; and by `alphalab.api`, which is where an application enters. The
 edge is one-way — nothing in `factor_library` imports `research`, `lifecycle` or
 `api` — and `tests/regression/test_import_graph_stays_acyclic.py` measures that
 on every run.
+
+**`cloud_research` and `distributed` left this list in v4.3**, and
+`cluster_scheduler` and `research_assistant` stayed on it (ADR-0072, GAP-31).
+The trial ledger's `ClusterExecutor` runs an experiment's trials as jobs on a
+`cloud_research` cluster, whose cycle drives `distributed`'s job lifecycle, so
+`alphalab.lifecycle` imports both: the three orchestration layers are one
+executor path. `cluster_scheduler` joins that path without an edge: its
+policies are what a cycle's `assign` is given. `research_assistant` feeds the
+ledger through the one search space, `research.ParameterSpace`
+(`candidate_space`), and imports nothing of the ledger's. Nothing in any of
+them imports `lifecycle`, and `tests/regression/test_one_executor_path.py`
+measures these edges.
 
 **`alt_data` left this list in v3.7**, for the reason `factor_library` did:
 `alphalab.research` imports it (event studies), and so do `factor_library`
@@ -1110,8 +1153,9 @@ authority. `alphalab.broker` is reached from the execution path through
 owner writes through.
 
 `alphalab.lifecycle` imports `experiment_tracking`, `model_registry`,
-`deployment_manager`, `research` and `backtesting` (`studio` and `enterprise`
-until v3.11, which removed them). It
+`deployment_manager`, `research` and `backtesting`, and since v4.3
+`cloud_research` and `distributed` (`studio` and `enterprise` until v3.11, which
+removed them). It
 does **not** import `research_assistant`: that package produces a candidate and
 `to_strategy_definition` lifts it into the canonical `StrategyDefinition` the
 lifecycle takes, so the dependency runs through the definition rather than the
@@ -2226,6 +2270,13 @@ loader's `execute()` was a placeholder and the state it kept was read by
 nothing, so it extended nothing. Loading third-party code is the host
 application's, and AlphaLab is extended the way a library is: by passing an
 object that satisfies one of its protocols (see "Plugin Architecture" below).
+One package is the exception, and states it: `cloud_research.resolve_task`
+imports the module a job's `task_path` names and calls the callable in it, so a
+task path selects code to execute and must never come from untrusted input
+(ledger BDY-028, `SECURITY.md`). Since v4.3 it is superseded, and kept until 5.0:
+a cycle given a `common.registry.RunnerRegistry` looks a task up by name and
+resolves nothing, as the trial ledger's executors do (ADR-0072). The strategy
+class registry, by contrast, never resolves a name to code (ADR-0035).
 **Removed in v3.12** with `alphalab/optimizer` (ledger SCF-003, ADR-0047).
 
 ---
@@ -2262,7 +2313,7 @@ the execution path (runtime, backtesting) over the domain engines
 (allocation, risk, oms, execution, portfolio, analytics, market, instrument)
       │
       ▼
-leaves and foundation (core, conventions, alt_data, persistence, common)
+leaves and foundation (core, conventions, alt_data, econometrics, persistence, common)
 ```
 
 Dependencies in the opposite direction are prohibited, and the package graph has
@@ -2286,19 +2337,27 @@ Replay", none of which was true).
 | `common` | none |
 | `conventions` | `common` |
 | `alt_data` | `common` |
+| `econometrics` | `common` |
 | `strategy` | `common` |
 | `replay` | `common` |
 | `data` | `common`, `options` |
 | `analytics` | `common`, `core` |
 | `portfolio` | `common`, `conventions`, `core`, `persistence` |
 | `market` | `common`, `data`, `instrument`, `marketdata` |
-| `research` | `alt_data`, `common`, `factor_library` |
+| `research` | `alt_data`, `common`, `core`, `econometrics`, `factor_library`, `instrument` |
 | `factor_library` | `alt_data`, `analytics`, `common`, `data`, `market` |
 | `portfolio_optimizer` | `analytics`, `common`, `conventions` |
 
-Must not depend on: a leaf (`common`, `conventions`, `alt_data`, `strategy`)
-on anything but `common`; research on the execution path or the lifecycle;
+Must not depend on: a leaf (`common`, `conventions`, `alt_data`, `econometrics`,
+`strategy`) on anything but `common`; research on the execution path or the lifecycle;
 anything on `lifecycle`, which composes the rest and is imported by nothing.
+
+`research` reads `core` and `instrument` directly since v4.3: the survivorship
+review reads a run's fills against a universe's dated membership (ADR-0059). Both
+were already within its reach through `factor_library`, so what it reaches is
+unchanged. It reads `econometrics` since v4.3 too: the cointegration screen tests
+each candidate pair with Engle and Granger's test (ADR-0074 section 8).
+`econometrics` is a leaf, so the edge adds nothing else to what `research` reaches.
 
 ---
 

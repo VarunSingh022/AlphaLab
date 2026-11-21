@@ -212,7 +212,7 @@ dependencies; **(12)** acceptance criteria for "ready".
 | (7) | B, Re, P, L. |
 | (8) | **VERIFIED**. Risk *measurement* of a held book is `alphalab.analytics`, not this (pinned distinct). |
 | (9) | `tests/integration/test_classification_limits.py`; `test_backtest_pipeline.py::test_a_request_risk_refuses_never_reaches_the_oms`; v4.1.1: example 72's order-size refusals, each in `result.state.risk.history` with its violation and never filled. |
-| (10) | The position check adds notional exposure to order quantity (recorded in ADR-0041; example comments warn). |
+| (10) | none known. The position check holds the projected signed position to its limit in units, then in base-currency value (`risk/checks.py`, `check_position_limit`); the defect ADR-0041 recorded -- notional exposure added to an order's quantity -- was corrected in v3.10 (ledger KD-001). |
 | (11) | none. |
 | (12) | met. |
 

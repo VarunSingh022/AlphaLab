@@ -24,7 +24,13 @@ from itertools import pairwise
 from typing import Final
 
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
-from alphalab.conventions.daycount import DayCount, day_count_days, days_in_year
+from alphalab.conventions.daycount import (
+    DayCount,
+    day_count_days,
+    days_in_year,
+    require_accrual_basis,
+)
+from alphalab.conventions.exceptions import ConventionInputError
 from alphalab.portfolio.exceptions import InvalidTransactionError
 
 __all__ = [
@@ -108,9 +114,16 @@ def day_fraction(start: date, end: date, basis: DayCount) -> Decimal:
     """``end - start`` as an exact fraction of a year under ``basis``.
 
     Raises:
-        InvalidTransactionError: If ``end`` is not after ``start``.
+        InvalidTransactionError: If ``end`` is not after ``start``, or the basis
+            cannot weight a period on its own (it needs an instrument's terms,
+            or its year depends on the dates; see
+            :func:`~alphalab.conventions.daycount.require_accrual_basis`).
     """
 
+    try:
+        require_accrual_basis(basis)
+    except ConventionInputError as error:
+        raise InvalidTransactionError(f"A financing accrual cannot use it: {error}") from None
     days = day_count_days(start, end, basis)
     if days <= 0:
         raise InvalidTransactionError(

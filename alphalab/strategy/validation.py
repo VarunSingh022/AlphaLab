@@ -16,7 +16,7 @@ import math
 from decimal import Decimal
 
 from alphalab.common.order_terms import OrderTerms
-from alphalab.strategy.events import Intent, IntentKind
+from alphalab.strategy.events import Intent, IntentKind, Leg
 from alphalab.strategy.exceptions import InvalidIntentError
 
 __all__ = ["validate_intent"]
@@ -72,6 +72,35 @@ def validate_intent(intent: Intent) -> None:
         _require_election(intent)
     if intent.kind is IntentKind.AMEND:
         _require_amend(intent)
+    _require_legs(intent)
+
+
+def _require_legs(intent: Intent) -> None:
+    """A package's legs are each an asset and a finite ``Decimal``; no other kind has any.
+
+    What a package asks for -- two legs or more, none twice, no ratio of zero,
+    market terms -- is judged by the run, which refuses one that cannot be
+    traded and records why (ADR-0062): the strategy keeps running. Only a value
+    that is not a package's shape at all is refused here.
+    """
+
+    legs = intent.legs
+    if intent.kind is not IntentKind.PACKAGE:
+        if legs:
+            raise InvalidIntentError(
+                f"Only a package intent has legs; this one is {intent.kind.value} and names "
+                f"{len(legs) if isinstance(legs, tuple) else legs!r}."
+            )
+        return
+    if not isinstance(legs, tuple):
+        raise InvalidIntentError(f"A package's legs must be a tuple of Leg, got {legs!r}.")
+    for leg in legs:
+        if not isinstance(leg, Leg):
+            raise InvalidIntentError(f"A package's legs must be Leg values, got {leg!r}.")
+        if not isinstance(leg.instrument, str) or not leg.instrument:
+            raise InvalidIntentError(f"A leg names its asset, got {leg.instrument!r}.")
+        if not isinstance(leg.ratio, Decimal) or not leg.ratio.is_finite():
+            raise InvalidIntentError(f"A leg's ratio must be a finite Decimal, got {leg.ratio!r}.")
 
 
 def _require_amend(intent: Intent) -> None:

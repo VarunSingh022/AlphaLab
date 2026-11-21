@@ -97,9 +97,14 @@ from dataclasses import dataclass, replace
 from typing import Any, overload
 
 from alphalab.alt_data.streaming import ObservationDelivery
-from alphalab.backtesting.algorithmic import AlgorithmBook, ExecutionPlan, algorithmic_run
+from alphalab.backtesting.algorithmic import (
+    AlgorithmBook,
+    ExecutionPlan,
+    _resting_children,
+    algorithmic_run,
+)
+from alphalab.backtesting.algorithmic import _work as work_children
 from alphalab.backtesting.algorithmic import finish as finish_children
-from alphalab.backtesting.algorithmic import work as work_children
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
 from alphalab.backtesting.engine import (
     finalize,
@@ -108,7 +113,7 @@ from alphalab.backtesting.engine import (
     initialize,
 )
 from alphalab.backtesting.exceptions import UnsupportedRecordError
-from alphalab.backtesting.queueing import queued_result, queued_run
+from alphalab.backtesting.queueing import _planned_result, queued_result, queued_run
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE, RunSchedule, ScheduleCursor
 from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, ReplayResult
 from alphalab.common.ids import IdStreamPosition, current_id_position, use_id_source
@@ -505,7 +510,13 @@ def _drive(
                     paused = ReplayEngine.pause(replay, float(replayed))
                     position = current_id_position()
                 if queue is not None:
-                    working = (str(oid.value) for oid in state.pipeline.oms.active_orders)
+                    # Under a plan the book holds the children still resting
+                    # (ADR-0061); otherwise the run's own working orders.
+                    working = (
+                        _resting_children(book)
+                        if book is not None
+                        else (str(oid.value) for oid in state.pipeline.oms.active_orders)
+                    )
                     queue = queue.keeping(working)
                 return PausedReplay(state, paused, position, schedule, book, queue)
         ask = True
@@ -526,13 +537,20 @@ def _drive(
             )
         inputs, state = inputs.before(state, record.timestamp, context_factory)
         state = RunEngine.close_slice(state, context_factory, inputs.rates, before=record.timestamp)
+        # Under a plan the queue book is the children's (ADR-0061), as in the backtest.
         state, result = RunEngine.advance(
-            state, record, context_factory, rates=inputs.rates, queue=queue
+            state,
+            record,
+            context_factory,
+            rates=inputs.rates,
+            queue=queue if book is None else None,
         )
         if result is not None and result.queue is not None:
             queue = result.queue
         if book is not None and result is not None:
-            book, state = work_children(book, state, result.market_event, inputs.rates)
+            book, state, queue = work_children(
+                book, state, result.market_event, inputs.rates, queue, context_factory
+            )
         # The cursor's lifecycle log is an audit trail like any subsystem's, and
         # a declared retention bounds it as it bounds theirs (v4.1): until then
         # a replay kept one ReplayAdvanced per record whatever the run declared.
@@ -544,12 +562,15 @@ def _drive(
     inputs, state = inputs.finish(state, context_factory, None if last is None else last.timestamp)
     state = RunEngine.close_slice(state, context_factory, inputs.rates)
     backtest: BacktestResult
-    if queue is not None:
+    if book is not None:
+        book, state = finish_children(book, state)
+    if book is not None and queue is not None:
+        backtest = _planned_result(state, book, queue)
+    elif queue is not None:
         backtest = queued_result(state, queue)
     elif book is None:
         backtest = finalize(state)
     else:
-        book, state = finish_children(book, state)
         backtest = AlgorithmicResult(run=RunEngine.finalize(state), algorithms=book)
 
     return ReplayResult(

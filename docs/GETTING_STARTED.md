@@ -258,6 +258,15 @@ continued run has the same `result_id` as one that never stopped. A restore
 refuses a sizing model, simulator or fill policy configured otherwise than the
 one the run was captured with.
 
+A run's record does not name the schedule it was given -- its rates, funding and
+delivered observations -- so keep that beside it:
+`alphalab.backtesting.run_provenance(result, schedule=schedule)` binds the run's
+`result_id` to the schedule's digest and the registry it held, and
+`verify_provenance(result, provenance, schedule)` re-derives each. A manifest
+made with `manifest_for_run(..., provenance=provenance, identity_version=2)`
+records the registry and cites the provenance, and
+`lifecycle.rerun_from_manifest` reruns it under the same contract (ADR-0053).
+
 ---
 
 # Understanding the Packages

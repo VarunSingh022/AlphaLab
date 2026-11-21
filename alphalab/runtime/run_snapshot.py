@@ -266,6 +266,42 @@ def capture(state: RunState) -> RunSnapshot:
     )
 
 
+def _recorded_configuration(snapshot: RunSnapshot) -> dict[str, Any]:
+    """The configuration a run's record carries: the text ``configuration_id`` hashes.
+
+    Moved unchanged from :mod:`alphalab.lifecycle.reproducibility` (v4.3,
+    ADR-0055), which still derives every identity from it: a captured run's
+    trace starts from the same configuration identity, and
+    :mod:`alphalab.backtesting` may not import the lifecycle.
+    """
+
+    strategies = sorted(snapshot.pipeline.strategy, key=lambda record: record.strategy_id)
+    return {
+        "pipeline": snapshot.pipeline.config,
+        "mode": snapshot.mode,
+        "start_timestamp": snapshot.start_timestamp,
+        "ordering": snapshot.ordering,
+        "max_market_data_age_seconds": snapshot.max_market_data_age_seconds,
+        "years_elapsed": snapshot.years_elapsed,
+        "risk_free_rate": snapshot.risk_free_rate,
+        "compile_analytics": snapshot.compile_analytics,
+        "fill_policy_type": snapshot.fill_policy_type,
+        # How the fill policy was configured, as the pipeline's record carries
+        # the sizing model's and the simulator's (ledger PER-008): two runs that
+        # differ only in a cost or fill parameter are two configurations.
+        "fill_policy_description": snapshot.fill_policy_description,
+        "strategies": [
+            {
+                "strategy_id": record.strategy_id,
+                "instance_type": record.instance_type,
+                "config": record.config,
+                "subscriptions": list(record.subscriptions),
+            }
+            for record in strategies
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Restore
 # ---------------------------------------------------------------------------

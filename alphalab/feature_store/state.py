@@ -43,7 +43,7 @@ from alphalab.feature_store.cache import FeatureCache
 from alphalab.feature_store.decision import FeatureWriteDecision
 from alphalab.feature_store.events import FeatureStoreEvent
 from alphalab.feature_store.metadata import FeatureMetadata
-from alphalab.feature_store.value import FeatureValue
+from alphalab.feature_store.value import FeatureValue, KnownFeatureValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +75,9 @@ class FeatureStoreState:
         events: Every domain event ever emitted, in order.
         statistics: Aggregate counters for registrations, deprecations, and writes.
         metadata: Free-form key/value labels for this Feature Store instance.
+        timeline: Every value written per "feature_id:version:asset_id" key, in
+            write order, each with the instant it became known (v4.3, GAP-13):
+            what :func:`~alphalab.feature_store.views.value_as_of` reads.
     """
 
     engine_id: str
@@ -87,3 +90,6 @@ class FeatureStoreState:
     events: AppendOnlyLog[FeatureStoreEvent] = field(default_factory=AppendOnlyLog)
     statistics: FeatureStoreStatistics = field(default_factory=FeatureStoreStatistics)
     metadata: Mapping[str, str] = field(default_factory=dict)
+    timeline: PersistentMap[str, AppendOnlyLog[KnownFeatureValue]] = field(
+        default_factory=PersistentMap
+    )

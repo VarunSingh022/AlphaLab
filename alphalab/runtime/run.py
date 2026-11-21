@@ -95,6 +95,8 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineState,
     ExecutionRouting,
     UnpricedAsset,
+    _instant_assets,
+    _packages_working,
     held_past_expiry,
     price_refusal,
     retained,
@@ -762,9 +764,15 @@ class RunEngine:
             return state
         if state.last_slice_at is not None and at <= state.last_slice_at:
             return state
-        if not wants_slices(pipeline.strategy):
+        # A package works at a slice close whether or not a strategy wants the
+        # slice (ADR-0062); a run with neither closes nothing.
+        if not wants_slices(pipeline.strategy) and not _packages_working(
+            pipeline, _instant_assets(events, at)
+        ):
             return state
-        closed, _, _ = ExecutionPipeline.close_slice(pipeline, context_factory, rates)
+        closed, _, _ = ExecutionPipeline.close_slice(
+            pipeline, context_factory, rates, fill_policy=state.config.fill_policy
+        )
         return evolve(state, pipeline=closed, last_slice_at=at)
 
     @staticmethod

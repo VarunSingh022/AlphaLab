@@ -46,6 +46,7 @@ from alphalab.common.ids import (
     use_id_source,
 )
 from alphalab.execution.fill import FillStatus
+from alphalab.execution.policy import FillTiming
 from alphalab.execution.report import ExecutionReport
 from alphalab.instrument.registry import InstrumentRegistry
 from alphalab.oms.snapshot import OMS_SNAPSHOT_SCHEMA
@@ -197,18 +198,20 @@ def test_the_state_under_test_exercises_every_durable_field() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_schema_constant_is_eight() -> None:
-    """Moved seven times: v2.10 for the strategy-state field (ADR-0025 decision
+def test_the_schema_constant_is_nine() -> None:
+    """Moved eight times: v2.10 for the strategy-state field (ADR-0025 decision
     8), v2.17 for the two configuration fields settlement-level multi-currency
     added (ADR-0035), v3.10 for the account's minor units and each report's
     analytics basis, v3.11 for a bar's interval code (DAT-005), v3.12 for the
     calendar declared for each listing venue (EXE-010), v3.13 for the strategy
-    status enum's name (API-001), and v4.0 for how the sizing model and the
-    simulator were configured (PER-008). Every earlier version is upgraded by
+    status enum's name (API-001), v4.0 for how the sizing model and the
+    simulator were configured (PER-008), and v4.3 for M8's execution options
+    (ADR-0060) -- version 9 written only when a run declares one, so a run
+    declaring none still writes version 8. Every earlier version is upgraded by
     ``PIPELINE_SCHEMA_HISTORY`` rather than refused.
     """
 
-    assert PIPELINE_SNAPSHOT_SCHEMA == 8
+    assert PIPELINE_SNAPSHOT_SCHEMA == 9
 
 
 def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
@@ -219,15 +222,39 @@ def test_the_constant_is_not_an_alias_of_the_shared_default() -> None:
     source = inspect.getsource(pipeline_snapshot)
 
     assert not hasattr(pipeline_snapshot, "DEFAULT_SCHEMA_VERSION")
-    assert "PIPELINE_SNAPSHOT_SCHEMA: Final = 8" in source
+    assert "PIPELINE_SNAPSHOT_SCHEMA: Final = 9" in source
     assert "= DEFAULT_SCHEMA_VERSION" not in source
 
 
-def test_capture_declares_the_version() -> None:
-    state, _, _ = _state()
+def test_capture_declares_the_version_its_configuration_implies() -> None:
+    """Version 9 only when the run declares one of M8's execution options (ADR-0060)."""
 
-    assert capture(state).schema_version == PIPELINE_SNAPSHOT_SCHEMA
+    state, _, _ = _state()
+    assert capture(state).schema_version == 8 == PIPELINE_SNAPSHOT_SCHEMA - 1
     assert _payload(state)["schema_version"] == 8
+
+    next_open = replace(state, config=replace(state.config, fill_timing=FillTiming.NEXT_OPEN))
+    assert capture(next_open).schema_version == PIPELINE_SNAPSHOT_SCHEMA == 9
+    payload = _payload(next_open)
+    assert payload["schema_version"] == 9
+    assert payload["config"]["fill_timing"] == "next_open"
+    assert from_primitives(payload).schema_version == 9
+
+
+def test_a_payload_declaring_another_version_than_its_configuration_is_refused() -> None:
+    """One state has one payload: a version and a configuration that disagree are refused."""
+
+    state, _, _ = _state()
+    claims_nine = _payload(state)
+    claims_nine["schema_version"] = 9
+    with pytest.raises(StateDecodeError, match=r"declares schema version 9.*written at version 8"):
+        from_primitives(claims_nine)
+
+    next_open = replace(state, config=replace(state.config, fill_timing=FillTiming.NEXT_OPEN))
+    claims_eight = _payload(next_open)
+    claims_eight["schema_version"] = 8
+    with pytest.raises(StateDecodeError, match=r"declares schema version 8.*written at version 9"):
+        from_primitives(claims_eight)
 
 
 def test_a_missing_version_is_refused_with_no_legacy_path() -> None:
@@ -965,7 +992,9 @@ def test_every_config_field_is_carried_or_supplied() -> None:
     from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig
     from alphalab.runtime.snapshot import ConfigRecord
 
-    supplied = {"sizing_model", "simulator", "instruments"}
+    # v4.3 (ADR-0061): the router is supplied back as the sizing model is, its type
+    # recorded; the venues are carried as records, each model supplied back too.
+    supplied = {"sizing_model", "simulator", "instruments", "router"}
     carried = {field.name for field in fields(ConfigRecord)}
     declared = {f"{name}_type" for name in supplied}
 

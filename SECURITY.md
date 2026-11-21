@@ -72,7 +72,12 @@ taking a dependency:
   transport (`alphalab.marketdata.transport`) and a `wss://` connection from its
   RFC 6455 WebSocket client (`alphalab.marketdata.websocket`). Both also accept
   an unencrypted `http://` or `ws://` URL, which TLS does not cover; the URL is
-  the caller's choice.
+  the caller's choice. Neither opens anything else. The HTTP transport refuses
+  `file://`, `ftp://`, `data:` and every other URL that is not `http://` or
+  `https://` before opening it, and follows a redirect only to one of those
+  two (since v4.3, SEC-002: until then a `file://` URL returned the local
+  file's bytes as a provider's response). The WebSocket client has always
+  refused anything but `ws://` and `wss://`.
 
 Venue request signing is not in the library. The HMAC-signed venue transport
 and its credentials (`HttpVenueTransport`, `VenueCredentials`) left
@@ -100,6 +105,44 @@ untrusted input**: whoever chooses them chooses the code a worker runs, with the
 host's privileges. A task's return value reaches the caller through the
 executor the caller supplies -- a process pool pickles it -- so a worker is
 inside the caller's trust boundary as well.
+
+Since v4.3 a cycle can run without resolving a path (GAP-05, the v4.3 review's
+SEC-001). `run_cluster_cycle(..., registry=...)` looks each job's task up by name
+in a `RunnerRegistry` the researcher built in code -- the registry the trial
+ledger's executors take -- and a name it does not hold, a dotted path to a real
+function included, fails the job before anything is imported or submitted.
+Without a registry a task is a dotted path, resolved as above: `resolve_task` is
+superseded, and stays until 5.0 (plan D-54-6). A registered task runs in the
+executor the caller supplies, inside the caller's trust boundary, like any
+other.
+
+**A spawned trial's worker refuses the network, and is not a sandbox** (ledger
+BDY-029, ADR-0072). `alphalab.lifecycle.experiments.SpawnExecutor` runs trials
+in interpreters it starts as AlphaLab's own worker module.
+* **The order.** Before the worker imports anything of the researcher's, it
+  installs an audit hook that refuses the network: `socket`, `ssl`,
+  `http.client` and `urllib` events raise. A definition that reaches for the
+  network as it is imported fails as surely as a runner that does so while it
+  runs.
+* **The request.** It carries identities only. The worker loads the experiment
+  from where the executor was told, in code, it is defined, and finds a runner
+  by name in that registry, never by resolving a path.
+* **The boundary.** A separate process is not a secure sandbox. The hook
+  guards against accidents and records intent. Code that escapes Python's
+  audit events, such as a C extension or a process the host lets it start, is
+  not contained by it, and isolating untrusted research code is the host's or
+  the deployment's.
+* **Trials in one worker.** A worker loads the experiment once and runs as
+  many trials as its executor says: one for a fresh interpreter per trial
+  (`trials_per_worker=1`), or as many as it is given. Trials in one worker
+  share its process, as sequential trials share the caller's. A fresh
+  interpreter per trial is the executor's most isolated choice, and it is not a
+  sandbox either.
+* **On a cluster.** `ClusterExecutor` runs each trial in a worker of its own,
+  the same worker module. The cluster's cycle places a trial on a worker and
+  starts it; the worker is what refuses the network.
+* **In process.** `SequentialExecutor` runs trials in the caller's process,
+  with no hook.
 
 ---
 

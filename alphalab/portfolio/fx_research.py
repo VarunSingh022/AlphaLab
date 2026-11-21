@@ -41,7 +41,7 @@ from decimal import Decimal
 
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.common.currency_units import STANDARD_CURRENCY_UNITS, CurrencyUnits
-from alphalab.conventions.daycount import DayCount, year_fraction
+from alphalab.conventions.daycount import DayCount, required_terms, year_fraction
 from alphalab.portfolio.amounts import CurrencyAmounts
 from alphalab.portfolio.exceptions import PortfolioError
 from alphalab.portfolio.fx import FxRate, FxRates
@@ -95,6 +95,12 @@ class ForwardTerms:
             raise PortfolioError(
                 f"value_date {self.value_date} is not after spot_date {self.spot_date}. A "
                 "forward settles later than spot; reversing them inverts the carry."
+            )
+        needed = required_terms(self.basis)
+        if needed:
+            raise PortfolioError(
+                f"{self.basis.name} needs {', '.join(sorted(needed))} from an instrument, which "
+                "a deposit from spot to value date does not have."
             )
 
     @property

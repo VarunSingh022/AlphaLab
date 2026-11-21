@@ -487,9 +487,12 @@ converged the market-data and broker models, v2.4 composed the lifecycle
 packages, v2.5 connected the provider boundary, v2.14 gave the run one owner,
 v2.15 made the transports real, and v2.16 joined the two paths.
 
-**As of v3.0.0 the architecture is frozen.** Wiring the remaining standalone
-engines into an integrated path is not pending work — it is a deliberate
-boundary (ADR-0009). v3.10 retired the *optional future evolution* class that
+**As of v3.0.0 the architecture is frozen**, and since v4.0 the public contract
+(ADR-0049); capability keeps growing on it (ADR-0056). No single runtime spans
+the engines (ADR-0009): an engine joins the research path through a tested
+bridge called by the code that uses it -- as a fitted model reaches the
+execution path in example 73 -- or stays a library by stated choice, with an
+ADR. v3.10 retired the *optional future evolution* class that
 was listed here: what a future release will add is in `../ROADMAP.md` under
 *Future work*, each item with its acceptance criteria (ADR-0049), and nothing in
 the engine depends on any of it.

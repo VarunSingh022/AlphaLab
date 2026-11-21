@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "alphalab-models"
+version = "0.1.0"
+description = "Framework adapters for AlphaLab's research model protocol: a trained model is its bytes (ADR-0057, ADR-0064)."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [{ name = "AlphaLab contributors" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Typing :: Typed",
+]
+# The core is installed from its release's wheel, not an index; install it
+# first, then this distribution beside it (README.md).
+dependencies = ["alphalab>=4.3,<5"]
+
+[project.optional-dependencies]
+# Each framework is an extra with the range the suite is run across, lowest and
+# latest. XGBoost's and LightGBM's estimators are scikit-learn's, so their
+# extras bring scikit-learn too.
+sklearn = ["scikit-learn>=1.7,<2"]
+xgboost = ["xgboost>=3.0,<4", "scikit-learn>=1.7,<2"]
+lightgbm = ["lightgbm>=4.6,<5", "scikit-learn>=1.7,<2"]
+dev = [
+  "mypy>=1.16,<3",
+  "pytest>=8.4,<10",
+  "ruff>=0.16,<0.18",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/alphalab_models"]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-config", "--strict-markers", "-ra"]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+show_error_codes = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+# scikit-learn ships no complete annotations; its calls are checked at their
+# boundary in the adapter instead.
+module = ["sklearn", "sklearn.*"]
+ignore_missing_imports = true

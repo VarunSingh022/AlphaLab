@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 
+from alphalab.common.append_log import AppendOnlyLog
 from alphalab.common.ids import new_id
 from alphalab.feature_store.cache import cache_value
 from alphalab.feature_store.checks import (
@@ -12,7 +13,7 @@ from alphalab.feature_store.checks import (
 from alphalab.feature_store.decision import FeatureWriteDecision
 from alphalab.feature_store.events import FeatureValueRejected, FeatureValueWritten
 from alphalab.feature_store.state import FeatureStoreState
-from alphalab.feature_store.value import FeatureValue
+from alphalab.feature_store.value import FeatureValue, KnownFeatureValue
 from alphalab.feature_store.violations import FeatureViolation
 
 
@@ -77,9 +78,12 @@ class FeatureValueStore:
             state.statistics, total_values_written=state.statistics.total_values_written + 1
         )
 
+        known = KnownFeatureValue(value, max(value.timestamp, timestamp))
+        timeline = state.timeline.get(value_key, AppendOnlyLog())
         new_state = replace(
             state,
             values=state.values.set(value_key, value),
+            timeline=state.timeline.set(value_key, timeline.append(known)),
             cache=new_cache,
             events=state.events.append(write_event),
             statistics=stats,

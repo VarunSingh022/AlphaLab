@@ -534,7 +534,8 @@ def test_a_payload_carrying_a_null_sector_still_restores() -> None:
     state = _run(_ROUND_TRIP, None, _APPLE.asset_id)
     payload = deserialize(serialize(capture_pipeline(state)))
 
-    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA
+    # Version 8: the run declares none of M8's execution options (ADR-0060).
+    assert payload["schema_version"] == 8 == PIPELINE_SNAPSHOT_SCHEMA - 1
     assert [record["sector_id"] for record in payload["trade_records"]] == [None, None]
 
     objects = RuntimeObjects(
@@ -867,7 +868,7 @@ def test_sector_exposure_survives_a_round_trip_without_moving_the_schema() -> No
     payload = deserialize(serialize(capture_pipeline(state)))
     restored = restore_pipeline(pipeline_from_primitives(payload), objects)
 
-    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 8
+    assert payload["schema_version"] == 8, "no M8 execution option declared (ADR-0060)"
     assert payload["risk"]["exposure"]["sector_exposure"] == {
         "Technology": "1000.00",
         "Financials": "-400.00",

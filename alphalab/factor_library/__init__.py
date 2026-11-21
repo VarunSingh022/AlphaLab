@@ -33,6 +33,10 @@ layer already produces one at a time.
   cross-section of several panels into the risk model's `FactorLoadings`, with
   every panel's transform chain as the factor's lineage, for construction's
   factor constraints and cross-strategy crowding (ADR-0043).
+* **Fama-MacBeth** (v4.3, WS-25) -- `fama_macbeth` prices several panels
+  across assets at each instant and averages the prices over time: each
+  factor's premium with Newey and West's standard error, a class-2 estimate
+  whose data identity covers every value read.
 """
 
 from alphalab.factor_library.applicability import (
@@ -77,6 +81,12 @@ from alphalab.factor_library.exceptions import (
     FactorLibraryError,
 )
 from alphalab.factor_library.exposure import ExposureReport, factor_exposure
+from alphalab.factor_library.fama_macbeth import (
+    FAMA_MACBETH_DATA_SCHEME,
+    FAMA_MACBETH_METHOD,
+    FamaMacBeth,
+    fama_macbeth,
+)
 from alphalab.factor_library.forward_returns import (
     DELISTING_SET_SCHEME,
     DelistingReturn,
@@ -152,6 +162,8 @@ from alphalab.factor_library.volatility import compute_volatility
 __all__ = [
     "DELISTING_SET_SCHEME",
     "FACTOR_CATALOG",
+    "FAMA_MACBETH_DATA_SCHEME",
+    "FAMA_MACBETH_METHOD",
     "FEATURE_KEY_SCHEME",
     "FEATURE_SERIES_KEY_SCHEME",
     "FIELD_AVAILABILITY",
@@ -174,6 +186,7 @@ __all__ = [
     "FactorSpec",
     "FactorTransform",
     "FactorTurnover",
+    "FamaMacBeth",
     "FeatureDefinition",
     "FeatureField",
     "FeatureKind",
@@ -221,6 +234,7 @@ __all__ = [
     "factor_decay",
     "factor_exposure",
     "factor_turnover",
+    "fama_macbeth",
     "feature_applicability",
     "forward_returns",
     "fundamental_frame",

@@ -23,6 +23,19 @@ What it holds the engine to, on every seed:
 * **whole units**: a run that sizes orders in whole units fills in whole units
   (ledger EXE-011) -- before v4.0 a liquidity-capped partial fill took 2.5
   shares of a whole-share order.
+
+Since v4.3 the same ledger holds daily bars too, under ``SAME_EVENT``,
+``NEXT_EVENT`` and ``NEXT_OPEN``, under each remainder policy -- cancelled,
+resting two events, resting three days -- and under each latency pricing -- a
+stamp, or half a minute or a day and a half kept from the market -- (ADR-0060),
+with gapped opens. Each fill's price is also held to its timing: the deciding
+bar's close, the next bar's close, or the next bar's open, of the bar it
+filled at; and no fill comes before its order's latency has passed. A fill
+priced away from its event's mark -- at an open -- values its position at the
+fill price until the next event of any asset re-marks it (pending marks,
+PRF-001), so each scenario ends with two
+quiet instants: the last order can fill at the first, and the second re-marks
+it.
 """
 
 from __future__ import annotations
@@ -40,8 +53,10 @@ from alphalab.backtesting import BacktestEngine, ImmediateFill, LiquidityCappedF
 from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.state import BacktestResult
 from alphalab.execution.commission import PerShareCommission
-from alphalab.execution.policy import FillPolicy, FillTiming
+from alphalab.execution.latency import ConstantLatency
+from alphalab.execution.policy import FillPolicy, FillTiming, LatencyPricing, RestRemainder
 from alphalab.execution.simulator import ExecutionSimulator
+from alphalab.market.bar import Bar, TimeFrame
 from alphalab.market.quote import Quote
 from alphalab.strategy import (
     BaseStrategy,
@@ -219,3 +234,139 @@ def test_a_run_not_in_whole_units_still_takes_its_share() -> None:
 
     (fill,) = _one_capped_fill(whole_units=False, size="5").fills
     assert fill.quantity == Decimal("2.5")
+
+
+class BarScript(BaseStrategy):
+    """Targets the plan names, at the bars the plan names."""
+
+    def __init__(self, plan: dict[tuple[str, float], Decimal]) -> None:
+        self._plan = plan
+
+    def on_bar(self, context: StrategyContext, event: Any) -> Iterable[Intent]:
+        bar = event.bar
+        target = self._plan.get((bar.asset_id, bar.timestamp))
+        if target is None:
+            return ()
+        return (
+            Intent(
+                strategy_id=STRATEGY,
+                instrument=bar.asset_id,
+                target=target,
+                timestamp=bar.timestamp,
+                kind=IntentKind.TARGET_QUANTITY,
+            ),
+        )
+
+
+DAY = 86_400.0
+
+
+def _bar_scenario(seed: int) -> tuple[list[Bar], dict[tuple[str, float], Decimal], dict[str, Any]]:
+    rng = random.Random(seed)
+    closes = {asset: Decimal(rng.randint(20, 200)) for asset in ASSETS}
+    bars: list[Bar] = []
+    plan: dict[tuple[str, float], Decimal] = {}
+    instant = DAY
+    for _ in range(rng.randint(5, 20)):
+        for asset in ASSETS:
+            if rng.random() < 0.7:
+                opened = max(Decimal("1"), closes[asset] + Decimal(rng.randint(-300, 300)) / 100)
+                closed = max(Decimal("1"), opened + Decimal(rng.randint(-500, 500)) / 100)
+                high = max(opened, closed) + Decimal(rng.randint(0, 200)) / 100
+                low = max(Decimal("0.5"), min(opened, closed) - Decimal(rng.randint(0, 200)) / 100)
+                volume = Decimal(rng.choice([1, 5, 50, 1000]))
+                bars.append(
+                    Bar(asset, instant, opened, high, low, closed, volume, None, None, TimeFrame.D1)
+                )
+                closes[asset] = closed
+                if rng.random() < 0.5:
+                    plan[(asset, instant)] = Decimal(rng.randint(-40, 40))
+        instant += DAY
+    for _ in range(2):
+        # Quiet: no order is placed, every asset is priced.
+        for asset in ASSETS:
+            bars.append(
+                Bar(asset, instant, *(closes[asset],) * 4, Decimal(1000), None, None, TimeFrame.D1)
+            )
+        instant += DAY
+    policies: tuple[FillPolicy, ...] = (
+        ImmediateFill(),
+        LiquidityCappedFill(participation_rate=Decimal("0.5")),
+    )
+    choices = {
+        "commission": Decimal(rng.choice(["0", "0.01", "0.05"])),
+        "policy": rng.choice(policies),
+        "timing": rng.choice(list(FillTiming)),
+    }
+    # Drawn last, so every earlier choice of a seed is what it was (ADR-0060).
+    remainders = (None, RestRemainder(events=2), RestRemainder(seconds=3 * DAY))
+    choices["remainder"] = rng.choice(remainders)
+    # Drawn after it, on the same terms: a stamp and no latency, or a latency
+    # that keeps an order from the market for half a minute -- to the next bar --
+    # or a day and a half, which passes it by one of its asset's bars.
+    pricings = (
+        (LatencyPricing.STAMP, 0.0),
+        (LatencyPricing.POST_LATENCY_EVENT, 30.0),
+        (LatencyPricing.POST_LATENCY_EVENT, 1.5 * DAY),
+    )
+    choices["latency"] = rng.choice(pricings)
+    return bars, plan, choices
+
+
+@pytest.mark.parametrize("seed", range(30))
+def test_the_engine_books_what_an_independent_ledger_books_on_bars(seed: int) -> None:
+    bars, plan, choices = _bar_scenario(seed)
+    pricing, latency = choices["latency"]
+    config = backtest_config(
+        STRATEGY,
+        seed=seed,
+        fill_policy=choices["policy"],
+        simulator=ExecutionSimulator(
+            commission_model=PerShareCommission(choices["commission"]),
+            latency_model=ConstantLatency(latency),
+        ),
+    )
+    config = replace(
+        config,
+        pipeline=replace(
+            config.pipeline,
+            fill_timing=choices["timing"],
+            remainder=choices["remainder"],
+            latency_pricing=pricing,
+            allocation_constraints=AllocationConstraints(
+                allow_shorting=True, enforce_integer_quantities=True
+            ),
+        ),
+    )
+    runtime = start_strategy(
+        create_runtime(), STRATEGY, BarScript(plan), config={}, subscriptions={"bars"}, at=1.0
+    )
+    result = BacktestEngine.run(config, MarketDataset.of("BARS", bars), runtime, context_factory)
+    assert result.strategy_failures == ()
+
+    by_key = {(bar.asset_id, bar.timestamp): bar for bar in bars}
+    cash = config.pipeline.starting_cash
+    held = dict.fromkeys(ASSETS, Decimal(0))
+    paid = Decimal(0)
+    placed = {str(o.order_id.value): o.created_at for o in result.state.oms.orders.orders()}
+    for fill in result.fills:
+        bar = by_key[(fill.asset_id, fill.filled_at)]
+        expected = bar.open if choices["timing"] is FillTiming.NEXT_OPEN else bar.close
+        assert fill.price == expected, (choices["timing"], fill)
+        # No order meets the market before its latency has passed (ADR-0060).
+        decided = placed[str(fill.order_id)]
+        assert fill.filled_at >= decided + latency, (choices["latency"], fill)
+        signed = fill.quantity if fill.side.value == "buy" else -fill.quantity
+        cash -= (signed * fill.price).quantize(CENT, ROUND_HALF_EVEN) + fill.commission
+        paid += fill.commission
+        held[fill.asset_id] += signed
+
+    last = {bar.asset_id: bar.close for bar in bars}
+    marked = sum((held[asset] * last[asset] for asset in ASSETS if held[asset]), Decimal(0))
+    valuation = result.valuation
+    book = result.state.portfolio.positions
+    assert valuation.cash == cash
+    assert {a: (book[a].quantity if a in book else Decimal(0)) for a in ASSETS} == held
+    assert valuation.equity == valuation.cash + marked
+    start = config.pipeline.starting_cash
+    assert valuation.equity - start == valuation.realized_pnl + valuation.unrealized_pnl - paid

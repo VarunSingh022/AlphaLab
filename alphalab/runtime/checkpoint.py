@@ -46,6 +46,19 @@ persisting is (ADR-0029): it bounds how many segments a restore reads. Nothing
 here writes anywhere: a payload is a string, stored by whatever store the caller
 uses, under whatever sequence the caller chooses.
 
+The schedule a chain continues under (v4.3, ADR-0053)
+-----------------------------------------------------
+A backtest's schedule is a driver input that its record does not name, so a
+chain restored and continued under another schedule continued as another run
+with nothing to refuse it (ledger FUT-046). Given the run's
+:class:`~alphalab.runtime.schedule_check.ScheduleBinding`, :func:`checkpoint`
+records it in the envelope -- version 3 -- and :func:`restore_checkpoints` holds
+the binding of the schedule supplied to it, as a paused replay holds its own.
+Every checkpoint of a chain that records one records the same. Given none, a
+checkpoint is written exactly as version 2 wrote it, so a chain written without
+one, by this release or an earlier one, is read and restored as before and its
+schedule is :attr:`~alphalab.runtime.schedule_check.ScheduleVerification.UNRECORDED`.
+
 Nothing here mints an identifier, reads a clock or contacts anything.
 """
 
@@ -70,12 +83,19 @@ from alphalab.runtime.run_snapshot import RunObjects, RunSnapshot
 from alphalab.runtime.run_snapshot import capture as capture_run
 from alphalab.runtime.run_snapshot import from_primitives as run_from_primitives
 from alphalab.runtime.run_snapshot import restore as restore_run
+from alphalab.runtime.schedule_check import (
+    ScheduleBinding,
+    ScheduleVerification,
+    verify_schedule_binding,
+)
 from alphalab.runtime.snapshot import _RETAINED
 
 __all__ = [
     "CHECKPOINT_SCHEMA",
     "CheckpointMark",
+    "chain_schedule_verification",
     "checkpoint",
+    "checkpoint_schedule",
     "read_checkpoints",
     "restore_checkpoints",
 ]
@@ -83,11 +103,16 @@ __all__ = [
 #: Version of the checkpoint envelope: the chain fields, the log ranges and the
 #: per-order maps around a run snapshot, which carries its own version. Version
 #: 2 (v3.13) writes the per-order maps by their changes (ledger PRF-011); a
-#: version-1 checkpoint wrote them whole, and is read as such.
-CHECKPOINT_SCHEMA: Final = 2
+#: version-1 checkpoint wrote them whole, and is read as such. Version 3 (v4.3,
+#: ADR-0053) adds the binding of the schedule the run was given, and is written
+#: only when one is given: a checkpoint given none is version 2, byte for byte.
+CHECKPOINT_SCHEMA: Final = 3
+
+#: The version a checkpoint given no schedule binding is written as.
+_UNBOUND: Final = 2
 
 #: Every checkpoint version a release wrote, each read by this one.
-_READABLE: Final = frozenset({1, CHECKPOINT_SCHEMA})
+_READABLE: Final = frozenset({1, _UNBOUND, CHECKPOINT_SCHEMA})
 
 #: Every log a checkpoint cuts, and where its entries sit in a run snapshot's
 #: primitives -- one entry per log entry (pinned by
@@ -247,13 +272,23 @@ def _find(run: Mapping[str, Any], path: tuple[str, ...], where: str) -> Sequence
 
 
 def checkpoint(
-    state: RunState, previous: CheckpointMark | None = None
+    state: RunState,
+    previous: CheckpointMark | None = None,
+    *,
+    schedule: ScheduleBinding | None = None,
 ) -> tuple[str, CheckpointMark]:
     """The payload of the next checkpoint of ``state``, and the mark the one after builds on.
 
     With no ``previous`` mark, a base: the complete run snapshot. After one, a
     segment holding each log's entries appended since ``previous`` and the rest
     of the state whole. Pure: nothing is stored, minted or mutated.
+
+    ``schedule`` (v4.3, ADR-0053) is the binding of the schedule the run was
+    given -- :attr:`~alphalab.backtesting.schedule.RunSchedule.binding` of the
+    effective schedule its cursor applies -- recorded in the envelope (version
+    3), so that :func:`restore_checkpoints` refuses to continue the chain under
+    another. Every checkpoint of one chain is given the same. Not given, the
+    payload is version 2's, byte for byte.
 
     Raises:
         StateDecodeError: If ``previous`` covers a log further than ``state``
@@ -294,21 +329,38 @@ def checkpoint(
             name: logs[name].dropped for name in ("skipped", "steps") if logs[name].dropped
         }
         kind, sequence, before = "segment", previous.sequence + 1, previous.digest
-    payload = serialize(
-        {
-            "schema_version": CHECKPOINT_SCHEMA,
-            "kind": kind,
-            "sequence": sequence,
-            "previous": before,
-            "logs": {
-                name: {"start": starts[name], "end": ends[name], "dropped": logs[name].dropped}
-                for name, _ in _LOGS
-            },
-            "maps": maps,
-            "run": run,
-        }
-    )
+    envelope: dict[str, Any] = {
+        "schema_version": _UNBOUND if schedule is None else CHECKPOINT_SCHEMA,
+        "kind": kind,
+        "sequence": sequence,
+        "previous": before,
+        "logs": {
+            name: {"start": starts[name], "end": ends[name], "dropped": logs[name].dropped}
+            for name, _ in _LOGS
+        },
+        "maps": maps,
+        "run": run,
+    }
+    if schedule is not None:
+        envelope["schedule"] = {"scheme": schedule.scheme, "digest": schedule.digest}
+    payload = serialize(envelope)
     return payload, CheckpointMark(sequence, _digest(payload), ends, entries)
+
+
+def _binding(payload: Mapping[str, Any], version: int, where: str) -> ScheduleBinding | None:
+    """The schedule binding a version-3 envelope records; ``None`` for an earlier version."""
+
+    if version != CHECKPOINT_SCHEMA:
+        return None
+    recorded = as_mapping(require(payload, "schedule"), f"{where}.schedule")
+    digest = require(recorded, "digest")
+    try:
+        return ScheduleBinding(
+            as_str(require(recorded, "scheme"), f"{where}.schedule.scheme"),
+            None if digest is None else as_str(digest, f"{where}.schedule.digest"),
+        )
+    except ValueError as refused:
+        raise StateDecodeError(f"{where}.schedule: {refused}") from None
 
 
 def _ranges(value: Any, where: str) -> dict[str, tuple[int, int, int]]:
@@ -379,9 +431,30 @@ def read_checkpoints(payloads: Sequence[str]) -> RunSnapshot:
     Raises:
         StateDecodeError: If the chain is empty, does not start with a base,
             skips, repeats or reorders a checkpoint, names a predecessor other
-            than the payload before it, leaves a gap or an overlap in a log, or
-            holds a payload the run snapshot's decoder refuses.
+            than the payload before it, leaves a gap or an overlap in a log,
+            records two schedule bindings, or holds a payload the run
+            snapshot's decoder refuses.
     """
+
+    return _read_chain(payloads)[0]
+
+
+def checkpoint_schedule(payloads: Sequence[str]) -> ScheduleBinding | None:
+    """The schedule binding a chain records (v4.3, ADR-0053), or ``None`` if it records none.
+
+    Read from the verified chain, as :func:`read_checkpoints` reads it: the
+    binding to give :meth:`~alphalab.backtesting.schedule.ScheduleCursor.start`
+    as ``expected`` when the chain is continued.
+
+    Raises:
+        StateDecodeError: As :func:`read_checkpoints`.
+    """
+
+    return _read_chain(payloads)[1]
+
+
+def _read_chain(payloads: Sequence[str]) -> tuple[RunSnapshot, ScheduleBinding | None]:
+    """The run snapshot a chain records, and the schedule binding it records, if any."""
 
     if not payloads:
         raise StateDecodeError("No checkpoint was given; a chain starts with its base.")
@@ -390,6 +463,7 @@ def read_checkpoints(payloads: Sequence[str]) -> RunSnapshot:
     merged: dict[str, dict[str, Any]] = {}
     previous: str | None = None
     run: dict[str, Any] = {}
+    bound: ScheduleBinding | None = None
     for sequence, text in enumerate(payloads):
         where = f"checkpoint {sequence}"
         payload = as_mapping(deserialize(text), where)
@@ -399,6 +473,15 @@ def read_checkpoints(payloads: Sequence[str]) -> RunSnapshot:
                 f"{where} declares checkpoint schema {version!r}; this build reads "
                 f"{sorted(_READABLE)}."
             )
+        binding = _binding(payload, version, where)
+        if binding is not None:
+            if bound is not None and binding != bound:
+                raise StateDecodeError(
+                    f"{where} binds schedule {binding.digest} under {binding.scheme!r}, and an "
+                    f"earlier checkpoint of the chain binds {bound.digest} under "
+                    f"{bound.scheme!r}: one run was given one schedule."
+                )
+            bound = binding
         kind = as_str(require(payload, "kind"), f"{where}.kind")
         expected = "base" if sequence == 0 else "segment"
         if kind != expected or as_int(require(payload, "sequence"), f"{where}.sequence") != (
@@ -481,21 +564,62 @@ def read_checkpoints(payloads: Sequence[str]) -> RunSnapshot:
             "The last checkpoint's dropped counts disagree with its log ranges; the payload "
             "was not written by checkpoint()."
         )
-    return run_from_primitives(run)
+    return run_from_primitives(run), bound
 
 
 def restore_checkpoints(
-    payloads: Sequence[str], objects: RunObjects, *, instruments_digest: str | None = None
+    payloads: Sequence[str],
+    objects: RunObjects,
+    *,
+    instruments_digest: str | None = None,
+    schedule_binding: ScheduleBinding | None = None,
 ) -> RunState:
     """The run state a chain of checkpoints records: :func:`read_checkpoints`, then restore.
 
     ``instruments_digest`` holds the supplied registry to the terms it names
     (FUT-041); a chain records none of its own, being the run's snapshot.
 
+    ``schedule_binding`` (v4.3, ADR-0053) is the binding of the schedule the
+    chain is to continue under -- ``schedule.binding``. A chain that recorded
+    one holds it to that binding, refusing another schedule, none where the run
+    had one, or one where it had none, before any live object is touched;
+    given none, such a chain is refused, since continuing it without its
+    schedule would lose every input it still had to apply. A chain that
+    recorded none (version 2 and earlier, or written without one) is not
+    checked: :func:`chain_schedule_verification` reports it ``UNRECORDED``.
+
     Raises:
-        StateDecodeError: As :func:`read_checkpoints`, or if a live object is
-            missing or of the wrong type, or the registry's terms are not the
-            ones named.
+        StateDecodeError: As :func:`read_checkpoints`; if the chain's schedule
+            binding is not the one supplied, or none is supplied for a chain
+            that recorded one; or if a live object is missing or of the wrong
+            type, or the registry's terms are not the ones named.
     """
 
-    return restore_run(read_checkpoints(payloads), objects, instruments_digest=instruments_digest)
+    snapshot, recorded = _read_chain(payloads)
+    if recorded is not None:
+        if schedule_binding is None:
+            raise StateDecodeError(
+                f"The chain was checkpointed bound to schedule {recorded.digest} under "
+                f"{recorded.scheme!r}, and no schedule binding was supplied: pass the binding "
+                "of the schedule it continues under, schedule.binding."
+            )
+        verify_schedule_binding(recorded, schedule_binding)
+    return restore_run(snapshot, objects, instruments_digest=instruments_digest)
+
+
+def chain_schedule_verification(
+    payloads: Sequence[str], schedule_binding: ScheduleBinding
+) -> ScheduleVerification:
+    """How a chain would hold the schedule ``schedule_binding`` binds, if continued under it.
+
+    ``DECLARED`` when the chain recorded this binding, ``NONE_GIVEN`` when it
+    recorded that the run had no schedule and none is bound, ``UNRECORDED``
+    when it recorded none -- never ``VERIFIED``, since a chain's record is not
+    checked here against the schedule itself.
+
+    Raises:
+        StateDecodeError: As :func:`read_checkpoints`, or if the chain recorded
+            another binding.
+    """
+
+    return verify_schedule_binding(_read_chain(payloads)[1], schedule_binding)

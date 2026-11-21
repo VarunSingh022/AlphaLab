@@ -5,8 +5,8 @@ straight to production. This module supplies the thing a promotion can be made
 to require -- a record of what was measured, over what data, with what seed, and
 whether it met thresholds someone stated in advance.
 
-Evidence is not computed here. AlphaLab already has three deterministic
-producers of it, and all three are reused rather than reimplemented:
+Evidence is not computed here. AlphaLab already has four deterministic
+producers of it, and all four are reused rather than reimplemented:
 
 * :class:`~alphalab.analytics.report.PerformanceReport`, compiled by a run
   through the execution path and reachable as
@@ -17,11 +17,14 @@ producers of it, and all three are reused rather than reimplemented:
   nobody chose, which a promotion policy could gate on (ledger RES-001).
 * :class:`~alphalab.research.study.StudyResult`, produced by a v3.2 research
   study running from a canonical dataset through features and diagnostics.
+* :class:`~alphalab.lifecycle.assessment.ExperimentAssessment`, v4.3's
+  statistics over a ledgered experiment: the search's size, and what it did to
+  the selection (ADR-0073).
 
-:func:`evidence_from_backtest`, :func:`evidence_from_research` and
-:func:`evidence_from_study` extract a flat metric mapping from those reports
-and record where it came from. The full report stays where it was produced;
-evidence references it by id.
+:func:`evidence_from_backtest`, :func:`evidence_from_research`,
+:func:`evidence_from_study` and :func:`evidence_from_experiment` extract a flat
+metric mapping from those reports and record where it came from. The full
+report stays where it was produced; evidence references it by id.
 
 ``evidence_id_for`` did not move
 --------------------------------
@@ -40,21 +43,43 @@ correct for how many candidates were searched before this one, and it says
 nothing about out-of-sample behaviour beyond whatever the evidence's own dataset
 was. A metric the policy asks for and the evidence does not carry is a failure,
 not a skipped check -- an absent number is not a passing one.
+
+Selection-aware evidence (v4.3)
+-------------------------------
+:attr:`ValidationMethod.EXPERIMENT` evidence carries statistics that do correct
+for the search -- PBO, the Reality Check and SPA -- and, always, the search's
+size: :data:`EXPERIMENT_FAMILY_METRIC`, every trial the experiment's ledger
+recorded, failures included. :func:`evaluate_policy` fails ``EXPERIMENT``
+evidence that does not state that count as a whole number of trials, whatever
+the policy's thresholds: a selection that hides the search behind it is not
+evidence (ADR-0073 section 8). The member is appended, and
+``evidence_id_for`` hashes ``method.name``, so no existing identity moved.
+
+An evidence identity covers its metrics, so they are class 1 or 2 (ADR-0058),
+as a backtest's are: its CAGR is a correctly rounded power. The deflated Sharpe
+ratio runs through the normal distribution's host-libm functions, class 3, so
+it is read from the assessment ``source_id`` names, beside the evidence, and is
+not among its metrics until it has a class-2 path (ledger FUT-051).
 """
 
 from __future__ import annotations
 
 import hashlib
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from typing import Final
 
 from alphalab.backtesting.state import BacktestResult
+from alphalab.lifecycle.assessment import ExperimentAssessment
 from alphalab.lifecycle.exceptions import LifecycleInputError
+from alphalab.lifecycle.experiments import ExperimentRecord, ExperimentSpec
 from alphalab.research.state import ResearchState
 from alphalab.research.study import StudyResult
 
 __all__ = [
+    "EXPERIMENT_FAMILY_METRIC",
     "MetricThreshold",
     "ValidationEvidence",
     "ValidationMethod",
@@ -63,6 +88,7 @@ __all__ = [
     "build_evidence",
     "evaluate_policy",
     "evidence_from_backtest",
+    "evidence_from_experiment",
     "evidence_from_research",
     "evidence_from_study",
     "evidence_id_for",
@@ -85,6 +111,15 @@ class ValidationMethod(Enum):
     #: ``RESEARCH``, which scores a completed run's returns and trades and
     #: never sees a dataset.
     STUDY = auto()
+    #: A v4.3 experiment's statistics over its ledger: the search's size and
+    #: what it did to the selection (ADR-0073). Appended, so no member's name
+    #: or evidence identity moved.
+    EXPERIMENT = auto()
+
+
+#: The metric ``EXPERIMENT`` evidence states its family count under: every trial
+#: its experiment's ledger recorded, failures included (ADR-0073 section 8).
+EXPERIMENT_FAMILY_METRIC: Final = "experiment.trials"
 
 
 def evidence_id_for(
@@ -349,6 +384,101 @@ def evidence_from_study(
     )
 
 
+def evidence_from_experiment(
+    spec: ExperimentSpec,
+    record: ExperimentRecord,
+    assessment: ExperimentAssessment,
+    subject: str,
+    produced_at: float,
+) -> ValidationEvidence:
+    """Record an assessed experiment as selection-aware evidence (ADR-0073 section 8).
+
+    ``subject`` is the strategy version that runs the selection. The metrics
+    always carry :data:`EXPERIMENT_FAMILY_METRIC`, the search's size, beside
+    the statistics, under the ``experiment.`` prefix:
+
+    * ``trials``: the family count;
+    * ``pbo``: the probability of backtest overfitting;
+    * ``reality_check_p``: the Reality Check's p-value;
+    * ``spa_p_lower``, ``spa_p_consistent``, ``spa_p_upper``: SPA's;
+    * ``sharpe`` and ``deflated_sharpe_trials``: the selection's per-period
+      Sharpe ratio, and the ``N`` its deflation took.
+
+    Every metric is class 1 or 2 (ADR-0058), so the evidence's identity is the
+    same on every host. The deflated Sharpe ratio itself is class 3, and is
+    read from the assessment (ledger FUT-051). A statistic the assessment could
+    not compute -- SPA or the deflation, when too few members have a dispersion
+    -- is left out rather than recorded as a number, as
+    :func:`evidence_from_backtest` leaves one out: a threshold on it fails for
+    want of the metric. The dataset and the seed are derived from the
+    experiment: its dataset's ``dataset_id``, spelled as a backtest over it
+    spells it, and its own seed. ``source_id`` is the assessment's identity,
+    which covers every choice the statistics took.
+
+    Raises:
+        LifecycleInputError: If the record is not of ``spec``, or the
+            assessment is not of the record.
+    """
+
+    if record.experiment_id != spec.experiment_id:
+        raise LifecycleInputError(
+            f"The record is of experiment {record.experiment_id}, not {spec.experiment_id}."
+        )
+    if assessment.experiment_record_id != record.experiment_record_id:
+        raise LifecycleInputError(
+            f"The assessment is of record {assessment.experiment_record_id}, not "
+            f"{record.experiment_record_id}: evidence from it would be about another search."
+        )
+    metrics: dict[str, float] = {
+        EXPERIMENT_FAMILY_METRIC: float(assessment.family),
+        "experiment.pbo": float(assessment.overfitting.probability),
+        "experiment.reality_check_p": float(assessment.reality_check.p_value),
+    }
+    superior = assessment.superior
+    if superior is not None:
+        metrics["experiment.spa_p_lower"] = float(superior.p_lower)
+        metrics["experiment.spa_p_consistent"] = float(superior.p_consistent)
+        metrics["experiment.spa_p_upper"] = float(superior.p_upper)
+    deflated = assessment.deflated
+    if deflated is not None:
+        metrics["experiment.sharpe"] = deflated.inference.sharpe
+        metrics["experiment.deflated_sharpe_trials"] = float(deflated.independent_trials)
+    return build_evidence(
+        method=ValidationMethod.EXPERIMENT,
+        subject=subject,
+        dataset_id=spec.dataset.dataset_id,
+        metrics=metrics,
+        produced_at=produced_at,
+        seed=spec.seed,
+        source_id=assessment.assessment_id,
+    )
+
+
+def _family_count_failure(evidence: ValidationEvidence) -> str | None:
+    """Why ``EXPERIMENT`` evidence does not state its family count, or ``None``."""
+
+    count = evidence.metrics.get(EXPERIMENT_FAMILY_METRIC)
+    if count is None:
+        return (
+            f"EXPERIMENT evidence '{evidence.evidence_id}' states no family count "
+            f"('{EXPERIMENT_FAMILY_METRIC}'): a selection that hides the search behind it "
+            "is not evidence."
+        )
+    if (
+        isinstance(count, bool)
+        or not isinstance(count, int | float)
+        or not math.isfinite(count)
+        or count < 1
+        or count != int(count)
+    ):
+        return (
+            f"EXPERIMENT evidence '{evidence.evidence_id}' states its family count "
+            f"'{EXPERIMENT_FAMILY_METRIC}' as {count!r}: it is a whole number of trials, at "
+            "least one."
+        )
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class MetricThreshold:
     """One stated bound on one metric.
@@ -425,7 +555,9 @@ def evaluate_policy(policy: ValidationPolicy, evidence: ValidationEvidence) -> V
     first. A metric the policy names and the evidence does not carry fails, and
     evidence whose stored id no longer matches its content fails before any
     threshold is looked at -- numbers that were edited after the fact are not
-    evidence.
+    evidence. ``EXPERIMENT`` evidence that does not state its family count
+    (:data:`EXPERIMENT_FAMILY_METRIC`) as a whole number of trials fails under
+    every policy (ADR-0073 section 8).
     """
     failures: list[str] = []
 
@@ -434,6 +566,11 @@ def evaluate_policy(policy: ValidationPolicy, evidence: ValidationEvidence) -> V
             f"evidence '{evidence.evidence_id}' does not match its own content; "
             "it was altered after it was recorded."
         )
+
+    if evidence.method is ValidationMethod.EXPERIMENT:
+        failure = _family_count_failure(evidence)
+        if failure is not None:
+            failures.append(failure)
 
     if policy.required_method is not None and evidence.method is not policy.required_method:
         failures.append(

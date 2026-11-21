@@ -122,10 +122,12 @@ from alphalab.execution.events import (
     ExecutionRejected,
     ExecutionSubmitted,
 )
+from alphalab.execution.exceptions import ExecutionValidationError
 from alphalab.execution.fill import FillStatus
-from alphalab.execution.policy import FillTiming
+from alphalab.execution.policy import FillTiming, LatencyPricing, RestRemainder
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.state import ExecutionState
+from alphalab.execution.venue_models import VenueExecution
 from alphalab.instrument.controls import (
     DeliveredAuction,
     delivered_from_primitives,
@@ -239,6 +241,7 @@ from alphalab.strategy.events import (
     HoldersRecorded,
     LifecycleTransitioned,
     OrderEvent,
+    PackageRefused,
     SliceClosed,
     StrategyRuntimeEvent,
     TermsAnnounced,
@@ -328,7 +331,18 @@ __all__ = [
 #: run was captured with, where version 7 accepted any object of the right class
 #: (ledger PER-008). Every earlier version is read through
 #: :data:`PIPELINE_SCHEMA_HISTORY`.
-PIPELINE_SNAPSHOT_SCHEMA: Final = 8
+#:
+#: Version 9 (v4.3, ADR-0060) records the execution options M8 adds -- today a
+#: run's ``NEXT_OPEN`` fill timing, a resting remainder and ``POST_LATENCY_EVENT``
+#: latency pricing -- and is written **only when a run declares one**: a run
+#: declaring none writes version 8, byte for byte, as the checkpoint writes its
+#: version 2 when it is given no schedule binding. A payload declares the version
+#: its own configuration implies, and is refused otherwise, so one state has one
+#: payload.
+PIPELINE_SNAPSHOT_SCHEMA: Final = 9
+
+#: The version a run declaring none of M8's execution options writes (ADR-0060).
+_UNDECLARED: Final = 8
 
 _SUBSYSTEM: Final = "pipeline"
 
@@ -787,6 +801,12 @@ PIPELINE_SCHEMA_HISTORY: Final = SchemaHistory(
             "version-7 payload recorded their types alone, and is checked by type alone",
             upgrade=_v7_to_v8,
         ),
+        SchemaStep(
+            8,
+            "version 9 records M8's execution options, written only when a run declares one; "
+            "a version-8 payload declares none, which is what it already meant",
+            upgrade=lambda payload: payload,
+        ),
     ),
 )
 
@@ -861,6 +881,8 @@ _STRATEGY_EVENTS: Mapping[str, type[StrategyRuntimeEvent]] = _types(
     # Phase 5 (ledger FUT-038): written only by a run whose elective action's
     # terms were corrected.
     TermsAnnounced,
+    # v4.3 (ADR-0062): written only by a run whose strategy's package was refused.
+    PackageRefused,
 )
 _RISK_EVENTS: Mapping[str, type[RiskEvent]] = _types(
     RiskCheckStarted,
@@ -973,6 +995,66 @@ class ConfigRecord:
     retention: RetentionPolicy
     sizing_model_description: str | None
     simulator_description: str | None
+    #: What a partial fill leaves (ADR-0060). Written only when a run declares
+    #: a resting remainder, so every other payload keeps its form and its
+    #: identity, and one written before reads as none.
+    remainder: RestRemainder | None = None
+    #: What the latency model does (ADR-0060). Written only when a run declares
+    #: ``POST_LATENCY_EVENT``, on the same terms; absent reads as ``STAMP``.
+    latency_pricing: LatencyPricing = LatencyPricing.STAMP
+    #: Each declared venue's model (ADR-0061), and the router among them, each
+    #: by type and configuration. Written only when declared.
+    venues: tuple[VenueRecord, ...] = ()
+    router_type: str | None = None
+    router_description: str | None = None
+
+    def __serializable__(self) -> dict[str, Any]:
+        """The record's fields, ``remainder`` and ``latency_pricing`` only when declared."""
+
+        return {
+            "account": self.account,
+            "starting_cash": self.starting_cash,
+            "budget": self.budget,
+            "allocation_constraints": self.allocation_constraints,
+            "risk_limits": self.risk_limits,
+            "venue": self.venue,
+            "currency": self.currency,
+            "also_settles": self.also_settles,
+            "routing": self.routing,
+            "sizing_model_type": self.sizing_model_type,
+            "simulator_type": self.simulator_type,
+            "instruments_type": self.instruments_type,
+            "fill_timing": self.fill_timing,
+            "calendars": self.calendars,
+            "retention": self.retention,
+            "sizing_model_description": self.sizing_model_description,
+            "simulator_description": self.simulator_description,
+            **({"remainder": self.remainder} if self.remainder is not None else {}),
+            **(
+                {"latency_pricing": self.latency_pricing}
+                if self.latency_pricing is not LatencyPricing.STAMP
+                else {}
+            ),
+            **({"venues": self.venues} if self.venues else {}),
+            **(
+                {"router_type": self.router_type, "router_description": self.router_description}
+                if self.router_type is not None
+                else {}
+            ),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class VenueRecord:
+    """One declared venue's model, as a snapshot records it (v4.3, ADR-0061).
+
+    The venue's code, and its simulator's type and configuration -- the live
+    model is supplied back on :func:`restore`, and held to both.
+    """
+
+    code: str
+    simulator_type: str
+    simulator_description: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -1149,7 +1231,9 @@ class PipelineSnapshot:
     #: before the ones recorded here, by the path :data:`RETAINED_LOGS` names
     #: it by. Only non-zero counts are written (v3.12, ledger PRF-004).
     dropped: Mapping[str, int] = field(default_factory=dict)
-    schema_version: int = PIPELINE_SNAPSHOT_SCHEMA
+    #: The version written: 9 only when the run declares one of M8's execution
+    #: options, 8 otherwise (ADR-0060). :func:`capture` sets it from the state.
+    schema_version: int = _UNDECLARED
 
 
 @dataclass(frozen=True, slots=True)
@@ -1168,12 +1252,17 @@ class RuntimeObjects:
         instruments: The instrument registry, when the run configured one. The
             snapshot says whether it did; supplying one for a run that had none,
             or omitting one for a run that had one, is refused.
+        venues: Each declared venue's model, by code, when the run declared
+            venues (v4.3, ADR-0061); held to what the snapshot recorded of each.
+        router: The venue router, when the run declared one.
     """
 
     sizing_model: object
     simulator: object
     strategies: Mapping[str, StrategyProtocol]
     instruments: InstrumentRegistry | None = None
+    venues: Mapping[str, VenueExecution] = field(default_factory=dict)
+    router: object | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1208,6 +1297,14 @@ def _capture_config(config: ExecutionPipelineConfig) -> ConfigRecord:
         retention=config.retention,
         sizing_model_description=describe(config.sizing_model),
         simulator_description=describe(config.simulator),
+        remainder=config.remainder,
+        latency_pricing=config.latency_pricing,
+        venues=tuple(
+            VenueRecord(code, _type_name(venue.simulator), describe(venue.simulator))
+            for code, venue in config.venues.items()
+        ),
+        router_type=None if config.router is None else _type_name(config.router),
+        router_description=None if config.router is None else describe(config.router),
     )
 
 
@@ -1359,6 +1456,26 @@ def _capture_strategies(state: StrategyRuntimeState) -> tuple[StrategyRecord, ..
     )
 
 
+def _written_version(config: ConfigRecord) -> int:
+    """The schema version a pipeline configured as ``config`` is written at (ADR-0060).
+
+    :data:`PIPELINE_SNAPSHOT_SCHEMA` when the run declares one of M8's execution
+    options -- a ``NEXT_OPEN`` fill timing, a resting remainder, ``POST_LATENCY_EVENT``
+    latency pricing, venues or a router (ADR-0061) -- and version 8 otherwise, so
+    a run declaring none is written as it was before they existed.
+    """
+
+    if (
+        config.fill_timing is FillTiming.NEXT_OPEN
+        or config.remainder is not None
+        or config.latency_pricing is not LatencyPricing.STAMP
+        or config.venues
+        or config.router_type is not None
+    ):
+        return PIPELINE_SNAPSHOT_SCHEMA
+    return _UNDECLARED
+
+
 def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
     """Project ``state`` into its complete serializable snapshot.
 
@@ -1368,8 +1485,9 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
     own position.
     """
 
+    config = _capture_config(state.config)
     return PipelineSnapshot(
-        config=_capture_config(state.config),
+        config=config,
         market=MarketRecord(
             latest_quotes=dict(state.market.latest_quotes),
             latest_books=dict(state.market.latest_books),
@@ -1417,6 +1535,7 @@ def capture(state: ExecutionPipelineState) -> PipelineSnapshot:
         unpriced_assets=dict(state.unpriced_assets),
         id_position=state.id_position,
         dropped=_dropped_counts(state),
+        schema_version=_written_version(config),
     )
 
 
@@ -1503,6 +1622,47 @@ def _restore_config(record: ConfigRecord, objects: RuntimeObjects) -> ExecutionP
         fill_timing=record.fill_timing,
         calendars=record.calendars,
         retention=record.retention,
+        remainder=record.remainder,
+        latency_pricing=record.latency_pricing,
+        venues=_restore_venues(record, objects),
+        router=_restore_router(record, objects),
+    )
+
+
+def _restore_venues(record: ConfigRecord, objects: RuntimeObjects) -> dict[str, VenueExecution]:
+    """The venues the run declared, as supplied, each held to its record (ADR-0061)."""
+
+    recorded = {venue.code: venue for venue in record.venues}
+    supplied = dict(objects.venues)
+    if set(supplied) != set(recorded):
+        raise StateDecodeError(
+            f"The snapshot records venues {sorted(recorded)}, and venues {sorted(supplied)} were "
+            "supplied. A restored run continues with the venues it was captured with."
+        )
+    for code, venue in recorded.items():
+        model = supplied[code]
+        if not isinstance(model, VenueExecution):
+            raise StateDecodeError(f"Venue {code} was supplied as a {_type_name(model)}.")
+        _require_object(
+            model.simulator,
+            venue.simulator_type,
+            f"simulator of venue {code}",
+            venue.simulator_description,
+        )
+    return supplied
+
+
+def _restore_router(record: ConfigRecord, objects: RuntimeObjects) -> Any:
+    """The router the run declared, as supplied and held to its record, or ``None``."""
+
+    if record.router_type is None:
+        if objects.router is not None:
+            raise StateDecodeError(
+                "A venue router was supplied, and the snapshot records that the run declared none."
+            )
+        return None
+    return _require_object(
+        objects.router, record.router_type, "venue router", record.router_description
     )
 
 
@@ -1751,6 +1911,8 @@ def _event[EventT](
     payload = as_mapping(require(record, "event"), f"{where}.event")
     kwargs: dict[str, Any] = {}
     for member in fields(cls):  # type: ignore[arg-type]
+        if member.name in _ADDED_EVENT_FIELDS and member.name not in payload:
+            continue  # written before the field existed: its default (ADR-0062)
         raw = require(payload, member.name)
         decoder = decoders.get(member.name)
         kwargs[member.name] = (
@@ -2306,6 +2468,11 @@ def _assets(value: Any, where: str) -> tuple[str, ...]:
     )
 
 
+#: Event fields added after events carrying them could be written: a payload
+#: from before reads each as its default. ``package_id`` (v4.3, ADR-0062) is a
+#: fill's or an order event's package, empty for an order that is no leg.
+_ADDED_EVENT_FIELDS: Final = frozenset({"package_id"})
+
 _STRATEGY_FIELDS: Mapping[str, Any] = {
     "timestamp": as_float,
     "fill_quantity": as_decimal,
@@ -2403,7 +2570,77 @@ def _config(value: Any) -> ConfigRecord:
         simulator_description=as_optional_str(
             require(payload, "simulator_description"), f"{where}.simulator_description"
         ),
+        # Absent from every payload but a version-9 one declaring it (ADR-0060).
+        remainder=_rest_remainder(payload.get("remainder"), f"{where}.remainder"),
+        # Likewise absent unless a version-9 payload declares it (ADR-0060).
+        latency_pricing=_latency_pricing(
+            payload.get("latency_pricing"), f"{where}.latency_pricing"
+        ),
+        # And the venues and router (ADR-0061).
+        venues=_venue_records(payload.get("venues"), f"{where}.venues"),
+        router_type=_optional_text(payload.get("router_type"), f"{where}.router_type"),
+        router_description=_optional_text(
+            payload.get("router_description"), f"{where}.router_description"
+        ),
     )
+
+
+def _venue_records(value: Any, where: str) -> tuple[VenueRecord, ...]:
+    """The declared venues' records, or none (ADR-0061)."""
+
+    if value is None:
+        return ()
+    records = []
+    for index, item in enumerate(as_sequence(value, where)):
+        entry = as_mapping(item, f"{where}[{index}]")
+        records.append(
+            VenueRecord(
+                code=as_str(require(entry, "code"), f"{where}[{index}].code"),
+                simulator_type=as_str(
+                    require(entry, "simulator_type"), f"{where}[{index}].simulator_type"
+                ),
+                simulator_description=as_str(
+                    require(entry, "simulator_description"),
+                    f"{where}[{index}].simulator_description",
+                ),
+            )
+        )
+    return tuple(records)
+
+
+def _optional_text(value: Any, where: str) -> str | None:
+    return None if value is None else as_str(value, where)
+
+
+def _rest_remainder(value: Any, where: str) -> RestRemainder | None:
+    """A declared resting remainder, or ``None`` for the default cancel (ADR-0060)."""
+
+    if value is None:
+        return None
+    payload = as_mapping(value, where)
+    events = payload.get("events")
+    seconds = payload.get("seconds")
+    try:
+        return RestRemainder(
+            events=None if events is None else as_int(events, f"{where}.events"),
+            seconds=None if seconds is None else as_float(seconds, f"{where}.seconds"),
+        )
+    except ExecutionValidationError as refusal:
+        raise StateDecodeError(f"{where}: {refusal}") from refusal
+
+
+def _latency_pricing(value: Any, where: str) -> LatencyPricing:
+    """A declared latency pricing, or the default ``STAMP`` when none is written (ADR-0060)."""
+
+    if value is None:
+        return LatencyPricing.STAMP
+    text = as_str(value, where)
+    try:
+        return LatencyPricing(text)
+    except ValueError as exc:
+        raise StateDecodeError(
+            f"{where} must be one of {[pricing.value for pricing in LatencyPricing]}, got {text!r}."
+        ) from exc
 
 
 def _retention(value: Any, where: str) -> RetentionPolicy:
@@ -2412,8 +2649,12 @@ def _retention(value: Any, where: str) -> RetentionPolicy:
     for name in ("market_history", "steps", "audit_events", "results"):
         bound = require(payload, name)
         bounds[name] = None if bound is None else as_int(bound, f"{where}.{name}")
+    # Written only when true (v4.3, ADR-0055): absent is every earlier policy's False.
+    keep_equity = payload.get("keep_equity", False)
+    if not isinstance(keep_equity, bool):
+        raise StateDecodeError(f"{where}.keep_equity is {keep_equity!r}; it must be a boolean.")
     try:
-        return RetentionPolicy(**bounds)
+        return RetentionPolicy(**bounds, keep_equity=keep_equity)
     except AlphaLabError as error:
         raise StateDecodeError(f"{where}: {error}") from error
 
@@ -2634,9 +2875,18 @@ def from_primitives(payload: Mapping[str, Any]) -> PipelineSnapshot:
 
     payload = as_mapping(payload, "pipeline snapshot")
     payload, version = PIPELINE_SCHEMA_HISTORY.read(payload)
+    config = _config(require(payload, "config"))
+    written = _written_version(config)
+    if version >= _UNDECLARED and version != written:
+        # One state has one payload: version 9 is written when, and only when, the
+        # run declares one of M8's execution options (ADR-0060).
+        raise StateDecodeError(
+            f"pipeline snapshot declares schema version {version}, and its configuration "
+            f"is written at version {written}."
+        )
 
     return PipelineSnapshot(
-        config=_config(require(payload, "config")),
+        config=config,
         market=_market(require(payload, "market")),
         strategy=tuple(
             _strategy_record(item, f"strategy[{index}]", version)
@@ -2678,5 +2928,5 @@ def from_primitives(payload: Mapping[str, Any]) -> PipelineSnapshot:
         ),
         id_position=_id_position(require(payload, "id_position")),
         dropped=_dropped(require(payload, "dropped")),
-        schema_version=PIPELINE_SNAPSHOT_SCHEMA,
+        schema_version=written,
     )

@@ -8,6 +8,14 @@ immutable value with a hash-chained lineage, and one pure function,
 alike. ``AdaptiveStrategy`` hands that state to the run snapshot through
 ``StrategyStateProtocol``. The package still imports nothing but
 ``alphalab.common``.
+
+A hook added after the first ten is an optional protocol -- ``on_slice``
+(``SliceStrategyProtocol``), ``on_observation`` (``ObservationStrategyProtocol``)
+and, from v4.3, ``on_child_fill`` (``ChildFillStrategyProtocol``) -- with its own
+ADR, dispatched only to the strategies that define it, so every strategy
+written against ``StrategyProtocol`` keeps satisfying it unchanged. A new
+strategy capability is added the same way, never as a method on
+``StrategyProtocol`` (ADR-0061).
 """
 
 from alphalab.common.time import ClockProtocol
@@ -75,15 +83,18 @@ from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
     AmendRefused,
     CancelRefused,
+    ChildFillReceived,
     ElectionMade,
     ExerciseRefused,
     FillEvent,
     HoldersRecorded,
     Intent,
     IntentKind,
+    Leg,
     LifecycleTransitioned,
     ObservationReceived,
     OrderEvent,
+    PackageRefused,
     SliceClosed,
     StrategyRuntimeEvent,
     TermsAnnounced,
@@ -101,10 +112,12 @@ from alphalab.strategy.exceptions import (
 )
 from alphalab.strategy.protocol import (
     BaseStrategy,
+    ChildFillStrategyProtocol,
     ObservationStrategyProtocol,
     SliceStrategyProtocol,
     StrategyProtocol,
     StrategyStateProtocol,
+    defines_on_child_fill,
     defines_on_observation,
     defines_on_slice,
 )
@@ -148,6 +161,8 @@ __all__ = [
     "AmendRefused",
     "BaseStrategy",
     "CancelRefused",
+    "ChildFillReceived",
+    "ChildFillStrategyProtocol",
     "ClockProtocol",
     "DecisionTiming",
     "DiscardingLogger",
@@ -165,6 +180,7 @@ __all__ = [
     "IntentKind",
     "InvalidIntentError",
     "InvalidTransitionError",
+    "Leg",
     "LifecycleTransitioned",
     "MarketViewProtocol",
     "NoHistory",
@@ -177,6 +193,7 @@ __all__ = [
     "ObservationStrategyProtocol",
     "OrderEvent",
     "OrderFacadeProtocol",
+    "PackageRefused",
     "PortfolioSnapshotProtocol",
     "RecursiveLeastSquaresRule",
     "RiskViewProtocol",
@@ -219,6 +236,7 @@ __all__ = [
     "create_runtime",
     "declared_configuration",
     "decode_configuration",
+    "defines_on_child_fill",
     "defines_on_observation",
     "defines_on_slice",
     "failed_strategies",

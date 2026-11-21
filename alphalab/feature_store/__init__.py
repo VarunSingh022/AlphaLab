@@ -43,7 +43,7 @@ from alphalab.feature_store.validation import (
     validate_lookup,
     validate_registration,
 )
-from alphalab.feature_store.value import FeatureValue
+from alphalab.feature_store.value import FeatureValue, KnownFeatureValue
 from alphalab.feature_store.views import (
     active_features,
     deprecated_features,
@@ -52,6 +52,8 @@ from alphalab.feature_store.views import (
     latest_value,
     list_features,
     list_versions,
+    value_as_of,
+    value_timeline,
     write_history,
 )
 from alphalab.feature_store.violations import FeatureViolation
@@ -83,6 +85,7 @@ __all__ = [
     "FeatureViolation",
     "FeatureWriteDecision",
     "InvalidFeatureStateError",
+    "KnownFeatureValue",
     "active_features",
     "cache_key",
     "check_asset_scope",
@@ -98,5 +101,7 @@ __all__ = [
     "validate_feature_metadata",
     "validate_lookup",
     "validate_registration",
+    "value_as_of",
+    "value_timeline",
     "write_history",
 ]

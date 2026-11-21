@@ -15,6 +15,7 @@ from alphalab.research_assistant import (
     best_evaluation,
     build_report,
     candidate_count,
+    candidate_space,
     evaluate_candidates,
     generate_candidates,
     rank_evaluations,
@@ -329,3 +330,29 @@ def test_a_research_parameter_space_is_accepted_as_it_is() -> None:
     assert candidate_count(space) == 2
     with pytest.raises(ResearchAssistantInputError, match="finite"):
         generate_candidates("t", {"fast": (float("nan"),)})
+
+
+# --------------------------------------------------------------------------- #
+# The candidates as an experiment's space (v4.3, ADR-0072)
+# --------------------------------------------------------------------------- #
+
+
+def test_the_candidate_space_is_exactly_the_candidates_generated_in_their_order() -> None:
+    candidates = generate_candidates("t", SPACE, limit=4)
+    space = candidate_space(candidates)
+
+    assert len(space) == 4
+    assert [dict(point) for point in space.candidates] == [c.parameters for c in candidates]
+    assert space.rendered[0] == "fast=3.0,slow=10.0"
+
+
+def test_a_candidate_space_is_one_templates_non_empty_and_repeats_nothing() -> None:
+    fast = StrategyCandidate("a-000", "a", {"fast": 3.0})
+    other = StrategyCandidate("b-000", "b", {"fast": 5.0})
+
+    with pytest.raises(ResearchAssistantInputError, match="cannot be empty"):
+        candidate_space(())
+    with pytest.raises(ResearchAssistantInputError, match="2 templates"):
+        candidate_space((fast, other))
+    with pytest.raises(ResearchAssistantInputError, match="repeats a candidate"):
+        candidate_space((fast, StrategyCandidate("a-001", "a", {"fast": 3.0})))

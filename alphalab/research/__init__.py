@@ -21,6 +21,10 @@ Two layers, and they consume different things.
   whose labels condition the v3.2 diagnostics directly. They read
   ``alphalab.alt_data`` for events and ``alphalab.factor_library`` for prices
   and features, and never ``alphalab.data``.
+* **The cointegration screen** (v4.3, ADR-0074 section 8) --
+  ``cointegration_screen`` tests every candidate pair on a stated sample with
+  ``alphalab.econometrics``' Engle-Granger test, and corrects the whole family,
+  every pair counted.
 
 The first two meet at ``alphalab.lifecycle.evidence``, where either can be
 recorded as evidence, and nowhere else. ``analyze_regimes`` and
@@ -35,10 +39,34 @@ apart.
 """
 
 from alphalab.research.adapter import ResearchAdapter
-from alphalab.research.bias import BiasReport, detect_bias
+from alphalab.research.bias import (
+    BiasReport,
+    MembershipFinding,
+    MembershipFindingKind,
+    MembershipReview,
+    detect_bias,
+    membership_review,
+)
 from alphalab.research.bootstrap import BootstrapReport, bootstrap_statistics
 from alphalab.research.capacity import CapacityReport, estimate_capacity
+from alphalab.research.cointegration_screen import (
+    SCREEN_SCHEME,
+    CointegrationScreen,
+    ScreenedPair,
+    cointegration_screen,
+)
+from alphalab.research.combinatorial_cv import (
+    CombinatorialSplit,
+    CombinatorialSplitReport,
+    combinatorial_purged_splits,
+)
 from alphalab.research.cross_validation import WalkForwardReport, walk_forward_analysis
+from alphalab.research.data_snooping import (
+    RealityCheckResult,
+    SPAResult,
+    reality_check,
+    superior_predictive_ability,
+)
 from alphalab.research.diagnostics import DiagnosticReport, generate_diagnostics
 from alphalab.research.engine import ResearchEngine
 from alphalab.research.event_study import (
@@ -90,6 +118,7 @@ from alphalab.research.overfitting import (
     symbol_stability,
 )
 from alphalab.research.perturbation import (
+    STATIONARY_BOOTSTRAP_SCHEME,
     Perturbation,
     PerturbationKind,
     PerturbationRun,
@@ -102,6 +131,7 @@ from alphalab.research.perturbation import (
     perturb_signal,
     sample_by,
     shift_parameter,
+    stationary_bootstrap_indices,
 )
 from alphalab.research.protocol import ResearchPayload, ResearchProtocol, TradePayload
 from alphalab.research.purging import (
@@ -133,6 +163,27 @@ from alphalab.research.regimes import (
     regime_series_from_features,
 )
 from alphalab.research.research import ResearchPolicy, research_metrics
+from alphalab.research.sampling import (
+    ChoiceAxis,
+    IntegerAxis,
+    LogUniformAxis,
+    SampledSpace,
+    SuccessiveHalving,
+    UniformAxis,
+    latin_hypercube_space,
+    random_space,
+)
+from alphalab.research.selection import (
+    AdjustedSharpeInference,
+    MinTRLResult,
+    PBOResult,
+    SelectionMeasure,
+    TrialMatrix,
+    Trim,
+    autocorrelation_adjusted_probabilistic_sharpe_ratio,
+    minimum_track_record_length,
+    probability_of_backtest_overfitting,
+)
 from alphalab.research.sensitivity import RobustnessReport, parameter_robustness
 from alphalab.research.sharpe_inference import (
     DeflatedSharpe,
@@ -195,14 +246,21 @@ __all__ = [
     "REGIME_DEFINITION_SCHEME",
     "REGIME_SERIES_SCHEME",
     "RESULT_KEY_SCHEME",
+    "SCREEN_SCHEME",
+    "STATIONARY_BOOTSTRAP_SCHEME",
     "STUDY_KEY_SCHEME",
     "WALK_FORWARD_DESIGN_SCHEME",
     "AbnormalReturnModel",
+    "AdjustedSharpeInference",
     "AnalysisCompleted",
     "BiasReport",
     "BootstrapReport",
     "CVMethod",
     "CapacityReport",
+    "ChoiceAxis",
+    "CointegrationScreen",
+    "CombinatorialSplit",
+    "CombinatorialSplitReport",
     "CompositeRule",
     "Correction",
     "DeflatedSharpe",
@@ -215,11 +273,18 @@ __all__ = [
     "EventWindow",
     "ExcludedEvent",
     "FoldSelection",
+    "IntegerAxis",
     "InvalidResearchStateError",
+    "LogUniformAxis",
+    "MembershipFinding",
+    "MembershipFindingKind",
+    "MembershipReview",
+    "MinTRLResult",
     "MonteCarloReport",
     "MultipleTestingResult",
     "OverfittingPolicy",
     "OverfittingReport",
+    "PBOResult",
     "ParameterSpace",
     "Perturbation",
     "PerturbationKind",
@@ -227,6 +292,7 @@ __all__ = [
     "PurgePolicy",
     "PurgeResult",
     "QuantileBucket",
+    "RealityCheckResult",
     "Refit",
     "RegimeCell",
     "RegimeDefinition",
@@ -250,6 +316,10 @@ __all__ = [
     "ResearchStudy",
     "ResearchValidationError",
     "RobustnessReport",
+    "SPAResult",
+    "SampledSpace",
+    "ScreenedPair",
+    "SelectionMeasure",
     "SharpeInference",
     "SignalDiagnostics",
     "SplitInterval",
@@ -257,12 +327,16 @@ __all__ = [
     "StabilityReport",
     "StressReport",
     "StudyResult",
+    "SuccessiveHalving",
     "SweepResult",
     "ThresholdRule",
     "TimeSplit",
     "TradePayload",
     "TrailingQuantileRule",
     "TransitionFrequency",
+    "TrialMatrix",
+    "Trim",
+    "UniformAxis",
     "WalkForwardDesign",
     "WalkForwardObjective",
     "WalkForwardOptimization",
@@ -272,6 +346,7 @@ __all__ = [
     "apply_cost",
     "apply_purge_and_embargo",
     "apply_stress_tests",
+    "autocorrelation_adjusted_probabilistic_sharpe_ratio",
     "bias_report",
     "block_bootstrap_indices",
     "bootstrap_statistics",
@@ -287,6 +362,8 @@ __all__ = [
     "canonical_study_key",
     "capacity_report",
     "classify_regimes",
+    "cointegration_screen",
+    "combinatorial_purged_splits",
     "conditional_diagnostics",
     "correct_p_values",
     "cross_validation_splits",
@@ -304,6 +381,9 @@ __all__ = [
     "generate_diagnostics",
     "initial_regime_state",
     "label_ends_from_horizon",
+    "latin_hypercube_space",
+    "membership_review",
+    "minimum_track_record_length",
     "monte_carlo_orders",
     "monte_carlo_simulation",
     "parameter_robustness",
@@ -313,6 +393,9 @@ __all__ = [
     "perturb_observations",
     "perturb_signal",
     "probabilistic_sharpe_ratio",
+    "probability_of_backtest_overfitting",
+    "random_space",
+    "reality_check",
     "regime_profile",
     "regime_series_from_features",
     "require_chronological",
@@ -323,7 +406,9 @@ __all__ = [
     "shift_parameter",
     "signal_diagnostics",
     "signal_horizons",
+    "stationary_bootstrap_indices",
     "stress_report",
+    "superior_predictive_ability",
     "symbol_stability",
     "validate_payload",
     "walk_forward_analysis",

@@ -45,9 +45,24 @@ NAMED: dict[str, tuple[str, ...]] = {
     # Phase 3 (FUT-026): a repriced option's carry, by name, in a margin model.
     "alphalab.options.carry.CarryKind": ("DIVIDEND_YIELD", "FOREIGN_RATE", "FUTURES"),
     # v4.2.0 (ledger FUT-018): an instrument's borrow terms, by their day count.
-    "alphalab.conventions.daycount.DayCount": ("ACT_365_FIXED", "ACT_360", "THIRTY_360_US"),
+    # v4.3.0 (plan N21, GAP-36): the world's day counts, appended -- every name
+    # an earlier release wrote reads back unchanged.
+    "alphalab.conventions.daycount.DayCount": (
+        "ACT_365_FIXED",
+        "ACT_360",
+        "THIRTY_360_US",
+        "THIRTY_E_360",
+        "THIRTY_E_360_ISDA",
+        "ACT_ACT_ISDA",
+        "ACT_ACT_ICMA",
+        "ACT_365_LEAP",
+        "NO_LEAP_365",
+        "BUSINESS_252",
+    ),
     # v4.2.0 (ledger FUT-017): an instrument's margin terms, by their basis.
     "alphalab.instrument.margin.MarginBasis": ("VALUE_RATE", "PER_CONTRACT"),
+    # v4.3.0 (ADR-0059): a historical universe's changes, by their kind.
+    "alphalab.instrument.membership.MembershipKind": ("ADDITION", "REMOVAL", "DELISTING"),
     # v4.1.1 (ledger FUT-013), found by the v4.2.0 scanner, which reads
     # terms_from_primitives: an option's declared terms, by name.
     "alphalab.options.enums.ExerciseStyle": ("AMERICAN", "EUROPEAN", "BERMUDAN"),
@@ -83,7 +98,14 @@ NAMED: dict[str, tuple[str, ...]] = {
         "EXPIRED",
     ),
     "alphalab.experiment_tracking.tracker.RunStatus": ("RUNNING", "COMPLETED", "FAILED"),
-    "alphalab.lifecycle.evidence.ValidationMethod": ("BACKTEST", "RESEARCH", "EXTERNAL", "STUDY"),
+    # v4.3 (ADR-0073 section 8): EXPERIMENT appended; no earlier name moved.
+    "alphalab.lifecycle.evidence.ValidationMethod": (
+        "BACKTEST",
+        "RESEARCH",
+        "EXTERNAL",
+        "STUDY",
+        "EXPERIMENT",
+    ),
     "alphalab.market.source.OrderingGuarantee": ("CHRONOLOGICAL", "UNORDERED"),
     "alphalab.model_registry.registry.ModelStage": ("NONE", "STAGING", "PRODUCTION", "ARCHIVED"),
     "alphalab.portfolio.fx_feed.FxFeedOutcome": ("APPLIED", "DUPLICATE", "SUPERSEDED"),
@@ -187,7 +209,13 @@ VALUES: dict[str, tuple[str, ...]] = {
     ),
     "alphalab.core.enums.Side": ("buy", "sell"),
     "alphalab.data.feed.TradeAggressor": ("BUYER", "SELLER"),
-    "alphalab.execution.policy.FillTiming": ("same_event", "next_event"),
+    "alphalab.execution.policy.FillTiming": ("same_event", "next_event", "next_open"),
+    # v4.3.0 (ADR-0060, plan WS-11): what a run's latency model does, which a
+    # pipeline snapshot declaring it writes.
+    "alphalab.execution.policy.LatencyPricing": ("stamp", "post_latency_event"),
+    # v4.3.0 (ADR-0064, plan WS-08): a tree ensemble's loss, which every
+    # captured model states and GradientBoostedTrees.restore reads back.
+    "alphalab.ml.models.BoostingLoss": ("squared", "logistic"),
     "alphalab.risk.models.RiskSeverity": ("HIGH", "CRITICAL"),
 }
 
@@ -222,6 +250,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "HoldersRecorded",
         "LifecycleTransitioned",
         "OrderEvent",
+        # v4.3 (ADR-0062): written only when a strategy's package is refused.
+        "PackageRefused",
         "SliceClosed",
         # Phase 5 (FUT-038): written only when an action's terms are corrected.
         "TermsAnnounced",

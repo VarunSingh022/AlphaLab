@@ -14,6 +14,1366 @@ changed. The current state of the project is in `README.md`, `ROADMAP.md` and
 
 ---
 
+# [4.3.0] - Unreleased
+
+The 4.3.0 development programme, on `work/v4.3.0-development` and following the
+approved v4.3.0 development plan; where it stands is in
+`docs/work/v4.3.0/PROGRESS.md`. Nothing here is released: this heading carries
+no date until the release commit, and the release gate refuses the tree until
+then (*Changed*, below). The engine's behaviour, its public API, its persisted
+formats and every run's `result_id` and `configuration_id` are 4.2.1's until an
+entry below says otherwise.
+
+## Added
+
+* **The payloads v4.2.1 wrote, frozen** [plan WS-01, GAP-07]. Every durable
+  kind -- portfolio, OMS, allocation, the instrument registry, lifecycle, the
+  FX feed, the run, the live session and its broker, and eleven paused
+  replays with the registry each held -- and the three envelopes -- the
+  run-state store, a checkpoint chain and an evidence store -- are frozen in
+  `tests/fixtures/snapshots/v4.2.1`, written by
+  `docs/audit/scripts/generate_v4_2_1_snapshot_fixtures.py` against the
+  `v4.2.1` tag. Against the `v4.2.0` tag the script writes the same bytes, so
+  the set is what both releases wrote. The paused replays are examples 74 to
+  79 and the workloads of the queue model, delivered surfaces, delivered
+  auctions and point-in-time observations, each paused mid-run and recorded
+  with the `result_id` of the run that never paused. The certificate's REP-3
+  reads them with every other release's, and
+  `tests/regression/test_schema_upgrades_v4_2_1.py` holds every later build
+  to them: each payload read and written back byte for byte, each file the
+  bytes v4.2.1 wrote, each paused replay and the checkpoint chain resumed --
+  in the test's process and in a fresh one -- to the `result_id` v4.2.1
+  computed, each registry's digest the one its replay recorded, and the
+  stored manifest the one this build makes.
+* **A schedule's digest, pinned** [plan WS-01, R53-6]. `RunSchedule.digest`
+  -- what a paused replay holds its continuation to -- has a golden value for
+  each of its twenty kinds of entry, every kind's persisted value is pinned,
+  and the formula is held as documented: SHA-256 over the maximum rate age's
+  `repr`, then `kind|instant|JSON` for each entry in order
+  (`tests/regression/test_schedule_digest_pins.py`). The values are what
+  v4.2.1 and v4.2.0 compute, and each frozen replay recorded its workload's.
+
+* **The product charter, and the documents that state AlphaLab's direction
+  reconciled to it** [plan WS-00, G0 item 2, D-V1; ADR-0056]. AlphaLab is a
+  universal, strategy-agnostic research engine for global markets whose
+  capability grows on a contract that stays stable: the public API, every
+  recorded identity and every persisted format. A boundary stands until its
+  own ADR reopens it under six binding principles (zero mandatory runtime
+  dependencies, optional dependencies through stable interfaces, no
+  process-as-sandbox, precision by error analysis, no single runtime across
+  the engines, no silent identity or format change). ROADMAP no longer calls
+  the engine "complete and frozen", `nowandfuture.md` no longer says nothing
+  is planned or that an engine needs no consumer, SYSTEM_DESIGN states the
+  bridge-or-library rule (CON-X2), and VISION and ARCHITECTURE cite the
+  charter. CONTRIBUTING and ENGINEERING_GUIDELINES describe how an approved
+  programme is delivered on one integration branch (G0 item 21).
+  `tests/regression/test_charter_is_stated_consistently.py` holds all of it.
+
+* **Release artifacts held to the commit they were built from** [plan WS-29,
+  RQ-05]. `release_preflight.py distributions` -- run by CI, the preflight
+  and release validation -- names the commit and tree in the verification
+  record (`--commit`, or the checkout's `HEAD`; outside a checkout it fails
+  rather than skip). Every file in the wheel's `alphalab/` must be the
+  commit's, byte for byte, with none added or left out, and every file of the
+  sdist but its generated `PKG-INFO` must be the commit's. Both artifacts are
+  then rebuilt from `git archive` of the commit alone, in a fresh directory,
+  and must be the same bytes. On a build of this branch the 627 package files
+  and 1,528 source files correspond, and the rebuild is byte-identical
+  (`tests/regression/test_release_correspondence.py`). `--no-source` checks
+  artifacts away from their source -- downloaded assets -- and the record then
+  says the source was not checked; no workflow may pass it.
+* **A run held to the schedule it was given, and its provenance** [ADR-0053,
+  plan WS-02, FUT-046]. A backtest's schedule is a driver input its record
+  does not name, so a checkpoint chain could be continued under another
+  schedule with nothing to refuse it. `RUN_SCHEDULE_DIGEST_SCHEME` names the
+  existing digest formula without changing it. `ScheduleBinding` names a
+  schedule by its scheme and digest (`RunSchedule.binding`,
+  `ScheduleCursor.binding`), and `ScheduleVerification` says how far a check
+  went -- `VERIFIED`, `DECLARED`, `UNRECORDED` or `NONE_GIVEN` -- never more.
+  `ScheduleCursor.start` takes a keyword-only `expected` binding and refuses
+  another schedule before applying anything. `checkpoint` takes a
+  keyword-only `schedule` binding and records it in the envelope, as
+  `CHECKPOINT_SCHEMA` 3; given none it writes version 2, byte for byte.
+  `restore_checkpoints` takes a keyword-only `schedule_binding`, and refuses
+  another schedule -- or none -- for a chain that recorded one.
+  `checkpoint_schedule` and `chain_schedule_verification` read a chain's
+  binding. `RunProvenance`, from `run_provenance(result, schedule=...)` or
+  `payload_provenance(payload, schedule=...)`, records beside a run what its
+  record does not name: its subject's digest, the effective schedule's
+  binding and its registry's digest. `verify_provenance` re-derives each of
+  them, and the record files in an evidence store
+  (`RUN_PROVENANCE_SCHEMA` 1). No driver's signature or return type changes,
+  creating provenance draws no identifier and serializes nothing twice, and
+  no `result_id`, `configuration_id`, `manifest_id` or digest moves
+  (`tests/integration/test_run_provenance.py`). Provenance claims no more
+  than the run's record allows: a binding of no schedule for a run that
+  delivered observations is refused, and `VERIFIED` is given only once the
+  run's own delivery record agrees with the schedule. It is tamper-evident,
+  not substitution-proof (LIM-009).
+* **A manifest held to the run's provenance, and an opt-in identity version
+  2** [ADR-0053 section 6, ADR-0052 option C, FUT-046, FUT-042]. Given the
+  run's provenance, `manifest_for_run` refuses provenance of another run,
+  another schedule, no schedule where the run was given one, one where it
+  was given none, and another registry -- claims the caller's own evidence
+  contradicts. Under identity version 1, the default, the manifest's
+  identity is unchanged by it. `manifest_for_run(identity_version=2)` makes
+  a version-2 manifest: its key renders `identity.version=2`, it records the
+  registry the run held, and it cites the provenance by its id when given
+  one; a version-2 manifest of a registry-holding run without the registry
+  is a gap, and one made without provenance carries a finding that its
+  schedule is unattested. `ReproducibilityManifest` gains `provenance_id`
+  and `identity_version` (last, defaulting to `None` and `1`), which
+  `canonical_manifest_key` and `derive_manifest_id` take as trailing
+  parameters, rendered only when given; `MANIFEST_IDENTITY_VERSIONS` names
+  the contracts this build makes. A version-2 rerun of a version-1 original
+  is compared by version 1's rules and says so. Every version-1 manifest --
+  each made before, and each default one made since -- keeps its id, its
+  verification and its assessment, and is stored as v4.2.1 stored it, byte for
+  byte: the two new fields are written only when they are not their defaults,
+  since an evidence store refuses another value under an identity it holds.
+  Making version 2 the default is FUT-042, for 5.0
+  (`tests/integration/test_manifest_provenance.py`). `rerun_from_manifest`
+  makes the rerun's manifest under the original's identity version, and an
+  original citing its run's provenance is compared with a rerun citing its
+  own: example 72's run, rerun in a fresh interpreter and on each host CI runs,
+  reproduces its `result_id`, its provenance and its version-2 manifest
+  (`tests/integration/test_provenance_end_to_end.py`, S-11).
+
+* **Probability distributions and the special functions under them**
+  [ADR-0058, plan WS-03, GAP-10]. `alphalab.common.distributions` is the one
+  authority for each of these. It covers Student's t, chi-squared, F, gamma,
+  beta, binomial and Poisson distributions, each with its CDF, survival
+  function and quantile, beside the normal. It also covers the special
+  functions under them: `log_gamma`, `log_beta`, `regularized_gamma_p`,
+  `regularized_gamma_q` and `regularized_incomplete_beta`. Every function
+  computes to binary64 precision by an algorithm whose criteria are stated
+  constants (`RELATIVE_TOLERANCE`, `ITERATION_LIMIT`). A survival function is
+  computed directly, never as one minus a CDF, so a p-value of `1e-30` keeps
+  its digits. Non-convergence raises the new `ConvergenceError` and never
+  returns a best effort. The names are exported from `alphalab.common`. They
+  are held to exact oracles (finite closed forms in 80-digit `Decimal` and
+  exact `Fraction`), within a tolerance derived from each formula's error
+  bound, and to published tables at the digits the tables print
+  (`tests/unit/common/test_distributions.py`).
+
+* **Factorizations and decompositions with vectors, and one Cholesky**
+  [ADR-0058, plan WS-03]. `alphalab.common.linalg` gains `cholesky`, which
+  returns a `CholeskyFactor` (its `lower` factor, its `pivots`, its
+  `pivot_ratio` and a `solve`) and refuses a matrix that is not positive
+  definite with `NotPositiveDefiniteError`, naming the pivot and the floor.
+  It also gains `symmetric_eigensystem` (Householder tridiagonalization and
+  implicit QL, returning a `SymmetricEigensystem`),
+  `singular_value_decomposition` (the thin decomposition by one-sided Jacobi,
+  returning a `SingularValueDecomposition`) and `pseudo_inverse` (returning a
+  `PseudoInverse` with the rank it kept). The iterative ones take a
+  `tolerance` and an iteration limit (`max_iterations`, `max_sweeps`) as
+  required keyword arguments, and `pseudo_inverse` its `relative_cutoff`: each
+  decides the answer, so none has a default. Each
+  result carries a `ConvergenceReport`, the new type exported from
+  `alphalab.common` that says which criterion stopped the method, what it
+  reached and in how many iterations; a method short of its criterion raises
+  `ConvergenceError`. They compute with `+ - * /`, `sqrt` and `fsum` only,
+  after an exact scaling by a power of two, so their results are the same
+  bits on every host and every supported CPython. A symmetric matrix is read
+  from its lower triangle. Each eigenvector and each right singular vector
+  has its largest-magnitude component positive. They are held to exact
+  oracles (Sturm bisection in `Decimal` for Wilkinson's `W21+`, whose two
+  largest eigenvalues are 1e-13 apart; closed forms; exact `Fraction`
+  inverses), to Higham's error bounds and Krylov-Weinstein's exact residual
+  bound, and to pinned values, which also pin `least_squares` and
+  `singular_values` (`tests/unit/common/test_linalg_factorizations.py`).
+  The constrained optimizer's own factorization moved there: `quadratic` and
+  Black-Litterman both call `cholesky`, and the private copy and its solve
+  are gone. Every factor, pivot ratio and solve is v4.2.1's float for float
+  (`tests/regression/test_cholesky_moved_unchanged.py`), so no portfolio
+  moves.
+
+* **Optimisers, a root finder and quadrature** [ADR-0058, plan WS-03].
+  `alphalab.common.optimize` holds `brent_root` (Brent's `zeroin`, returning a
+  `Root` and the bracket that holds it), `golden_section_minimum` (returning a
+  `ScalarMinimum`), `nelder_mead`, `bfgs` (with a strong Wolfe line search)
+  and `l_bfgs_b` (Byrd, Lu, Nocedal and Zhu's method for simple bounds: the
+  generalized Cauchy point, the direct primal subspace step and a projected
+  line search), each returning a `Minimum`, and `numerical_gradient` (central
+  differences over the represented step). `alphalab.common.quadrature`
+  holds `integrate`, globally adaptive Gauss-Kronrod (7, 15) quadrature as
+  QUADPACK's `QAG` does it, returning an `Integral`. Every tolerance,
+  iteration limit, difference step and L-BFGS-B history size is a required
+  argument, and every result carries a `ConvergenceReport`. A method that
+  cannot meet its criterion raises `ConvergenceError` with what it reached:
+  a gradient tolerance below what the objective's rounding lets a line
+  search resolve, an integrand singularity double precision cannot
+  approach, an iteration limit. It never returns a best effort. The
+  integrand is never evaluated at an endpoint. The tests hold Brent's
+  bracket to polynomial roots found in 60-digit `Decimal`, BFGS to a
+  quadratic's exact minimizer within `||A^-1|| tol`, L-BFGS-B to exact
+  clamped minimizers, the bound Rosenbrock minimum `(0.5, 0.25)` and its
+  authors' 25-variable `driver1` problem, and the quadrature rules to
+  exactness on every polynomial up to their degrees in 60-digit `Decimal`.
+  Each method's result is pinned identically under CPython 3.12, 3.13 and
+  3.14 (`tests/unit/common/test_optimize.py`,
+  `tests/unit/common/test_quadrature.py`). The deep-learning package's
+  gradient check keeps its own central difference and its figures; it is
+  recorded beside the new authority with the reason, for deprecation in 5.0
+  (GAP-48).
+
+* **The identity of an estimate** [ADR-0058 section 6, plan WS-03].
+  `alphalab.common.estimate` holds `Estimate`: a fit's parameters at full
+  precision, their standard errors, its method under its own scheme, the
+  identity of the data it was fitted on, every setting the caller stated, its
+  `ConvergenceReport` and the `NumericalClass` of its values (`EXACT`,
+  `CORRECTLY_ROUNDED`, `HOST_LIBM`). `Estimate.estimate_id` is SHA-256 over
+  `canonical_estimate_key` (`ESTIMATE_KEY_SCHEME` `alphalab.estimate.v1`). It
+  always covers the estimation problem: the method, the data's identity, the
+  settings (each tagged with its type) and an iterative method's tolerance and
+  limit. It covers the fitted values, and the iterations and measure a method
+  stopped at, only when they are class 1 or 2. A value computed through
+  `log` or `exp` is recorded beside the identity, never in it, so two hosts
+  fitting the same problem agree on the identity either way. `Estimate` and
+  `NumericalClass` are exported from `alphalab.common`
+  (`tests/unit/common/test_estimate.py`, two identities pinned).
+
+* **Selection statistics: measuring a search over backtests** [ADR-0054,
+  plan WS-06]. Pure functions over a matrix the caller holds, importing
+  nothing but `common` and their own package, deciding nothing:
+  * A `TrialMatrix` is T periods by N trials of one measure over one set of
+    instants.
+  * `probability_of_backtest_overfitting` is PBO by combinatorially symmetric
+    cross-validation. It requires the block count S (even, at most 20 and at
+    most T), a `SelectionMeasure`, and a `Trim` that declares any periods
+    dropped. It returns a `PBOResult` with PBO as an exact fraction, the
+    selected trial and logit of every split, and its tie convention: midranks,
+    counting a logit at 0.
+  * `reality_check` (White 2000) and `superior_predictive_ability` (Hansen
+    2005) bootstrap the best of K models against a benchmark. SPA reports its
+    lower, consistent and upper p-values, ordered by construction, and a model
+    far below the benchmark leaves its consistent p-value unchanged.
+  * `stationary_bootstrap_indices` (Politis and Romano) draws positions from
+    a SHA-256 counter stream (`STATIONARY_BOOTSTRAP_SCHEME`): integer
+    comparisons only, the same on every host.
+  * `minimum_track_record_length`.
+  * `autocorrelation_adjusted_probabilistic_sharpe_ratio` adds Newey-West
+    Bartlett-weighted autocovariances (required `lags`) to the independent
+    PSR's variance, so with no lags it is that PSR value for value.
+
+  Every replication count, block length, seed and lag count is required.
+  p-values are exact fractions. PBO's ranks are exact, and its logits and
+  SPA's `sqrt(2 ln ln T / T)` come from `Decimal`'s correctly rounded
+  logarithm, so RC, SPA and PBO are class 2. MinTRL and the adjusted PSR are
+  class 3.
+
+  They are held to an exact-enumeration oracle for PBO (every split recomputed
+  in `Fraction`), to exact recomputations of the Reality Check on binary-exact
+  data, to MinTRL's identity with the PSR, and to pinned values identical
+  under CPython 3.12, 3.13 and 3.14 (`tests/unit/research/test_selection_statistics.py`,
+  `tests/unit/research/test_data_snooping.py`). The existing PSR, DSR and
+  multiple-testing corrections are unchanged.
+
+* **The world's day counts** [plan WS-13, N21, GAP-36]. `DayCount` gains
+  `THIRTY_E_360` (the Eurobond basis), `THIRTY_E_360_ISDA`, `ACT_ACT_ISDA`,
+  `ACT_ACT_ICMA`, `ACT_365_LEAP` (ACT/365L), `NO_LEAP_365` (NL/365) and
+  `BUSINESS_252` (BUS/252), beside ACT/365F, ACT/360 and 30/360, each by its
+  published definition (ISDA 2006 section 4.16, ICMA Rule 251). A basis that
+  needs what only the instrument knows takes it as `DayCountTerms`, a new
+  keyword-only argument of `year_fraction` and `day_count_days`, and refuses
+  without it:
+  * ICMA and ACT/365L need the coupon period and frequency, and an accrual
+    must lie within that period;
+  * 30E/360 (ISDA) needs the termination date;
+  * BUS/252 needs the holidays and the weekend.
+
+  A term the basis does not use is refused, not ignored. `required_terms`
+  names a basis's terms. `days_in_year` refuses the three bases whose year
+  depends on the dates, and their year fractions are exact rationals rounded
+  once. `require_accrual_basis` admits only the bases that can weight a day
+  alone (ACT/365F, ACT/360, 30/360, 30E/360, NL/365). Financing and borrow
+  terms refuse any other basis at construction, rather than part-way through
+  a run. A bond accrues under ICMA and ACT/365L by its own coupon period,
+  measuring a short first coupon against its notional regular period, and
+  refuses BUS/252, having no calendar. An FX forward's terms refuse a basis
+  that needs an instrument's terms. The three existing bases compute exactly
+  what they did, so no accrual, run or `result_id` moves. Each new basis is
+  held to an independent restatement of its definition in `Fraction`, on
+  worked periods and on 300 random ones
+  (`tests/unit/conventions/test_global_day_counts.py`).
+
+* **Streaming research capture** [plan WS-04, K.1, ADR-0055]. `run_captured`
+  in `alphalab.backtesting.capture` runs a backtest exactly as
+  `BacktestEngine.run` does -- one private step loop drives both, and an
+  observer reads it without changing it -- and returns `Captured`: the result
+  `run` returns, field for field and with the same `result_id`, beside a
+  `CaptureRecord`. The capture draws no identifier.
+  * **The series.** A `ReturnExtractor` states, with no defaults, every choice
+    that shapes the series:
+    * the grid: `EVERY_INSTANT`, or `FixedInterval(seconds, origin)`, compared
+      exactly;
+    * `Costs.NET` or `Costs.GROSS`, which adds back at each point the
+      commission, fees and tax its valuation reports;
+    * `CashFlows.INCLUDED` or `CashFlows.EXCLUDED`, which removes booked
+      dividends, interest, fees, funding, deposits and withdrawals, though not
+      a conversion's two legs;
+    * the run's base currency;
+    * `Insolvency.REFUSE` (`InsolventCaptureError`) or `Insolvency.TRUNCATE`.
+
+    Returns are analytics' own arithmetic at full precision, so an
+    `EVERY_INSTANT`, `NET`, `INCLUDED` series is `period_returns` of the same
+    run with full history, value for value, whatever the run kept. GROSS is held
+    to the same run paying no commission, and EXCLUDED to the same run with no
+    flows, exactly.
+  * **The trace.** `trace_id` is a SHA-256 chain over what each step added to
+    the fills, the ledger, the OMS's order events and the equity points, each
+    entry in `serialize`'s canonical form. It starts from the configuration
+    kept whole, so it is the same under every retention, and a bound smaller
+    than one step's output is refused rather than traced short.
+  * **The identities.** `extractor_id`, `series_id` and `trace_id` are pinned,
+    computed identically under CPython 3.12, 3.13 and 3.14
+    (`tests/integration/test_streaming_capture.py`,
+    `tests/regression/test_capture_identities_are_pinned.py`).
+  * **The cost** is measured by `benchmarks/benchmark_capture.py` at four trade
+    densities. The series costs 1 to 4 percent of the run. With the trace the
+    capture costs 10.9 to 12.8 percent on a strategy that does no work of its
+    own (CPython 3.12, Apple arm64), against the plan's 10, where `digest_run`
+    costs 76 to 105 percent.
+    The owner approved plan change PC-07: the series at most 10 percent, and
+    series and trace at most 15, a ceiling the benchmark enforces and not a
+    target (ledger LIM-013).
+
+  `_recorded_configuration` moved from the lifecycle into
+  `alphalab.runtime.run_snapshot` unchanged, so the configuration a trace starts
+  from is the one `digest_run` hashes.
+
+* **`RetentionPolicy.keep_equity`** [ADR-0055 section 5]. A new defaulted
+  field. When true, the `results` bound no longer trims the equity points, so a
+  run that bounds its fills and ledger keeps its whole equity curve and
+  compiles analytics equal to full history's, value for value. A snapshot
+  records it only when it is true, so a policy without it is stored, and
+  digested, byte for byte as v4.2.1 stored it: the eight frozen bounded
+  checkpoints hold that text (`tests/regression/test_retention_keep_equity.py`).
+
+* **Selection statistics over captured backtests** [plan K.2, WS-06, GAP-09].
+  `alphalab.lifecycle.selection` holds two functions:
+  * `trial_matrix_from_captures` builds ADR-0054's `TrialMatrix` from captures
+    sharing one extractor and one grid, and refuses any that do not;
+  * `assess_captures` runs the probability of backtest overfitting over the
+    matrix, and returns `CaptureAssessment`, which names the extractor and each
+    trial's `series_id` beside the result.
+
+  M3's exit gate: PBO over sixteen captured variants, each run under a
+  retention policy that keeps a few dozen entries of every log, equals PBO over
+  their full histories exactly (`tests/integration/test_selection_over_captures.py`).
+
+* **Historical universes, as they were known** [plan WS-13, N23, GAP-43,
+  ADR-0059].
+  * **Dated twice.** `alphalab.instrument.membership` adds `MembershipChange`
+    (`ADDITION`, `REMOVAL` or `DELISTING`), dated when it takes effect and
+    when it was announced, at or before. A change announced after it took
+    effect is refused.
+  * **A history that could have happened.** `HistoricalUniverse` refuses an
+    asset added while a member, removed or delisted while not one, or changed
+    twice at one instant. `members(at, as_of=...)` reads only the changes
+    announced by `as_of`.
+  * **In the registry.** `InstrumentRegistry.universes` carries them, declared
+    with `register_universe`, which refuses a member the registry does not
+    hold. `InstrumentRegistrySnapshot` gains `universes`, written only when
+    one is carried, so a registry without a universe snapshots and digests byte
+    for byte as v4.2.1 wrote it.
+  * **What a strategy reads.** `context.universe.members(universe, at)` reads
+    as known at the strategy's own instant, through `UniverseView.members` and
+    `UniverseProtocol.members`, so a change is never seen before its
+    announcement. A registry without the named universe refuses the question;
+    `NoUniverse` answers none. A class written to `UniverseProtocol` adds
+    `members`, as it added `halted` and `price_band` in 4.2.0.
+  * **The survivorship review.** `research.bias.membership_review` lists each
+    fill made outside membership as it was known: `BEFORE_ANNOUNCEMENT` when
+    the asset's addition was announced only later, `NOT_A_MEMBER` otherwise. It
+    scores nothing (RES-001).
+
+  GR-5 holds (`tests/integration/test_survivorship_is_caught.py`). A
+  point-in-time strategy's review is clean. A control holding today's survivors
+  is named by its trade in the winner before its addition was announced. Its
+  advantage, 92.4 on 1,000,000, is exactly the loser's fall it missed and the
+  winner's rise it caught.
+
+* **Reference-data packs** [plan G.1, N10, ADR-0059]. `alphalab.data.packs`
+  holds `ReferencePack`:
+  * reference data with its evidence: a `PackSource` (publisher and
+    document), when it was taken, the range it covers, a licence note, typed
+    entries, and a content digest under `REFERENCE_PACK_SCHEME`;
+  * it refuses entries that do not match the digest, an entry of an unknown
+    type or shape, an entry outside its range or announced after it was taken,
+    and a universe it does not hold. A missing entry is refused, never assumed;
+  * `universe_from_pack` reads a pack's membership into a `HistoricalUniverse`
+    that keeps the pack's coverage and knowledge, so a question outside them is
+    refused in a run as well;
+  * a run cites `ReferencePack.citation` beside its record.
+
+  AlphaLab still ships no data (BDY-013). The loader and the distributions are
+  M10's.
+
+* **The trial ledger** [plan WS-05, K.3, GAP-01, GAP-27, ADR-0072]. A search's
+  whole population, recorded in `alphalab.lifecycle.experiments`.
+  * **The specification.** `ExperimentSpec` states everything a trial turns on,
+    with no defaults:
+    * the hypothesis, whose digest enters the identity;
+    * the strategy's fingerprint, and the configuration type every candidate
+      is typed as;
+    * the `ParameterSpace`, the dataset's identity (`dataset_identity`), the
+      schedule's binding and the registry's digest;
+    * the execution assumptions, the `CaptureSpec`, the `RetentionPolicy`,
+      the validation design (`FullSample`, with or without a `Lockbox`), the
+      seed and the limits.
+
+    A trial's inputs that are not the experiment's are refused.
+  * **The runner.** A function registered by name in a `RunnerRegistry` builds
+    each `TrialSpec`'s inputs (`TrialInputs`); the name is looked up, never
+    resolved to code. A trial's seed is the walk-forward search's own formula.
+  * **Outcomes.** `run_experiment` runs each trial through `run_captured` and
+    records its outcome: `COMPLETED`, `INSOLVENT`, `STRATEGY_FAILED`,
+    `REFUSED` or `FAILED`, counted in `LedgerCount`. An interruption records
+    nothing.
+  * **Records.** A `TrialRecord` holds the run's `result_id`, `trace_id`,
+    `provenance_id`, `extractor_id` and `series_id`, never its result. The
+    series is filed beside it in a `TrialLedger` over an `EvidenceStore`. A
+    resume runs only what is missing, and a trial that leaves another record
+    is refused (`NondeterministicTrialError`). Diagnostics enter no identity,
+    so an interpreter's own error wording moves nothing.
+  * **The lockbox.** `read_lockbox` evaluates one candidate over the held-back
+    data once; a second read is a child experiment's that states why.
+  * **The experiment.** `ExperimentRecord` holds the records' ids in submission
+    order, the counts and the completed trials' `matrix_id`.
+
+  M4's exit gate, first part: 48 trials, with two failures in the runner, two
+  in the strategy, two refused and two insolvent, all counted
+  (`tests/integration/test_trial_ledger.py`). A reference experiment's
+  `experiment_id` and `experiment_record_id` are pinned, computed identically
+  under CPython 3.12, 3.13 and 3.14
+  (`tests/regression/test_experiment_identities_are_pinned.py`).
+  * **`SpawnExecutor`** runs trials in spawned interpreters: AlphaLab's own
+    worker module, which refuses the network before it imports anything of the
+    researcher's.
+    * **The worker.** It loads the experiment once, from an
+      `ExperimentDefinition` named in code as `"module:NAME"`. It then runs the
+      trials it is asked for one at a time, each held to the submitted
+      experiment and named by identity.
+    * **Its lifetime.** `trials_per_worker` is the researcher's choice: `1` for
+      a fresh interpreter per trial, the most isolated; `None` for one per
+      worker, its start paid once.
+    * **The cost.** On one worker the executor costs 2.1 percent of the trials'
+      CPU time on deliberately short trials, inside the plan's 5 percent
+      (`benchmarks/benchmark_experiments.py`). A start is about half a second:
+      so a fresh interpreter per trial costs that much a trial, and each
+      further worker one start.
+    * **Order.** Records are kept in submission order whatever order trials
+      finish in, so a spawned experiment equals the sequential one record for
+      record.
+    * **Interruptions.** A trial past its time limit, or a worker that dies,
+      records nothing, and a resume runs it.
+
+    A definition that reaches for the network as it is imported is refused
+    before it reaches it (`tests/integration/test_spawned_trials.py`).
+    SECURITY.md states the boundary: the hook is a guard, and a process is not
+    a sandbox (ledger BDY-029).
+  * **One registry** [plan D-54-11]. `RunnerRegistry` is `alphalab.common`'s,
+    re-exported by `alphalab.lifecycle`, and the ledger's executors and a
+    research cluster's cycle take the same one. It refuses with
+    `AlphaLabRegistryError`.
+  * **`ClusterExecutor`** [GAP-31] runs each trial as a job on a
+    `cloud_research` cluster. `distributed`'s job lifecycle tracks it, an
+    assignment policy places it -- the cluster's own or a `cluster_scheduler`
+    policy -- and it runs in the spawned worker. The three orchestration
+    layers are one executor path. An experiment on a cluster equals the
+    sequential one record for record, under each policy and over as many
+    cycles as its capacity needs (`tests/integration/test_cluster_executor.py`).
+  * **The consumers** [ADR-0072 section 10, plan D-54-3].
+    `research_assistant.candidate_space` is the space of exactly the
+    candidates `generate_candidates` made, so an experiment over it runs one
+    trial per candidate, in the assistant's order. `experiment_tags` and
+    `tracked_runs` link a tracker run to its experiment by `experiment_id` in
+    its tags, under `EXPERIMENT_TAG`, until a typed field replaces the tag at
+    5.0 (`tests/integration/test_ledger_consumers.py`).
+  * **A record reproduced** [GAP-01]. `rerun_trial` runs one recorded trial
+    again through the executor it is given -- with a `SpawnExecutor`, in a
+    fresh interpreter -- and reports, as a `TrialRerun`, whether it left the
+    record the ledger holds. It files nothing.
+  * **No identifier drawn** [ADR-0029 D6]. An experiment draws nothing from the
+    identifier stream around it, under every executor. A runner mints from a
+    stream its trial seeds, so it mints the same identifiers in any process,
+    and a cluster's events are stamped from a stream of their own
+    (`tests/integration/test_ledger_reproduces.py`).
+  * **A time limit times the trial.** The spawned worker times its trial from
+    the moment it has loaded the experiment, and stops itself at the limit. An
+    interpreter's start and its imports are not counted. M4's first mutation
+    run found the parent's timer counting them: on a busy host a worker's start
+    alone outran a two-second limit.
+  * **A ledgered sweep, end to end** [plan WS-05 item 17]. Example 80
+    (`examples/80_a_ledgered_sweep.py`, run by the installed smoke test with
+    the network refused) runs the research assistant's nine candidates as
+    trials in spawned workers. The two that are not crossovers fail and are
+    counted. A resume runs nothing, one record is reproduced in a fresh
+    interpreter, a tracker run cites the experiment, and the lockbox is read
+    once. `docs/EXPERIMENTS.md` is the guide.
+
+* **Validation designs** [plan WS-24, K.4, GAP-02, ADR-0073]. An experiment
+  states how its search is validated. `ExperimentSpec.validation` takes
+  `FullSample` (ADR-0072's), `WalkForward`, `CrossValidated` or
+  `CombinatorialPurged`, every choice stated -- sizes, the selection measure,
+  the `PurgeSpec`, a declared `warm_up` and the lockbox.
+  * **The folds are research's.** They come from `walk_forward_splits`,
+    `cross_validation_splits` and the new `combinatorial_purged_splits` (CPCV,
+    with its paths), over the dataset's instants before the lockbox.
+  * **A trial's window.** A `TrialSpec` carries a `TrialWindow`: what its
+    runner may fit on, what it is scored on, and where its run starts. The
+    declared warm-up before a scored window is run and never scored. A CPCV
+    split's test groups are trials of their own (`TEST`, the phase naming the
+    group).
+  * **Unchanged identities.** A full-sample experiment's identities are
+    ADR-0072's: the reference experiment's pins hold.
+* **Walk-forward over backtests** [plan WS-24, K.4, ADR-0073]. Each trial's run
+  is restricted to its warm-up and window.
+  * **The scored series.** It is the periods ending inside the window: the
+    warm-up is run and never scored.
+  * **Selection.** After a fold's `SELECT` trials are recorded, the ledger
+    selects the best completed candidate by the design's measure, ties to the
+    first, and runs the selection on the fold's test window (`report_trial`).
+    `run_experiment` runs both stages, and a resume derives the second from
+    the recorded first.
+  * **The record.** `ExperimentRecord` gains `selections` and `out_of_sample`,
+    the selections' test-window series joined, written only when present.
+    A spawned walk-forward experiment equals the sequential one: a worker
+    finds a test-window trial among `every_trial`
+    (`tests/integration/test_walk_forward_over_backtests.py`).
+* **Cross-validation and CPCV over backtests** [plan WS-24, K.4, D-54-5,
+  ADR-0073]. Every candidate is backtested on every fold's validation window,
+  or every test group of every CPCV split.
+  * **The selection.** The candidate with the best mean score over every fold
+    or path is `selected`; a candidate that did not complete everywhere is
+    counted and never selected.
+  * **CPCV's paths.** A CPCV record's `paths` holds each candidate's paths,
+    its test groups' series joined, each a history of the whole sample. A
+    spawned CPCV experiment equals the sequential one
+    (`tests/integration/test_cv_and_cpcv_over_backtests.py`).
+* **The statistics over a ledgered experiment** [plan WS-06, K.3, ADR-0073
+  section 7]. `alphalab.lifecycle.assessment` reads ADR-0054's statistics from
+  the ledger.
+  * **The family.** `trial_matrix_of(spec, ledger, record, path=...)` gives one
+    column per candidate that completed everywhere it was scored:
+    * a full-sample experiment's completed trials, whose identity is the
+      record's `matrix_id`;
+    * a walk-forward or cross-validated experiment's fold series, joined when
+      the windows tile the sample;
+    * one CPCV path, which the caller names.
+  * **The statistics.** `assess_experiment` returns an `ExperimentAssessment`
+    holding PBO, the deflated Sharpe ratio of the family's best, and White's
+    Reality Check and Hansen's SPA against a declared benchmark. Every choice
+    each statistic takes is required. The family count, every trial recorded,
+    stands beside them.
+  * **A stated `N`.** `EffectiveTrials(count, reason)` gives the deflation a
+    smaller effective number of trials, recorded with its reason, as ADR-0073
+    section 7 allows.
+  * **Members without a dispersion.** A member with no dispersion is left out
+    of the deflation's trial Sharpe ratios and of `N`, and named (`flat`). A
+    member whose performance relative to the benchmark is constant is left
+    out of SPA, and named (`constant`). Research refuses both; nothing invents
+    a value for them.
+  * **The identity.** `assessment_id` digests the record, every choice, the
+    exact results and the members left out, under
+    `alphalab.experiment_assessment.v1`. It is pinned, and CPython 3.12, 3.13
+    and 3.14 agree on it (`tests/integration/test_experiment_assessment.py`).
+* **Selection-aware promotion evidence** [plan WS-24, K.4, ADR-0073 section
+  8]. `ValidationMethod.EXPERIMENT` is appended: no member's name and no
+  evidence identity moves, and `test_persisted_enum_names.py` pins the name.
+  * **The evidence.** `evidence_from_experiment(spec, record, assessment,
+    subject, produced_at)` records an assessed experiment. It always carries
+    the family count, `EXPERIMENT_FAMILY_METRIC` (`"experiment.trials"`),
+    beside PBO, the Reality Check, SPA, the selection's Sharpe ratio and the
+    `N` of its deflation. Each metric is the same on every host. The deflated
+    Sharpe ratio is host-libm arithmetic, so it is read from the assessment
+    (ledger FUT-051).
+  * **The refusal.** `evaluate_policy` fails `EXPERIMENT` evidence that does
+    not state that count as a whole number of trials, under every policy. A
+    promotion on it is refused, so nothing is promoted on a selection that
+    hides the search behind it
+    (`tests/integration/test_selection_aware_promotion.py`).
+* **S-13: event-driven alternative data, validated over backtests** [plan
+  S-13, ADR-0073 section 10]. A strategy trades surprises, observations each
+  delivered when it was published. Its eight event-window variants are
+  validated walk-forward in a ledger, assessed with PBO, SPA and the deflated
+  Sharpe ratio, and promoted only on selection-aware evidence.
+  * **Every variant counted.** The ledger counts every variant in every fold.
+  * **The revision proof.** The experiment is run twice, a late vintage flipping
+    or confirming a surprise. Every decision, return and selection made before
+    the revision is published is the same in both
+    (`tests/integration/test_event_driven_alt_data.py`).
+* **M5's leak tests and mutation series** [plan WS-24, ADR-0073 section 9].
+  * **The tests.** They hold:
+    * a design's purge and embargo in every trial's fit window;
+    * a designed experiment's lockbox kept from every trial, and read once;
+    * a tie going to the first candidate, at every level;
+    * a trial that failed mid-window, or a candidate incomplete on a fold,
+      never selected;
+    * a CPCV family read on the path named.
+  * **The series.** `mutation_v4_3.py` gains the VD series, the four leaks
+    among it.
+* **WS-06's PBO budget** [plan WS-06 item 15].
+  `benchmarks/benchmark_selection_statistics.py` judges PBO with `S = 16` over
+  100 trials of 2,520 periods against 60 seconds.
+* **The validation and selection-bias guides** [plan WS-24, WS-06, RK-08].
+  `docs/EXPERIMENTS.md` gains sections 8 to 11: designs, windows, purge and
+  embargo, selection, the assessment, the evidence and alternative data.
+  `docs/SELECTION_BIAS.md` says what PBO, the deflated Sharpe ratio, the
+  Reality Check, SPA and MinTRL each measure, assume and do not say. None is a
+  probability of loss.
+* **Econometrics: unit-root and cointegration tests and their published
+  tables** [plan WS-07, N6, GAP-11, ADR-0074]. A new package,
+  `alphalab.econometrics`, imports only `alphalab.common`.
+  * **A series' identity.** `series_identity` and `system_identity` derive the
+    data's identity from its values, never from a name.
+  * **Published tables.** `critical_values` holds MacKinnon (2010)'s response
+    surfaces, MacKinnon (1994)'s p-value approximations and KPSS (1992)'s table,
+    each held to its published values. Beyond a table, a p-value is a bound
+    (`PBound`), never extrapolated.
+  * **The tests.** `augmented_dickey_fuller`, `phillips_perron` and `kpss` take
+    every choice stated: the deterministic terms, the lags or the criterion
+    choosing them, the bandwidth (fixed, or Schwert's exactly) and the largest
+    condition number. Each returns its statistic, critical values, p-value,
+    and its regression's `Estimate`.
+  * **A transcription's errors, found.** The 2010 tables were generated from
+    the paper itself. A widely used transcription differs from it in four
+    rows, and the tests pin each to the paper.
+  * **Engle and Granger's test.** `engle_granger` regresses one series on one
+    to eleven others, with a constant at least, and tests the residuals for a
+    unit root with no deterministic terms. Its `CointegrationTest` returns:
+    * the t-statistic;
+    * MacKinnon (2010)'s critical values for the number of series;
+    * MacKinnon (1994)'s p-value, up to six series (beyond that, only the
+      critical values are published and the p-value is `None`);
+    * both regressions' `Estimate`s. The cointegrating regression's
+      `beta_1` is a pair's hedge ratio, and its identity is the series' in
+      order: y on x is not x on y.
+  * **The same bits on every host.** The tests' statistics, hedge ratios,
+    critical values and estimate identities are pinned, computed identically
+    under CPython 3.12, 3.13 and 3.14
+    (`tests/regression/test_econometrics_values_are_pinned.py`).
+  * **Johansen's tests.** `johansen` tests a system of two to twelve series
+    under each of Osterwald-Lenum's five cases (`JohansenCase`), with fixed
+    lags. Each rank's `JohansenRank` has the trace and maximum-eigenvalue
+    statistics with their critical values and p-values, and `JohansenTest`'s
+    estimate has the eigenvalues and normalized eigenvectors with the
+    eigensystem's convergence report. Every value is class 2: the logarithms
+    are `Decimal`'s.
+  * **The Ornstein-Uhlenbeck fit, and its half-life** [OFE-007, reopened by
+    ADR-0074]. `fit_ornstein_uhlenbeck` fits `dX = θ (μ - X) dt + σ dW` by its
+    exact discretisation and returns two estimates:
+    * the AR(1) regression;
+    * `θ`, `μ`, `σ` and the half-life `ln 2 / θ`, each with its delta-method
+      standard error.
+
+    It refuses a coefficient outside `(0, 1)`, where no mean reversion is
+    measured. Every value is class 2. The decay profile in `factor_library`
+    stays the measurement it was.
+  * **The VECM of a stated rank.** `fit_vecm` takes the relations from
+    Johansen's eigenvectors, normalized so that the first `r` series' block is
+    the identity, then fits each equation's `α`, `Γ` and unrestricted terms by
+    least squares, each with its standard error, and the residual covariance.
+    It returns a `VecmFit`, every value class 2.
+  * **ARMA models.** `fit_arma` fits an ARMA(`p`, `q`) about zero or a mean,
+    by conditional least squares (class 2) or the exact Gaussian likelihood
+    by the Kalman filter (class 3). BFGS moves in partial autocorrelations,
+    so every estimate is stationary and invertible. `select_arma` chooses the
+    order by AIC or BIC over a grid, every candidate scored on one sample.
+  * **Vector autoregressions.** `fit_var` fits a VAR by least squares,
+    equation by equation, each coefficient with its standard error, and the
+    residual covariance over `T`. The lags are a fixed count, or AIC or BIC
+    choosing among candidates fitted on one sample, through `Decimal`
+    logarithms of the residual determinant. It returns a `VarFit`, every value
+    class 2.
+  * **GARCH, GJR-GARCH and EGARCH.** `fit_volatility` fits each (1, 1) by
+    Gaussian likelihood, BFGS moving in coordinates admissible by
+    construction: persistence below one, or `|β| < 1`. The start, tolerance,
+    limit and step are stated, and the standard errors invert the curvature.
+    It returns a `VolatilityFit` with the conditional variances and the
+    persistence. The estimate is class 3, with BFGS's convergence report.
+  * **The Kalman filter and the RTS smoother.** `kalman_filter` filters a
+    `LinearGaussianModel` -- the transition, the covariances and the initial
+    state, with the observation matrix given at every step -- in Joseph's
+    form, and `rts_smoother` smooths back to the initial state. For given
+    parameters every mean and covariance is class 2; the log-likelihood is
+    class 3.
+  * **The local level and the time-varying beta.** `fit_local_level` and
+    `fit_time_varying_beta` fit their variances by likelihood from a diffuse
+    start, conditioned exactly on the first observations. In the second,
+    each beta is a random walk and the intercept is absent, fixed or
+    drifting (`Intercept`). A `StateSpaceFit` holds the estimate, class 3
+    with BFGS's report, and the filtered and smoothed states: a pair's
+    hedge ratio, observation by observation. A drift the likelihood cannot
+    inform is refused, to be stated fixed.
+  * **Regime models: the Gaussian HMM and the Markov-switching regression**
+    [OFE-010, reopened by ADR-0075]. `fit_gaussian_hmm` and
+    `fit_markov_switching_regression` fit `K` states by EM, through
+    Hamilton's filter and Kim's smoother, scaled. Each returns a `RegimeFit`:
+    * the estimate: means or coefficients, variances, the transition matrix
+      and the initial distribution, with standard errors from the observed
+      information;
+    * the filtered and smoothed probabilities, and the Viterbi path.
+
+    The states are ordered by mean, the regression's by variance. The start
+    is explicit or `QuantileStart`. A collapsing state is refused with
+    `CollapsedStateError`, which names it. Every value is class 3.
+  * **Fama-MacBeth's two passes** [WS-25]. `factor_library.fama_macbeth`
+    regresses the forward returns across assets on several factor panels at
+    each instant, and averages the coefficients over time. Each factor's
+    premium comes with Newey and West's standard error at a stated lag and
+    its t-statistic. A cross-section too small, or one whose design is
+    ill-conditioned, is skipped and counted by its reason. The estimate is
+    class 2, and its data identity covers every value the regressions read.
+  * **Principal-component factors** [WS-25].
+    `analytics.principal_component_factors` keeps a positive definite
+    covariance's `k` largest principal components as a `FactorStructure`:
+    eigenvector loadings, eigenvalue variances, and the left-out components'
+    share of each asset's variance as its specific variance. A singular
+    covariance is refused, for the caller to regularize with a recorded
+    derivation. Every value is class 2.
+  * **S-02's screen: candidate pairs tested, the family corrected.**
+    `research.cointegration_screen` runs Engle and Granger's test on every
+    candidate pair over one stated sample and corrects the whole family by a
+    stated procedure at a stated level. It returns every pair's result:
+    * the test, its hedge ratio, or why the test refused it;
+    * the corrected family, in which a refused pair counts with a p-value of
+      one and a bounded p-value enters on its conservative side.
+
+    Its `screen_id` covers the pairs, the series' identities over the
+    sample, the choices and the class-2 statistics. The same candidates run
+    as a ledgered experiment's trials, each fitting its pair on its own
+    window, so a selected pair's evidence carries the search behind it.
+  * **The econometrics guide.** `docs/ECONOMETRICS.md` says what each
+    estimator measures, which choices it requires, how to read its result
+    and what it refuses.
+  * **Johansen's tables, verified.** `johansen_critical_values` and
+    `johansen_p_value` read MacKinnon, Haug and Michelis (1996)'s Tables 1 to
+    5, decoded from the paper's own text. They are held three ways: by their
+    structure; by the chi-square rows the theory gives; and by the authors'
+    program's values, as independently transcribed, within 0.035 of each.
+
+* **M6's mutation series** [plan WS-07, WS-25, ADR-0074, ADR-0075].
+  `mutation_v4_3.py` gains the EC series: 40 mutations over every M6 module,
+  each caught by a test that exercises what it breaks.
+  * **Tests added with it.** They hold:
+    * a Viterbi tie going to the lower state;
+    * Fama-MacBeth's standard error as Newey and West's at the stated lag;
+    * the likelihood's curvature of a quadratic as its matrix inverted;
+    * each VAR criterion scored on the maximum order's sample;
+    * the local level's filter at its closed-form steady state.
+  * **An MA(2) recovered.** Flipping the MA polynomial's sign cannot move an
+    MA(1): it only mirrors the coordinate. An MA(2) with complex roots, whose
+    coefficients sum above one, is now among the recovery cases, and only the
+    right sign reaches it.
+
+* **The research model protocol: a trained model is its bytes** [plan WS-08,
+  N8, GAP-12, ADR-0064].
+  * **`ml.Model`.** A model states its `model_kind` and every hyperparameter
+    as a parameter value, and `fit` returns a new fitted model without
+    changing itself. `predict` gives one value per row, a probability for a
+    classifier, and refuses rows that name other features or name them in
+    another order. `capture` gives canonical bytes, and `restore` refuses
+    bytes that are not the model's own capture.
+  * **`ml.TrainingSet`** states its feature names, rows, labels and any
+    positive weights, and its `training_id` is derived from those values.
+  * **The artifact binding.** `ml.train_model` fits, files the capture in an
+    `ArtifactStore` and returns a `TrainingRecord`: the artifact id
+    (`alphalab-artifact:sha256:<hex>`), the kind, the hyperparameters, the seed
+    and the training set's identity. `ml.restore_model` reads the bytes back
+    through the store's verification. A strategy that declares the id among
+    its parameters carries the model in its fingerprint.
+  * **Three reference models, in pure Python, captured as canonical JSON.**
+    * `RidgeRegression`, class 2: the same bytes on every host.
+    * `LogisticRegression`, by Newton's method. Separated classes are refused
+      without a penalty.
+    * `GradientBoostedTrees`, the oracle for boosting adapters. It is class 2
+      with the squared loss, and subsamples by SHA-256 of its seed.
+
+    Their artifacts are pinned under CPython 3.12, 3.13 and 3.14
+    (`tests/regression/test_model_artifacts_are_pinned.py`).
+
+* **Point-in-time labels and panels** [plan WS-08, I.3, GAP-13, ADR-0064].
+  * **Labels that know when they became known.**
+    * `ml.fixed_horizon_labels`.
+    * `ml.triple_barrier_labels`: declared barriers on a declared rolling
+      volatility.
+    * `ml.meta_labels`: the barriers oriented by a primary side.
+
+    Each label carries its start, its end and its return. What cannot be
+    labelled is counted, never invented.
+  * **`ml.average_uniqueness`** weighs labels by how much of what they span
+    they share with no other label, among the rows a training set holds.
+  * **`ml.point_in_time_panel`** joins the factor library's feature panels to
+    labels, event by event.
+    * `known_by` and `at` take rows point-in-time.
+    * `purge_policy` gives research's splitters the label ends.
+    * Changing every price after a boundary changes nothing in the panel
+      known by it (`tests/unit/ml/test_point_in_time.py`).
+
+* **Searches beyond the grid, every configuration counted** [plan WS-08, I.4,
+  N17, ADR-0064].
+  * **Drawn spaces.** `research.random_space` and
+    `research.latin_hypercube_space` draw a `ParameterSpace` over uniform,
+    log-uniform, integer and choice axes. They draw from SHA-256 of the seed,
+    so a space and every trial identity built on it are the same on every
+    host. A log-uniform axis maps through `decimal`'s correctly rounded
+    logarithm.
+  * **Successive halving.** `lifecycle.run_successive_halving` runs
+    `research.SuccessiveHalving`'s rounds. Each round is a child experiment,
+    and keeps the best fraction by `lifecycle.candidate_scores`, the mean
+    score that cross-validation selects by. Every configuration any round
+    evaluated is a trial in the ledger, and the `HalvingRecord` counts them
+    all.
+
+* **Feature Store reads as of an instant** [plan WS-08, I.3, GAP-13,
+  ADR-0064].
+  * **The timeline.** `FeatureStoreState` keeps every approved write in a
+    timeline, each value known from the later of when it was computed and
+    when it was written.
+  * **`feature_store.value_as_of`** returns what a read at an instant would
+    have returned. A backfill written late never answers for an earlier
+    instant.
+  * **`ml.build_dataset_as_of`** builds a dataset as of an instant. Writes
+    after it change nothing in it.
+  * **The old builder.** `build_dataset_from_feature_store`, unchanged, reads
+    the latest writes and is now documented as not point-in-time.
+
+* **The core imports no third-party package** [plan WS-09, AC-38, ADR-0057].
+  * **The sweep.** An AST sweep over every module of `alphalab` holds each
+    import statement, and each import by a name written in the source, to
+    the standard library or AlphaLab itself.
+  * **`tzdata` read as data.** The environment's record of the `tzdata`
+    package's version, the one name the core imported for itself, is now read
+    from the package's source without executing it. The recorded version is
+    the same.
+
+* **The first optional distribution: `alphalab-models`, with a scikit-learn
+  adapter** [plan WS-09, ADR-0057, ADR-0064].
+  * **The distribution.** `distributions/alphalab-models` is a package of its
+    own: version 0.1.0, depending on `alphalab >=4.3,<5`, with scikit-learn as
+    an extra.
+  * **The adapter.** `alphalab_models.sklearn.SklearnModel` wraps any
+    estimator in the model protocol.
+    * It fits a clone, giving it the seed as its `random_state`.
+    * It predicts from named features: a classifier's probability of the
+      label 1, or a regressor's value.
+    * It captures scikit-learn's own pickle under a canonical header of
+      versions and a digest, keeping the bytes it was captured as, since
+      scikit-learn's pickles do not round-trip.
+    * A restore under another scikit-learn version is refused. Restoring
+      unpickles, and the adapter states the trust that needs.
+  * **Its own CI.** It runs in its own cells,
+    `.github/workflows/optional-distributions.yml`, across CPython 3.12 to
+    3.14 and its scikit-learn range. The core's CI installs no optional
+    distribution, and the core's mypy excludes `distributions/`. It is not
+    published (owner decision D-W3).
+
+* **XGBoost and LightGBM adapters, through their own model formats** [plan
+  WS-09, I.2, ADR-0057, ADR-0064].
+  * **The adapters.** `alphalab_models.xgboost.XGBoostModel` wraps
+    `XGBClassifier` and `XGBRegressor`, and
+    `alphalab_models.lightgbm.LightGBMModel` wraps `LGBMClassifier` and
+    `LGBMRegressor`. Each is a new extra, `xgboost` and `lightgbm`.
+  * **The capture.** The payload is the framework's own serialisation:
+    XGBoost's JSON model, or LightGBM's model text. A restore parses it and
+    unpickles nothing.
+  * **The parameters.** The header states the estimator's parameters exactly,
+    and a restore constructs the estimator from them. A parameter that is
+    code, or a mapping, is refused when the model is made.
+  * **Prediction.** A model predicts through the booster its payload loads,
+    after a fit as after a restore. A classifier is binary and predicts the
+    probability of the label 1.
+  * **The seed.** The ledger's 64-bit seeds enter each framework's range:
+    modulo 2**32 for XGBoost, 2**31 for LightGBM. LightGBM records its thread
+    count in the bytes, so the README tells you to state `n_jobs`.
+  * **Its CI.** The cells run the latest of scikit-learn, XGBoost and LightGBM
+    on CPython 3.12 to 3.14, and the lowest declared on 3.12: scikit-learn 1.7,
+    XGBoost 3.0, LightGBM 4.6. The README's compatibility matrix states the
+    ranges.
+
+* **S-07: supervised research end to end** [plan S-07, WS-08, WS-09,
+  ADR-0064].
+  * **`examples/81_search_train_and_trade_a_model.py`.**
+    * A momentum rule's side is meta-labelled by a triple barrier and joined
+      to the features known at each event.
+    * The core's gradient-boosted classifier is searched by successive
+      halving over purged cross-validated backtests. All 33 trials are
+      counted, and the lockbox is held back from every one of them.
+    * The chosen configuration is trained on every label known before the
+      lockbox, filed by its bytes, traded by its artifact id and restored byte
+      for byte, and the lockbox is read once.
+    * Another artifact is `INPUTS_DIFFER`. A rerun with the same one is
+      `REPRODUCED`.
+  * **The tests.** `tests/integration/test_supervised_research_end_to_end.py`
+    holds it. So does `alphalab-models`' suite, with each framework's boosting
+    classifier: scikit-learn's, XGBoost's and LightGBM's. The example joins the
+    installed smoke test.
+  * **What it found.**
+    * The example's first runner fitted labels realized inside the lockbox. A
+      runner now takes only labels known before it.
+    * The adapter passed the ledger's 64-bit seeds to scikit-learn unchanged.
+      They now enter modulo 2**32.
+    * It also read any `TypeError` as a missing `sample_weight`. It now asks
+      `has_fit_parameter`.
+  * **The halving record.** `lifecycle.HalvingRound` keeps the round's
+    experiment, so a lockbox is read through the last round.
+
+* **The machine-learning guide** [plan WS-20, GAP-49]. `docs/ML.md` covers:
+  * the model protocol and the reference models, each with its numerical
+    class;
+  * filing, declaring and restoring a model by its bytes;
+  * labels that carry when they became known, point-in-time panels and
+    weights by uniqueness;
+  * searches counted in the ledger;
+  * framework adapters, and the trust a restore needs;
+  * S-07 end to end.
+
+  The deep-learning and reinforcement-learning guides are M12's.
+* **WS-08's dataset budget** [plan WS-08 item 15].
+  `benchmarks/benchmark_ml_datasets.py` builds a point-in-time training set
+  for 500 assets over 2,520 days and judges the build against 60 seconds. The
+  build covers two feature panels, triple-barrier labels, the panel, and its
+  uniqueness weights.
+* **M7's mutation series** [plan WS-08, WS-09, ADR-0064].
+  `mutation_v4_3.py` gains the ML series: 35 mutations over every M7 module,
+  each caught by a test that exercises what it breaks.
+  * **Tests added with it.** They hold:
+    * a logistic fit stopping at the first Newton step within its
+      tolerance, never a step early;
+    * a candidate that failed one fold left unscored, never given the mean of
+      the folds it completed;
+    * the volatility estimate unmoved by closes after its event.
+  * **A false catch, restated.** One mutant called a function `labels.py`
+    never imports, so every test it failed raised a `NameError`, not the
+    defect. It is restated in the module's own names. A sweep of every
+    mutation in the table found no other mutant calling a name its module
+    lacks.
+
+* **The capture's trace, written faster, byte for byte** [PC-07, ADR-0055].
+  At M5's checkpoint, a hosted runner measured series and trace at 15.0
+  percent of a run at one trade density (CPython 3.12, Ubuntu): over PC-07's
+  ceiling, a failed gate taken to the owner. Every change below leaves the
+  trace's text as it was, so every pinned `trace_id` holds. PC-07's limits
+  are unchanged.
+  * **One lookup, one template.** The trace's writer finds each value's
+    writer in one lookup by its exact type, and writes each record from one
+    template. On the reference machine series and trace cost 10.9 to 12.8
+    percent, from 12.1 to 13.3. The owner approved this change on 2026-11-16.
+    Hosted runners then read 11.9 to 16.8 percent on CPython 3.12, over the
+    ceiling at a trade on every eighth record, a failed gate. They read 10.8 to
+    13.1 percent on CPython 3.13 and 10.7 to 14.7 on 3.14.
+  * **The chain in batches.** The trace takes each step's entries as the step
+    ends and computes their links 64 steps at a time: one link per step, in
+    step order, as before. A link computed between two of the run's steps ran
+    on code and data the step had pushed out of the processor's caches. A step
+    the trace cannot write still fails the capture before anything the run did
+    after it. A log the run left as it was is no longer read, and a log the run
+    grew is read in one call (`append_log._since`). On the reference machine
+    series and trace cost 7.6 to 8.9 percent.
+  * **Measured on hosted runners.** In benchmarks run 43794814136 on
+    `61b4793`, series and trace read 7.6, 7.3, 8.0 and 7.8 percent on CPython
+    3.12 (Linux), 10.5, 8.2, 8.4 and 9.2 on 3.13, and 7.0, 9.5, 9.1 and 8.5 on
+    3.14, at a trade every 1, 2, 4 and 8 records. On macOS the same run read
+    figures that cannot all be true. Two cells exceeded the ceiling, at 15.5,
+    22.2 and 25.3 percent, beside a series alone dearer than series and trace,
+    which include it, and a capture cheaper than none. Those are failed gates,
+    recorded as such. The capture benchmark now keeps the fastest of nine
+    samples, not three (TD-35), and hosted macOS runs only that benchmark.
+  * **Judged on paired ratios.** On nine samples (benchmarks run 43818953549,
+    `0095775`) macOS still read impossible figures. On 3.12 it read 16.8
+    percent at one density, a failed gate, beside a series alone dearer than
+    series and trace. On 3.14 it read series and trace at -6.7 percent, and on
+    3.13 at -7.9, a run the old verdict passed though it proved nothing. The
+    benchmark now runs the four workloads back to back in each of nine rounds
+    and judges the median of each round's ratio. A figure that contradicts
+    another fails as INCONSISTENT, beside any limit it is over (TD-36). On the
+    reference machine series and trace read 7.5 to 8.7 percent this way, and
+    the series alone 1.2 to 3.6.
+  * **PC-07 passed, judged on hosted Linux** (the owner's decision,
+    2026-11-16).
+    * **Linux decides.** Hosted Linux x86-64 under CPython 3.12, 3.13 and 3.14
+      is authoritative, judged by the paired median on unrounded figures, with
+      the 10 and 15 percent limits unchanged.
+    * **The reference machine monitors.** A fixed, documented machine reads the
+      benchmark for regressions and comparison, never in place of a failed
+      Linux gate.
+    * **macOS reports only.** Its timing is diagnostic: printed, an unreliable
+      figure named so, never a pass. macOS stays in the functional CI matrix.
+    * **The result.** In benchmarks run 43821336553 (`3a95cef`) every Linux
+      cell passed. The series alone read at most 4.55 percent and series and
+      trace at most 9.92 (CPython 3.12, a trade every 2 records).
+
+* **Fill at the next open** [plan WS-11, GAP-18, ADR-0060, D-V4].
+  `FillTiming.NEXT_OPEN` holds every simulated order to its asset's next event,
+  as `NEXT_EVENT` does. There, a market order's turn at a bar fills at the bar's
+  **open**, where `NEXT_EVENT` fills it at the close. That is what an order sent
+  after one close meets at the next open, a gap included.
+  * **The fill's record.** It is stamped at the event that delivered the bar,
+    as an `OPG` auction fill is. Limit and stop orders, which already meet the
+    next bar from its open, are unchanged, and a quote, trade or tick has no
+    open.
+  * **The intraday opening rule.** With a calendar declared for the listing
+    venue, a pre- or post-market bar gives no order a turn, though what is due
+    still expires. So an order decided after a session's last bar fills at the
+    next session's first bar's open.
+  * **What does not change.** The default stays `SAME_EVENT` throughout 4.x;
+    5.0 makes `fill_timing` required (D-V4).
+  * **The pipeline snapshot's version 9.** It is written only when a run
+    declares one of M8's execution options, so a run declaring none still
+    writes version 8, byte for byte. A payload whose version is not the one its
+    configuration implies is refused.
+  * **The tests.** Hand-calculated fills at daily and one-minute bars across a
+    session boundary are held by `tests/regression/test_next_open.py`. The
+    independent accounting ledger now holds daily bars under every fill timing,
+    each fill's price checked against its timing's rule.
+
+* **A remainder can keep working, and a cap can refuse data without sizes**
+  [plan WS-11, GAP-38, ADR-0060].
+  * **`RestRemainder`.** It is declared on `ExecutionPipelineConfig.remainder`
+    as `RestRemainder(events=n)` or `RestRemainder(seconds=s)`. What a partial
+    fill leaves of a market order then keeps working, a market attempt at each
+    of its asset's following events, for `n` of them or `s` seconds. A turn
+    that fills nothing counts against the rest. When the rest ends, the
+    remainder is cancelled and its reservation freed.
+  * **What does not change.** Without the policy, a remainder is cancelled in
+    the step that partially filled it, as before (ADR-0014 decision 3). An
+    immediate-or-cancel or fill-or-kill order is withdrawn after its first turn
+    whatever the policy.
+  * **What is recorded.** Each order's allowance lives in its metadata, which
+    the OMS snapshot already carries, through `OMSEngine.annotate`. That
+    transition logs no event. `execution_assumptions` appends the policy to the
+    fill policy's description only when declared, so every experiment identity
+    holds.
+  * **`StrictLiquidityCappedFill`.** `LiquidityCappedFill`'s cap, refusing an
+    event that shows no size with an `ExecutionValidationError` that names the
+    asset and instant, where the lenient cap fills in full. It is a new class,
+    since a new field on `LiquidityCappedFill` would move every capped run's
+    identity.
+  * **The tests.** `tests/regression/test_remainders_and_strict_caps.py` holds
+    hand-calculated fills. The independent ledger draws each remainder policy.
+
+* **Latency can keep an order from the market** [plan WS-11, GAP-19, ADR-0060].
+  `ExecutionPipelineConfig.latency_pricing` says what the simulator's latency
+  model does.
+  * **`LatencyPricing.STAMP`, the default.** The latency moves a fill's
+    timestamp and nothing else, as before.
+  * **`LatencyPricing.POST_LATENCY_EVENT`.** No order meets the market before
+    its latency has passed. Its first turn is its asset's first event at or
+    after the decision instant plus the latency model's draw for the order,
+    and the fill is stamped at that event. Events before then pass it by, so a
+    latency longer than a bar fills at a later bar's price.
+  * **An order arriving within a bar.** At the intraday bar its latency ends
+    within, the order meets the bar's close alone, as an order placed at that
+    bar does: the bar's open and range came before it was in the market. Under
+    `NEXT_OPEN` too it fills at that close, never at an open from before it
+    arrived. A daily-or-longer bar is a session, met from its open.
+  * **On its way.** The order has no turn and no queue place, and starts from
+    an unknown queue when it reaches the market. A day order whose session
+    closes meanwhile expires. One reaching the market after a halt has ended
+    did not wait for the reopening auction.
+  * **What does not change.** A same-event order with no latency trades at its
+    event. An execution plan's children are worked at the events their
+    algorithm schedules.
+  * **What is recorded.** The order's ready instant and first turn live in its
+    metadata. The pipeline snapshot writes the pricing only when declared, at
+    version 9, and `execution_assumptions` appends it to the latency's
+    description only when declared.
+  * **The tests.** `tests/regression/test_latency_pricing.py` holds
+    hand-calculated fills. The independent ledger draws each pricing and checks
+    that no fill comes before its order's latency has passed.
+
+* **An execution plan's children wait their turn in the queue**
+  [plan WS-11, GAP-44, ADR-0061]. `BacktestEngine.run`, `ReplayBacktest.run`,
+  `run_captured` and `alphalab.api.backtest` take an execution plan and a queue
+  model together, where they refused the pair. The result is an
+  `AlgorithmicQueuedResult`: an `AlgorithmicResult` that holds the queue book
+  too, its execution assumptions naming the model.
+  * **Which children.** The plan's limit children, which can rest. Each joins
+    its price level's queue from the event it was released at, and fills only
+    as far as the model says has reached the front, the fill policy deciding
+    within that. `ExecutionPipeline.work_child` takes the model's answer as
+    `queue_turn`. Market children never rest and are unchanged.
+  * **What the book keeps.** A place for each limit child still working: an
+    expired slice, or a filled or cancelled child, leaves it. A paused replay
+    keeps both books, in the fields its payload already had, and resumes to the
+    same result.
+  * **What does not change.** A queue model is still refused on a run that
+    routes to a venue. A run given only a plan, or only a queue model, keeps its
+    result type and identities.
+  * **The tests.** `tests/integration/test_plans_with_queues.py` holds
+    hand-calculated fills from the queue suite's records.
+
+* **A strategy hears its children's fills** [plan WS-10, GAP-45, ADR-0061].
+  Under an execution plan a strategy's order is a parent, worked in children.
+  A strategy that defines `on_child_fill` and subscribes to `child_fills` (or
+  `*`) now hears each child's fill at the event it happened, where until now it
+  learned of them only through its book.
+  * **`ChildFillStrategyProtocol` and `ChildFillReceived`.** The event carries
+    the child, the parent order, the fill, its price, the parent's side and the
+    strategy's signed share, divided as a `FillEvent`'s is.
+    `defines_on_child_fill` says whether a strategy has the hook, and
+    `BaseStrategy`'s answers nothing. `Topic` gains `CHILD_FILLS`, appended.
+  * **An answer is an intent like any other.** It rests until its asset's next
+    event; under a plan a new order is a parent the plan then works.
+    `ExecutionPipeline.deliver_child_fills` delivers and routes; the
+    algorithmic driver's `work` takes the context factory as a keyword, and
+    both historical drivers give it.
+  * **The pattern, codified.** A strategy capability added after the ten hooks
+    is an optional protocol with its own ADR, dispatched only to the strategies
+    that define its hook, never a new method on `StrategyProtocol`. The strategy
+    package's documentation and `docs/COMPOSING_STRATEGIES.md` state it.
+  * **What does not change.** `StrategyProtocol`, and every run whose strategies
+    do not define the hook.
+  * **The tests.** `tests/integration/test_child_fill_feedback.py` holds
+    hand-calculated deliveries from the queue suite's records.
+
+* **A package trades its legs together, all or none** [plan WS-11, GAP-26,
+  ADR-0062]. An intent of `IntentKind.PACKAGE` names its legs in `Intent.legs`,
+  each a `Leg(instrument, ratio)`. Its `target` is the signed number of
+  packages, so a leg trades `target * strength * ratio`.
+  * **Netted whole, approved whole.** Packages with the same legs and terms net
+    across strategies, and never with an order for one instrument. Each is
+    allocated as its legs at their ratios whatever the run's sizing model, and
+    risk approves or refuses it as one decision.
+  * **Filled at one instant.** The legs are linked orders, worked only
+    together, at the close of an instant that priced every leg, under the run's
+    fill timing. Every leg fills in full or none does. Under `CANCEL` an
+    unfilled package is withdrawn whole; under a resting remainder it keeps its
+    turns. `RunEngine.close_slice` and `ExecutionPipeline.close_slice` do this
+    work, and `close_slice` takes the run's fill policy as a keyword.
+  * **Refused whole, and recorded.** A package of fewer than two legs, a leg
+    twice, a zero ratio, an unpriced leg, terms other than a market order's, a
+    leg off the run's whole units, or under an execution plan or a venue is
+    refused and recorded as a `PackageRefused`. A cancel or amend naming one leg
+    is refused.
+  * **What is recorded.** Each leg's metadata holds its package, and each leg's
+    `FillEvent` and `OrderEvent` carry `package_id`. No snapshot schema moves,
+    and a run that places no package is unchanged.
+  * **The tests.** `tests/integration/test_package_intents.py` holds
+    hand-calculated fills of a pair.
+
+* **The conservative choice in one call** [plan WS-11, GAP-53, ADR-0060].
+  `alphalab.runtime.conservative_execution(pipeline, *, costs,
+  participation_rate, latency)` returns a pipeline configuration and a fill
+  policy that assume nothing generous. They fill at the next open
+  (`NEXT_OPEN`), keep an order from the market until its latency has passed
+  (`POST_LATENCY_EVENT`), and take no more than `participation_rate` of what
+  an event shows (`StrictLiquidityCappedFill`).
+  * **What it requires.** The costs, the participation rate and the latency
+    are the researcher's to state: a cost model that charges nothing is
+    refused, since a builder that invented costs would put a number nobody
+    chose into a run.
+  * **What does not change.** Every default. The builder states its choices,
+    and `execution_assumptions` reports them, its `optimistic` empty.
+  * **The tests.** `tests/regression/test_conservative_execution.py` holds a
+    hand-calculated run.
+
+* **An execution model per venue** [plan WS-26, GAP-17, FUT-045, ADR-0061].
+  `ExecutionPipelineConfig.venues` maps each declared venue's code to a
+  `VenueExecution`, the simulator whose costs and latency fill the orders
+  routed there. Empty, the default, is one simulator for every order, as
+  before.
+  * **Every simulated order is routed.** It goes to the venue its new
+    `OrderTerms.venue` names, else to the venue the run's `router` chooses
+    (`CheapestVenue`, by each venue's own cost model at the deciding event),
+    else to its instrument's listing venue when declared. One none of these
+    routes is refused, never filled by a model nobody chose.
+  * **The routed venue's model fills it.** Its simulator prices and stamps the
+    fill, and the report carries the venue, so a run's costs reconcile per
+    venue. Each order records where it went, how and when, in its metadata. A
+    plan's children fill on their parent's venue, and a package's legs are
+    routed each.
+  * **Crypto venues.** `alphalab.crypto.crypto_venue_execution` builds a
+    venue's model from its `VenueSpecification`'s fees.
+  * **What is recorded.** The pipeline snapshot writes the venues and the
+    router only when declared, at version 9, and `RuntimeObjects` supplies
+    them back on restore, each held to its description. `execution_assumptions`
+    describes them only when declared. FUT-045 is delivered.
+  * **What does not change.** A run declaring no venue keeps its record,
+    payloads and identities, and an order's terms naming no venue keep their
+    form. The signatures that show default terms -- `Intent`'s and
+    `OrderRequest`'s -- now show `venue=None` among them.
+  * **The tests.** `tests/regression/test_per_venue_execution.py` holds
+    hand-calculated fills at two venues.
+
+* **`examples/82_research_execution_across_venues.py`** [plan S-09 and GR-4,
+  WS-26, ADR-0060, ADR-0061]. One purchase researched across two declared
+  venues with stated costs.
+  * **Queued children at each venue.** A TWAP of limit children waits its turn
+    in a queue model at ALPHA, at BETA, and routed between them. Each run's
+    commission is attributed to its venue, and its implementation shortfall is
+    measured.
+  * **A router is what it prices.** `CheapestVenue` prices taking the market,
+    and routes the passive order to the venue where it then pays more.
+  * **Latency priced.** A market order kept from the market by its venue's
+    ninety seconds fills at a later bar than a stamp would say.
+  * **GR-4.** A two-venue run's commissions and spend reconcile venue by venue.
+  * **The tests.** `tests/integration/test_execution_research_end_to_end.py`
+    holds every figure by hand, and the example joins the installed smoke test.
+
+* **The execution-realism guide** [plan WS-11, GAP-53]. `docs/EXECUTION_REALISM.md`
+  sets out what a simulated fill assumes by default and how to state the
+  cautious choice in each role. It covers fill timing and the next open, fill
+  policies and resting remainders, latency pricing, `conservative_execution`,
+  queues, plans and their children's fills, package intents, and an execution
+  model per venue with routing, with what each records and what is not here.
+
+## Changed
+
+* **A release is developed under its own version** [plan WS-29]. The package
+  reports 4.3.0 while 4.3.0 is developed, so the records that move with the
+  code are this release's as they change: the public-API manifest and its
+  history copy (`docs/api/history/4.3.0.json`), the release certificate, and
+  the ledger, which takes no finding for a release beyond the package's.
+  Until now the suite held every commit to the release state (ledger DOC-013,
+  TST-024), so a name added during development failed it until the version was
+  bumped at the end. The tree states which it is: a development tree leads its
+  CHANGELOG with `# [4.3.0] - Unreleased`, and
+  `release_preflight.development_problems` -- run by the suite -- holds it to
+  everything a release is held to but that heading's date. The release gate,
+  `release_preflight.py version`, is unchanged and refuses the tree for that
+  heading, so a development tree is never tagged or published. The documents
+  a reader installs from -- the README, `docs/INTEGRATION.md`, the version
+  markers -- keep describing 4.2.1, the release that can be installed, until
+  the release commit dates the heading and moves them; none may call 4.3.0
+  unreleased or a candidate, which is what v4.2.0 was published saying.
+  `.github/workflows/preflight.yml` expects 4.3.0, and its push route names
+  `work/v4.3.0-release`: the development branch never triggers it (plan
+  decision D-W1).
+
+## Deprecated
+
+* **`ml`'s duplicate helpers and splitters** [plan H.1, V.3, GAP-48,
+  ADR-0058, ADR-0064 settled point 23]. They are deprecated since 4.3 and
+  removed in 5.0. Each keeps its behaviour, and its docstring names its
+  replacement:
+
+  | Deprecated | Use instead |
+  | --- | --- |
+  | `ml.matrix_inverse` | `common.linalg.least_squares` or `cholesky` to solve; `pseudo_inverse` where the inverse is wanted |
+  | `ml.transpose`, `ml.matmul`, `ml.identity` | The standard-library expressions their docstrings give, which return the same values |
+  | `ml.walk_forward_split` | `research.walk_forward_splits`, or `research.cross_validation_splits` with `CVMethod.EXPANDING` or `ROLLING` |
+  | `ml.k_fold_split` | `research.cross_validation_splits` with `CVMethod.PURGED` |
+
+  The deprecation is documented, not warned: the package raises no warning, a
+  rule its suite has held since v2.17. Nothing in the library calls them, as a
+  regression test holds. `ml.Matrix` is not deprecated.
+
+## Fixed
+
+* **A design with a dependent column is refused as ill-conditioned** [NUM-018].
+  `common.linalg.least_squares` documents that a rank-deficient design -- a
+  regressor beside a multiple of itself -- is refused with
+  `IllConditionedError`. For many such designs it raised instead that the
+  singular values had not converged: two exactly parallel columns leave a
+  column of rounding noise, and one-sided Jacobi's relative criterion cycles
+  on noise. `singular_values` failed the same way on such a matrix.
+  * **No converging input changes.** Every matrix that meets the strict
+    criterion gets it alone, as before, so every pinned value holds.
+  * **Only after 64 sweeps.** A matrix that has not settled by then has any
+    column within the sweeps' own backward-error bound of zero left out of
+    further rotations, and its norm is reported.
+
+* **Example 39 says what its output shows** [DOC-015]. It printed a bond's
+  accrued interest under each day count and said "three answers", but
+  ACT/365F and ACT/360 gave the same accrual: a bond accrues the fraction of
+  its coupon period elapsed, so an actual-day basis's year cancels and only
+  the 30/360 family differs. It now says so, prints BUS/252's refusal, and the
+  false statement is pinned absent
+  (`tests/regression/test_corrected_statements_stay_corrected.py`).
+
+* **An unseeded run no longer borrows the identifier stream around it**
+  [DET-007, plan WS-02]. `id_scope(None)` -- how every driver opens an
+  unseeded run's scope -- did nothing, so a run declared unseeded but started
+  inside another seeded scope minted from that scope's stream. Its
+  identifiers looked reproducible and were not its own, and every identifier
+  the outer scope minted after it moved. The scope now installs `uuid4`, as
+  its docstring and ARCHITECTURE said it did, and the outer stream advances by
+  exactly zero across it, for the backtest, the replay and the session
+  (`tests/regression/test_unseeded_scopes_are_isolated.py`, which fails on the
+  parent commit). Seeded runs are unchanged, and so is every certified
+  identity: the certificate's evidence did not move, only the source digest it
+  names. An unseeded run that relied on an outer scope for reproducible
+  identifiers now mints from `uuid4`; give it its own seed instead.
+* **A tracker run and a research job are identified by what they are**
+  [DET-007, plan D-54-7]. `experiment_tracking.start_run` and
+  `cloud_research.submit_research_job` drew their identifiers from the
+  ambient stream: inside a seeded scope each consumed one of that scope's
+  identifiers, and outside one the same record had a new identity every time
+  it was made. Both now derive the identifier as an instrument's `asset_id`
+  is derived (ADR-0016): `uuid5` over a canonical key holding a scheme tag
+  (`alphalab.experiment_run.v1`, `alphalab.research_job.v1`), the record's
+  place in its tracker or cluster, and what it declares (a job's arguments
+  excepted). Starting a run draws nothing from any stream; a submission draws
+  only the stamp of its queue event, as every engine's events are stamped. A
+  lifecycle that tracks experiments now reproduces byte for byte without a
+  seed (`tests/regression/test_registries_derive_their_ids.py`,
+  `tests/unit/lifecycle/test_lifecycle_serialization.py`). Identifiers
+  already recorded are read as they were; new ones are derived.
+* **Documents that told strategy authors and security readers what the code
+  does not do** [plan WS-20, GAP-30's High items]. COMPOSING said a refused
+  amend loses the original order; the order keeps working (CON-X4,
+  FUT-031). `nowandfuture.md` said three strategy hooks are never invoked;
+  all ten are delivered (CON-N2, EXE-005). The capability matrix, and an
+  example's comment, described the position check's v3.10-era defect as
+  current (CON-X1, KD-001). VISION listed an HMAC-signed venue transport the
+  library no longer ships. CONTRIBUTING invited broker and data-provider
+  adapters, which belong to the host (CON-X14). ARCHITECTURE said loading
+  code is the host's without naming `cloud_research.resolve_task`, the one
+  exception (CON-A5, BDY-028), and its authoritative status section had no
+  word on v4.2 (CON-A15). Each statement was corrected against the code, and
+  `tests/regression/test_corrected_statements_stay_corrected.py` keeps the
+  false ones out and requires the status section to describe the current
+  minor release.
+
+* **The normal CDF keeps its lower tail** [NUM-017]. `common.statistics.normal_cdf`
+  was the standard library's `NormalDist.cdf`, `(1 + erf(x / √2)) / 2`, whose
+  relative error below 0 grew to `4e-11` at `-5` and two percent at `-8`, and
+  which returned exactly 0 below about `-8.3`. Below 0 it is now
+  `erfc(-x / √2) / 2`. At and above 0 it is unchanged, value for value, so a
+  probabilistic or deflated Sharpe ratio above one half is unchanged too, and
+  one far below its benchmark is a small probability rather than zero
+  (`tests/regression/test_normal_cdf_keeps_its_lower_tail.py`).
+
+* **A schedule allocates the same for every caller** [EXE-015].
+  `execution.plan_schedule` ranked its remainders by a sort key that negated
+  each `Decimal`, and a negation rounds to the caller's context. Inside a run,
+  which is pinned to 34 digits, ten units over a TWAP's three slices are
+  `3, 4, 3`; called directly under the default 28 digits, they were `4, 3, 3`.
+  The ranking now compares the remainders exactly, so a direct call allocates
+  as a run does, under any context. No run's allocation, and no `result_id`,
+  moves. Equal slices tying exactly would change existing runs, and is FUT-048,
+  for 5.0.
+
+## Security
+
+* **The HTTP transport opens `http://` and `https://` only** [SEC-002, plan
+  WS-23]. `alphalab.marketdata.HttpTransport.get` passed its URL to `urllib`,
+  which also opens `file://`, `ftp://` and `data:` URLs: given
+  `file:///etc/hosts` it returned the file's bytes as if a provider had sent
+  them. A transport's URL is configuration, so this is a trust boundary of
+  the class BDY-028 named. Every other URL, and one with no host, is now
+  refused with a `MarketDataError` before anything is opened, and a redirect
+  is followed only to `http://` or `https://`, checked before `urllib`'s own
+  rules (which would follow `ftp://`). An `https://` request still carries
+  AlphaLab's TLS policy. `SECURITY.md` says so (CON-X16), and
+  `tests/unit/marketdata/test_http_transport.py` holds it against a loopback
+  provider; it fails on the parent commit.
+
+* **A research cluster runs a task by name** [SEC-001, GAP-05, plan WS-23 and
+  D-54-6, ledger BDY-028]. `cloud_research.run_cluster_cycle` takes a
+  `registry`, and looks each job's task up in it by name. A name it does not
+  hold -- a dotted path to a real, importable function included -- fails the
+  job before anything is imported or submitted, and nothing is resolved as a
+  path. The cycle also takes `assign`, the `AssignmentPolicy` its workers
+  follow, `cluster_scheduler`'s included. Without a registry a task is a
+  dotted path, resolved as before: `resolve_task` is superseded and stays
+  until 5.0 (`tests/unit/cloud_research/test_registered_tasks.py`).
+
+---
+
 # [4.2.1] - 2026-11-09
 
 **A documentation and release-integrity patch: the 4.2 release's own documents
