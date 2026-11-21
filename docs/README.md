@@ -54,6 +54,7 @@ Reference
 | `SELECTION_BIAS.md` | Reading the selection statistics -- PBO, the deflated Sharpe ratio, the Reality Check, SPA and MinTRL: what each measures, assumes and does not say (v4.3) |
 | `ECONOMETRICS.md` | Time-series estimation with an identity: unit roots, cointegration and the VECM, the Ornstein-Uhlenbeck half-life, VARs, the GARCH family, state space, regime models, Fama-MacBeth and principal components, and screening many pairs with the family counted (v4.3) |
 | `ML.md` | Machine learning where a trained model is its bytes: the model protocol and the reference models, filing and restoring artifacts, labels that know when they became known, point-in-time panels and purged splits, searches counted in the ledger, framework adapters and their trust, and S-07 end to end (v4.3) |
+| `EXECUTION_REALISM.md` | What a simulated fill assumes, and how to state it: fill timing and the next open, fill policies and resting remainders, latency pricing, the conservative builder, queues, plans and their children's fills, package intents, and an execution model per venue with routing, S-09 end to end (v4.3) |
 | `EXAMPLES.md` | End-to-end examples covering research, backtesting, portfolio optimization, and production workflows |
 | `api/PUBLIC_API.md` | The public API, its manifest, and the stability policy from v4.0 |
 | `INTEGRATION.md` | Depending on AlphaLab from an application: how to install a release, the tested Python, and what an application may rely on |

@@ -2152,6 +2152,11 @@
           "milestone": "M8",
           "item": "conservative_execution (TD-66, ADR-0060 settled point 4, GAP-53): NEXT_OPEN, POST_LATENCY_EVENT and a strict cap with the researcher's costs, participation and latency; a frictionless cost model refused; no default changed",
           "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M8",
+          "item": "The execution-realism guide (GAP-53): docs/EXECUTION_REALISM.md -- the defaults and what they assume, fill timing, fill policies and remainders, latency pricing, conservative_execution, queues, plans and child fills, packages, venues and routing, what is recorded, and what is not here",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -2473,7 +2478,7 @@
         {
           "milestone": "M8",
           "item": "S-09 and GR-4 (ADR-0061 settled point 4): examples/82_research_execution_across_venues.py -- queued TWAP children at two declared venues and routed, commissions per venue, implementation shortfall, latency-priced fills, and a two-venue run reconciled venue by venue; in the installed smoke test",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": []
@@ -3154,8 +3159,8 @@
       "id": "GAP-53",
       "problem": "Optimistic default execution choices (same-event, frictionless, fill-on-touch, static full fill), all stated in `execution_assumptions`",
       "severity": "M/P1",
-      "status": "Open",
-      "status_note": "New (audit §H grouping). The builder is implemented at M8 (TD-66): conservative_execution states NEXT_OPEN, POST_LATENCY_EVENT and a strict cap with the researcher's costs, participation and latency. Closes with M8's execution guide, which documents it; 5.0's required fill timing is D-V4's.",
+      "status": "Closed",
+      "status_note": "Closed at M8 (WS-11, ADR-0060, TD-66): conservative_execution states the cautious choice in every execution role, and docs/EXECUTION_REALISM.md documents it beside every default it replaces; the default stays SAME_EVENT in 4.x and 5.0 makes the fill timing required (D-V4).",
       "workstreams": [
         "WS-11"
       ],
@@ -3376,7 +3381,7 @@
   },
   "state": {
     "updated": "2026-11-21",
-    "remote_head": "b91fc0f",
+    "remote_head": "d9c22e9",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4481,11 +4486,29 @@
         "sha": "b91fc0f",
         "workflow": "Continuous Integration",
         "run": 44894642984,
+        "result": "macOS 3.12 and 3.13 passed; four cells running at this record, not counted as passed"
+      },
+      {
+        "sha": "b91fc0f",
+        "workflow": "CodeQL",
+        "run": 44894642927,
+        "result": "success"
+      },
+      {
+        "sha": "b91fc0f",
+        "workflow": "Optional Distributions",
+        "run": 44894642932,
+        "result": "success"
+      },
+      {
+        "sha": "d9c22e9",
+        "workflow": "Continuous Integration",
+        "run": 44895361364,
         "result": "queued at this record, not counted as passed"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M8: the execution guide, which closes GAP-53; M8's mutation series and close. b91fc0f's CI is read once at the next boundary.",
+    "next": "M8's mutation series (mutation_v4_3.py, the execution series) and close: the milestone's deliverables listed from WS-10, WS-11 and WS-26 and ADR-0060, ADR-0061 and ADR-0062 before it closes. b91fc0f's and d9c22e9's CI are read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -4876,6 +4899,10 @@
     {
       "date": "2026-11-21",
       "entry": "b91fc0f (per-venue execution, TD-67) passed the full gate on its second run (14,235 tests) and was pushed. S-09 and GR-4 validated locally: example 82 researches one purchase across two declared venues, and its test holds every figure by hand. The scenario's finding is stated rather than repaired: CheapestVenue prices taking the market, so it routes a passive limit order to the venue where the order then pays more. GAP-17 closes with GR-4."
+    },
+    {
+      "date": "2026-11-21",
+      "entry": "d9c22e9 (S-09 and GR-4) passed the full gate on its first run (14,242 tests) and was pushed; the distribution smoke now runs examples 11 and 70 to 82. The execution-realism guide validated locally: docs/EXECUTION_REALISM.md sets out each generous default beside the cautious choice that replaces it, and closes GAP-53 with the conservative builder it documents. The guide's first gate failed on formatting alone: ruff formats the Python blocks in a guide too, and one was hand-aligned."
     }
   ]
 }

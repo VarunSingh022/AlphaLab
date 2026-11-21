@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `b91fc0f` |
+| Remote head | `d9c22e9` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M8: the execution guide, which closes GAP-53; M8's mutation series and close. b91fc0f's CI is read once at the next boundary. |
+| Next | M8's mutation series (mutation_v4_3.py, the execution series) and close: the milestone's deliverables listed from WS-10, WS-11 and WS-26 and ADR-0060, ADR-0061 and ADR-0062 before it closes. b91fc0f's and d9c22e9's CI are read once at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -235,7 +235,10 @@ Never:
 | `e822fc1` | Continuous Integration | 44877004076 | success: all six quality-gate cells |
 | `e822fc1` | CodeQL | 44877004135 | success |
 | `e822fc1` | Optional Distributions | 44877004058 | success |
-| `b91fc0f` | Continuous Integration | 44894642984 | queued at this record, not counted as passed |
+| `b91fc0f` | Continuous Integration | 44894642984 | macOS 3.12 and 3.13 passed; four cells running at this record, not counted as passed |
+| `b91fc0f` | CodeQL | 44894642927 | success |
+| `b91fc0f` | Optional Distributions | 44894642932 | success |
+| `d9c22e9` | Continuous Integration | 44895361364 | queued at this record, not counted as passed |
 
 ## Continuation log
 
@@ -336,6 +339,7 @@ Never:
 - **2026-11-21** 338beb6 (package intents, TD-65) passed the full gate on its second run and was pushed. The conservative builder validated locally (TD-66): conservative_execution states the conservative choice in every execution role from the researcher's own costs, participation and latency, refuses a cost model that charges nothing, and changes no default.
 - **2026-11-21** e822fc1 (the conservative builder, TD-66) passed the full gate on its first run (14,222 tests) and was pushed; 338beb6's and e822fc1's runs passed all six cells, so package intents and the builder are Hosted CI passed. Per-venue execution models validated locally (TD-67): every simulated order is routed before risk to a declared venue -- by its terms, the router or its listing venue -- and filled by that venue's model, its routing record in its metadata. OrderTerms is persisted in allocation's events and the algorithm book, so its new venue is written only when set and every earlier payload keeps its bytes. FUT-045 is implemented and leaves ROADMAP's Future work, as the ledger's own check requires. The commit's first gate failed on one test: OrderRequest's signature, whose default terms now show venue=None, was not named in the CHANGELOG. The local check had run another file in place of that test.
 - **2026-11-21** b91fc0f (per-venue execution, TD-67) passed the full gate on its second run (14,235 tests) and was pushed. S-09 and GR-4 validated locally: example 82 researches one purchase across two declared venues, and its test holds every figure by hand. The scenario's finding is stated rather than repaired: CheapestVenue prices taking the market, so it routes a passive limit order to the venue where the order then pays more. GAP-17 closes with GR-4.
+- **2026-11-21** d9c22e9 (S-09 and GR-4) passed the full gate on its first run (14,242 tests) and was pushed; the distribution smoke now runs examples 11 and 70 to 82. The execution-realism guide validated locally: docs/EXECUTION_REALISM.md sets out each generous default beside the cautious choice that replaces it, and closes GAP-53 with the conservative builder it documents. The guide's first gate failed on formatting alone: ruff formats the Python blocks in a guide too, and one was hand-aligned.
 
 ## Milestones
 
@@ -1295,6 +1299,7 @@ Evidence:
 - [Hosted CI passed] M8: Plans with queues (TD-63, ADR-0061 settled point 1, GAP-44): an execution plan's limit children rest in the queue book, each joined at its release event, filling only as far as the model allows; AlgorithmicQueuedResult holds both books; a paused replay resumes to the same books
 - [Hosted CI passed] M8: Package intents (TD-65, ADR-0062 settled point 1, GAP-26): IntentKind.PACKAGE with Leg ratios, netted and approved whole, legs linked in metadata and worked only together, filled all or none at a slice close; PackageRefused recorded
 - [Hosted CI passed] M8: conservative_execution (TD-66, ADR-0060 settled point 4, GAP-53): NEXT_OPEN, POST_LATENCY_EVENT and a strict cap with the researcher's costs, participation and latency; a frictionless cost model refused; no default changed
+- [Local validation passed] M8: The execution-realism guide (GAP-53): docs/EXECUTION_REALISM.md -- the defaults and what they assume, fill timing, fill policies and remainders, latency pricing, conservative_execution, queues, plans and child fills, packages, venues and routing, what is recorded, and what is not here
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1369,7 +1374,7 @@ Evidence:
 
 - [Hosted CI passed] M8: ADR-0061 accepted (TD-58): per-venue execution models and routing (FUT-045), plans with queues, child fills
 - [Pushed] M8: Per-venue execution models (TD-67, ADR-0061 settled point 3, FUT-045): ExecutionPipelineConfig.venues and router, OrderTerms.venue, CheapestVenue; every simulated order routed by terms, router or listing and filled by its venue's model; the routing record in metadata; version 9 when declared; crypto_venue_execution
-- [Local validation passed] M8: S-09 and GR-4 (ADR-0061 settled point 4): examples/82_research_execution_across_venues.py -- queued TWAP children at two declared venues and routed, commissions per venue, implementation shortfall, latency-priced fills, and a two-venue run reconciled venue by venue; in the installed smoke test
+- [Pushed] M8: S-09 and GR-4 (ADR-0061 settled point 4): examples/82_research_execution_across_venues.py -- queued TWAP children at two declared venues and routed, commissions per venue, implementation shortfall, latency-priced fills, and a two-venue run reconciled venue by venue; in the installed smoke test
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
@@ -1387,7 +1392,7 @@ Evidence:
 
 ## Gaps
 
-26 open, 23 closed, 4 discarded.
+25 open, 24 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -1443,7 +1448,7 @@ Evidence:
 | GAP-50 | No lot-relief methods (FIFO, LIFO, specific identification, pooling); proportional cost basis only | M/P2 | New (audit §F "to verify": verified absent) | WS-13 | M10 |
 | GAP-51 | Missing instrument classes: swaps (IRS, CDS, TRS), non-FX forwards, funds/ETFs as a booking class, inflation-linked, repos, securities lending as an instrument, structured products | M/P2 | New (audit §F row "Missing classes") | WS-14, WS-28, WS-13 | M10 |
 | GAP-52 | No native pegged or trailing orders (trailing is strategy logic by design) | L/P3 | New (audit §H) | WS-20, WS-26 | After M13 |
-| GAP-53 | Optimistic default execution choices (same-event, frictionless, fill-on-touch, static full fill), all stated in `execution_assumptions` | M/P1 | New (audit §H grouping). The builder is implemented at M8 (TD-66): conservative_execution states NEXT_OPEN, POST_LATENCY_EVENT and a strict cap with the researcher's costs, participation and latency. Closes with M8's execution guide, which documents it; 5.0's required fill timing is D-V4's. | WS-11 | M8 |
+| GAP-53 | Optimistic default execution choices (same-event, frictionless, fill-on-touch, static full fill), all stated in `execution_assumptions` | M/P1 | Closed at M8 (WS-11, ADR-0060, TD-66): conservative_execution states the cautious choice in every execution role, and docs/EXECUTION_REALISM.md documents it beside every default it replaces; the default stays SAME_EVENT in 4.x and 5.0 makes the fill timing required (D-V4). | WS-11 | M8 |
 
 ## ADR programme
 

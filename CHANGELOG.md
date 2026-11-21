@@ -1213,6 +1213,13 @@ entry below says otherwise.
   * **The tests.** `tests/integration/test_execution_research_end_to_end.py`
     holds every figure by hand, and the example joins the installed smoke test.
 
+* **The execution-realism guide** [plan WS-11, GAP-53]. `docs/EXECUTION_REALISM.md`
+  sets out what a simulated fill assumes by default and how to state the
+  cautious choice in each role. It covers fill timing and the next open, fill
+  policies and resting remainders, latency pricing, `conservative_execution`,
+  queues, plans and their children's fills, package intents, and an execution
+  model per venue with routing, with what each records and what is not here.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package
