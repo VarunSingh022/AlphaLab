@@ -40,9 +40,13 @@ from alphalab.backtesting.replay_snapshot import restore as restore_replay
 from alphalab.common.order_terms import MARKET
 from alphalab.core.enums import OrderStatus
 from alphalab.execution.algorithms import TWAP, Urgency
+from alphalab.execution.policy import ImmediateFill
 from alphalab.execution.queue import QueueModel
 from alphalab.lifecycle import digest_run
+from alphalab.market.bar import Bar, TimeFrame
+from alphalab.market.events import BarClosed
 from alphalab.persistence import deserialize, serialize
+from alphalab.runtime.execution_pipeline import ExecutionPipeline
 from alphalab.runtime.run_snapshot import RunObjects
 from alphalab.runtime.snapshot import RuntimeObjects
 from alphalab.strategy import (
@@ -52,11 +56,18 @@ from alphalab.strategy import (
 )
 from alphalab.strategy.context import StrategyContext
 from alphalab.strategy.events import Intent
+from alphalab.strategy.protocol import BaseStrategy
 from alphalab.strategy.runtime import create_runtime, register_strategy
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 from alphalab.strategy.supervisor import RuntimeSupervisor
 from tests.integration import test_queue_model as queues
-from tests.integration.harness import context_factory
+from tests.integration.harness import (
+    context_factory,
+    equity,
+    pipeline_config,
+    registry_of,
+    running_strategy_state,
+)
 
 D = Decimal
 T0 = queues.T0
@@ -197,6 +208,67 @@ def test_each_contributor_to_a_netted_parent_hears_its_own_share() -> None:
         (4.0, D("30"), D("12"), LIMIT, "buy"),
     ]
     assert [e.execution_id for e in s.heard] == [e.execution_id for e in t.heard]
+
+
+WIDGET = equity("WIDGET")
+
+
+class AnswersAChildFill(BaseStrategy):
+    """Buys 10 at the bar stamped 1.0, and answers any child's fill with a sale of 5."""
+
+    def __init__(self) -> None:
+        self.heard: list[ChildFillReceived] = []
+
+    def on_bar(self, context: StrategyContext, event: Any) -> Iterable[Intent]:
+        if event.bar.timestamp != 1.0:
+            return ()
+        return (Intent("W", WIDGET.asset_id, D("10"), terms=MARKET, timestamp=1.0),)
+
+    def on_child_fill(self, context: StrategyContext, event: ChildFillReceived) -> Iterable[Intent]:
+        self.heard.append(event)
+        return (Intent("W", WIDGET.asset_id, D("-5"), terms=MARKET, timestamp=event.timestamp),)
+
+
+def _closed(at: float, price: str) -> BarClosed:
+    p = D(price)
+    bar = Bar(WIDGET.asset_id, at, p, p, p, p, D("1000000"), None, None, TimeFrame.D1)
+    return BarClosed(event_id=f"B-{at}", timestamp=at, bar=bar)
+
+
+def test_an_answer_rests_until_its_assets_next_event_whoever_fills_the_run() -> None:
+    """What a strategy answers to a child's fill rests until its asset's next event.
+
+    As an answer to a fill does (EXE-005): it is never filled in the step that
+    reported the fill. Under a plan the plan adopts it there; on a run that fills
+    its own orders, reporting a fill of the strategy's purchase as a child's, the
+    sale of 5 is accepted at 1.0 and fills at the next bar, 101 at 2.0.
+    """
+
+    strategy = AnswersAChildFill()
+    config = replace(pipeline_config("W"), instruments=registry_of(WIDGET))
+    state = ExecutionPipeline.initialize(config, running_strategy_state("W", strategy), 0.5)
+    bought = ExecutionPipeline.process_market_event(state, _closed(1.0, "100"), context_factory)
+    (report,) = bought.state.execution.history
+    delivered, answered = ExecutionPipeline.deliver_child_fills(
+        bought.state,
+        _closed(1.0, "100"),
+        ((f"{report.order_id}/1", report),),
+        context_factory,
+        ImmediateFill(),
+    )
+    assert [(e.fill_quantity, e.attributed_quantity) for e in strategy.heard] == [
+        (D("10"), D("10"))
+    ]
+    assert [intent.target for intent in answered] == [D("-5")]
+    assert len(delivered.execution.history) == 1  # nothing filled in the reporting step
+    sale = delivered.oms.orders.orders()[-1]
+    assert (sale.side.value, sale.quantity, sale.status) == ("sell", D("5"), OrderStatus.ACCEPTED)
+    following = ExecutionPipeline.process_market_event(
+        delivered, _closed(2.0, "101"), context_factory
+    )
+    assert [(f.price, f.quantity, f.filled_at) for f in following.fills] == [
+        (D("101"), D("5"), 2.0)
+    ]
 
 
 def test_without_a_queue_the_one_fill_is_heard_once() -> None:

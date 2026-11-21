@@ -2397,12 +2397,19 @@ V43_M8: tuple[Any, ...] = (
         ),
         "                pass\n",
     ),
+    # Restated (M8's run): its first form removed _work's filter after each event,
+    # which every boundary a caller sees filters again -- each pause and the end --
+    # so no output could change. The end's filter is the one a child cancelled by
+    # the run's end, after every event, depends on.
     Mutation(
         "XR17",
-        "a finished child keeps its queue place",
-        _EXEC_ALGO,
-        "        queue = queue.keeping(_resting_children(book))\n",
-        "        pass\n",
+        "a child the run's end cancels keeps its place in the result's queue book",
+        _EXEC_QUEUEING,
+        (
+            "        run=RunEngine.finalize(state), algorithms=book, "
+            "queue=queue.keeping(_resting_children(book))\n"
+        ),
+        "        run=RunEngine.finalize(state), algorithms=book, queue=queue\n",
     ),
     Mutation(
         "XR18",

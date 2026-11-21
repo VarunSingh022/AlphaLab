@@ -40,6 +40,8 @@ from alphalab.backtesting import (
     QueueModelError,
     ReplayBacktest,
     ReplayResult,
+    RunSchedule,
+    ScheduledSplit,
 )
 from alphalab.backtesting.algorithmic import AlgorithmBook, algorithmic_run
 from alphalab.backtesting.queueing import queued_run
@@ -49,15 +51,19 @@ from alphalab.backtesting.replay_snapshot import restore as restore_replay
 from alphalab.common.order_terms import MARKET
 from alphalab.core.enums import OrderStatus
 from alphalab.execution.algorithms import TWAP, Urgency
+from alphalab.execution.fill import FillStatus
+from alphalab.execution.policy import StaticFill
 from alphalab.execution.queue import QueuePosition
 from alphalab.lifecycle import digest_run
+from alphalab.market.quote import Quote
 from alphalab.persistence import deserialize, serialize
+from alphalab.portfolio.corporate_actions import Split
 from alphalab.runtime.execution_pipeline import ExecutionRouting
 from alphalab.runtime.run import ExecutionMode
 from alphalab.runtime.run_snapshot import RunObjects
 from alphalab.runtime.snapshot import RuntimeObjects
 from tests.integration import test_queue_model as queues
-from tests.integration.harness import context_factory
+from tests.integration.harness import context_factory, equity, registry_of
 
 D = Decimal
 LIMIT = queues.LIMIT
@@ -149,6 +155,75 @@ def test_an_expired_slice_leaves_the_book_and_one_placed_at_a_print_starts_unkno
     ]
     assert queues.fills(queued) == []
     assert list(queued.queue.positions.values()) == [QueuePosition(LIMIT, None)]
+
+
+def test_the_fill_policy_is_not_asked_about_a_child_the_queue_has_not_reached() -> None:
+    """A venue that expires whatever it is asked to fill, as the queue suite's order meets.
+
+    Without a queue every print at the limit reaches the child, and the venue
+    expires it there: released at 0, 1, 2 and 3, each expires at the next record.
+    With one, the first child waits behind the 300 shown and is asked nothing
+    until the print that reaches it, at 2; its successor, placed at that print,
+    starts from an unknown queue and is asked when the offer touches the limit,
+    at 4, where the third joins with nothing ahead.
+    """
+
+    expiring = StaticFill(FillStatus.EXPIRED)
+    results = {
+        queued: BacktestEngine.run(
+            queues.config(fill_policy=expiring),
+            queues.dataset(queues.DEPLETION),
+            queues.strategies(),
+            context_factory,
+            execution=WHOLE,
+            queue=queues.QUEUE if queued else None,
+        )
+        for queued in (False, True)
+    }
+    expired = OrderStatus.EXPIRED
+    assert _children(results[False]) == [
+        *((float(t), D("100"), expired) for t in range(4)),
+        (4.0, D("100"), None),
+    ]
+    assert _children(results[True]) == [
+        (0.0, D("100"), expired),
+        (2.0, D("100"), expired),
+        (4.0, D("100"), None),
+    ]
+    queued = results[True]
+    assert isinstance(queued, AlgorithmicQueuedResult)
+    assert list(queued.queue.positions.values()) == [QueuePosition(LIMIT, D("0"))]
+
+
+def test_a_child_the_runs_end_cancels_leaves_the_book() -> None:
+    """A split after the parent's asset's last record ends the parent with no event to notice.
+
+    The child, still 50 behind, is cancelled when the run's end finishes the
+    plan, after every event: the result's book holds no place for it.
+    """
+
+    other = equity("OTHER")
+    config = queues.config()
+    config = replace(
+        config,
+        pipeline=replace(config.pipeline, instruments=registry_of(queues.ACME_RECORD, other)),
+    )
+    later = Quote(
+        other.asset_id, queues.T0 + 4, D("50"), D("50.02"), D("100"), D("100"), "SIM", "USD"
+    )
+    split = ScheduledSplit(Split(queues.ACME, D("2")), queues.T0 + 3)
+    result = BacktestEngine.run(
+        config,
+        queues.dataset((*queues.SHORT_OF_THE_FRONT, later)),
+        queues.strategies(),
+        context_factory,
+        execution=WHOLE,
+        queue=queues.QUEUE,
+        schedule=RunSchedule.of(splits=[split]),
+    )
+    assert queues.only_order(result).status is OrderStatus.CANCELLED
+    assert _children(result) == [(0.0, D("100"), OrderStatus.CANCELLED)]
+    assert not result.queue.positions
 
 
 def test_market_children_are_not_governed_and_the_run_is_recorded_as_the_plans() -> None:
