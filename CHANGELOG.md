@@ -1228,6 +1228,32 @@ entry below says otherwise.
   cent too. Each package fills at one instant, every leg at its ratio, or no
   leg fills; under an immediate fill, it fills at the first instant that priced
   every leg after its decision and latency.
+* **M8's mutation series** [plan WS-10, WS-11, WS-26]. `mutation_v4_3.py`
+  gains the XR series: 40 mutations over M8's execution rules, with v3.12's V02
+  re-targeted to the held timings, each caught by a test that exercises what
+  it breaks.
+  * **Tests added with it.** They hold:
+    * venues declared without a router, recorded at version 9 and resumed;
+    * two contributors to one netted parent, each hearing its own share of
+      the child's fills;
+    * a child behind its queue, which the fill policy is not asked about;
+    * a child cancelled by the run's end, which leaves the queue book;
+    * an answer to a child's fill, which rests until its asset's next event.
+  * **A mutant restated.** XR17's first form removed a filter that every
+    boundary a caller sees repeats -- each pause and the end -- so no output
+    could change. It is restated as the end's filter.
+* **What M8's options cost a run declaring none** [plan WS-11, WS-26,
+  PRF-006]. The plan's budget is one percent of the spine.
+  `docs/audit/scripts/spine_overhead.py` measures it against an earlier commit:
+  both trees in fresh interpreters, the median of paired ratios, the unchanged
+  portfolio engine as the control. Against M7's close a backtest and a replay
+  first cost +1.71%. The slice close, the package intake and four per-order
+  checks now test for their option before doing its work. A backtest now
+  costs +0.05%, a replay +0.67%, the pipeline +0.34%, the OMS +0.19%: within
+  the budget, and no outcome changes. `docs/audit/scripts/stress_v4_3.py` gains
+  M8's venues scenario: 4,000 orders routed by size between a per-share and a
+  per-order venue, each priced by its own, at a cost per record flat over
+  ten times the run.
 
 ## Changed
 

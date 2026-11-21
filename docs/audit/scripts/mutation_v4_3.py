@@ -159,8 +159,35 @@ M8's series:
   intents, the conservative builder, and per-venue execution with its routing,
   record and restore.
 
-Its run, every first failure replayed alone and read, is recorded in the
-progress register, in M8's evidence.
+Reading the series against the suite before its run added two tests:
+venues declared without a router at version 9 (XR38), and two contributors'
+shares of one parent's child fills. The run (XR01 to XR40, with V02
+re-targeted) caught 38 of 41 on 2313baa's tree. Three survived:
+
+* **XR14's check is redundant with the queue's cap** for any policy that
+  fills or does not: a child behind its queue fills nothing either way. It
+  matters for a venue that refuses or expires whatever it is asked, which the
+  check never asks. The queue suite held that for orders; a test now holds it
+  for children.
+* **XR17's first form changed no output.** It removed the plan's filter after
+  each event, and both drivers filter the book again at every boundary a
+  caller sees -- each pause and the end. It was restated as the end's filter,
+  which a child cancelled by the run's end depends on, and a split after the
+  parent's asset's last record now tests it.
+* **XR20 cannot move a plan's run**: a plan adopts an answer at its asset's
+  next record whatever the step says. ``deliver_child_fills`` is public and
+  promises the answer rests; a test now holds that on a run that fills its
+  own orders.
+
+The three were caught when run again. M8's one-percent budget then guarded
+lines XR04 and XR29 target, so the whole series was run again on the final
+tree, f990eca's: all 41 caught. Every first failure was replayed alone under its
+mutant and read: most are assertions; XR05, XR31 and XR40 do not raise; XR13
+is the mutated refusal itself; XR21 and XR27 leave no refusal to read; XR24
+reads a leg's event at an instant that never priced it, and XR36 records a
+venue from a refusal's reason -- each the defect's own effect. None is a
+``NameError``, and none read a clock. The test that caught each is recorded in
+the progress register, in M8's evidence.
 """
 
 from __future__ import annotations
