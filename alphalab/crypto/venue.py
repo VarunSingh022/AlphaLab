@@ -33,6 +33,21 @@ from decimal import Decimal
 from enum import Enum, auto
 
 from alphalab.crypto.exceptions import CryptoInputError
+from alphalab.execution.commission import PercentageCommission
+from alphalab.execution.costs import (
+    ExecutionCostModel,
+    FeeModel,
+    ImpactModel,
+    NoFee,
+    NoImpact,
+    NoTax,
+    SpreadModel,
+    TaxModel,
+)
+from alphalab.execution.latency import LatencyModel
+from alphalab.execution.simulator import ExecutionSimulator
+from alphalab.execution.slippage import SlippageModel
+from alphalab.execution.venue_models import VenueExecution
 
 __all__ = [
     "BASIS_POINT",
@@ -42,6 +57,7 @@ __all__ = [
     "VenueDispersion",
     "VenueSpecification",
     "cross_venue_dispersion",
+    "crypto_venue_execution",
     "trading_fee",
 ]
 
@@ -259,4 +275,42 @@ def cross_venue_dispersion(prices: Mapping[str, Decimal]) -> VenueDispersion:
         highest=highest,
         spread=highest - lowest,
         relative_spread=(highest - lowest) / lowest,
+    )
+
+
+def crypto_venue_execution(
+    specification: VenueSpecification,
+    *,
+    spread: SpreadModel,
+    slippage: SlippageModel,
+    latency: LatencyModel,
+    impact: ImpactModel | None = None,
+    fees: FeeModel | None = None,
+    tax: TaxModel | None = None,
+) -> VenueExecution:
+    """``specification``'s venue as an execution model, its fees the venue's own (v4.3, ADR-0061).
+
+    For ``ExecutionPipelineConfig.venues``, keyed by the venue's code. The taker
+    fee, in basis points of notional, is the commission a fill that takes
+    liquidity pays; the maker fee is what a resting fill pays instead -- a
+    negative one a rebate. The spread, the slippage and the latency are the
+    venue's market, which a specification does not state, and are required;
+    impact, other fees and tax default to none.
+    """
+
+    schedule = specification.fees
+    costs = ExecutionCostModel(
+        spread_model=spread,
+        slippage_model=slippage,
+        impact_model=NoImpact() if impact is None else impact,
+        commission_model=PercentageCommission(schedule.taker_bps * BASIS_POINT),
+        fee_model=NoFee() if fees is None else fees,
+        tax_model=NoTax() if tax is None else tax,
+    )
+    return VenueExecution(
+        ExecutionSimulator(
+            latency_model=latency,
+            cost_model=costs,
+            maker_commission_model=PercentageCommission(schedule.maker_bps * BASIS_POINT),
+        )
     )

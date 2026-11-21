@@ -63,6 +63,7 @@ from alphalab.execution.queue import QueueBook, QueueObservation, QueuePosition,
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
+from alphalab.execution.venue_models import VenueExecution, VenueRouter
 from alphalab.instrument.borrow import BorrowAvailability
 from alphalab.instrument.controls import (
     AuctionInterest,
@@ -363,6 +364,17 @@ class ExecutionPipelineConfig:
             first event at or after then, and the fill stamped there
             (ADR-0060). See :class:`~alphalab.execution.policy.LatencyPricing`.
             Carried by the pipeline snapshot, and only when declared.
+        venues: Each declared execution venue's model, by its code (v4.3,
+            ADR-0061): the simulator that prices and stamps the fills of the
+            orders routed to it. Empty -- the default -- is one simulator,
+            ``simulator``, for every order, as every run before v4.3 had. With
+            venues declared, every simulated order is routed to one of them --
+            by the venue its terms name, then ``router``, then its instrument's
+            listing venue -- or refused. See
+            :mod:`alphalab.execution.venue_models`. Carried by the pipeline
+            snapshot, and only when declared.
+        router: How an order naming no venue is routed among ``venues``
+            (ADR-0061), or ``None`` for its listing venue. Requires venues.
     """
 
     account: Account
@@ -382,11 +394,26 @@ class ExecutionPipelineConfig:
     retention: RetentionPolicy = field(default_factory=RetentionPolicy)
     remainder: RestRemainder | None = None
     latency_pricing: LatencyPricing = LatencyPricing.STAMP
+    venues: Mapping[str, VenueExecution] = field(default_factory=lambda: MappingProxyType({}))
+    router: VenueRouter | None = None
 
     def __post_init__(self) -> None:
         if not self.currency:
             # The account names the currency; the config does not name a second.
             object.__setattr__(self, "currency", self.account.base_currency)
+        for code, venue in self.venues.items():
+            if not isinstance(code, str) or not code.strip():
+                raise RuntimeValidationError(f"A venue is declared by its code, got {code!r}.")
+            if not isinstance(venue, VenueExecution):
+                raise RuntimeValidationError(
+                    f"Venue {code}'s model is a VenueExecution, got {type(venue).__name__}."
+                )
+        if self.router is not None and not self.venues:
+            raise RuntimeValidationError(
+                "A router chooses among declared venues, and this configuration declares none."
+            )
+        # Sorted by code, so two equal declarations describe and persist alike.
+        object.__setattr__(self, "venues", MappingProxyType(dict(sorted(self.venues.items()))))
 
     @property
     def settlement_currencies(self) -> frozenset[str]:
@@ -3086,6 +3113,13 @@ def _route_requests(
             dropped.append((request, unworkable))
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
+        venue = _venue_for(current, request, event, instant)
+        if isinstance(venue, str):
+            # No declared venue routes it: refused, never filled by a model
+            # nobody chose (ADR-0061).
+            dropped.append((request, venue))
+            current = _retire_dropped_request(current, request.order_id, instant)
+            continue
         current, decision = _evaluate_risk(current, request, instant, rates)
         decisions.append(decision)
         if not decision.approved:
@@ -3097,6 +3131,8 @@ def _route_requests(
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
         current, order = _submit_and_accept_order(current, request, instant)
+        if venue is not None:
+            current, order = _record_venue(current, order, venue, instant)
         if current.config.routing is ExecutionRouting.SIMULATED:
             current, held = _await_latency(current, order, instant, event.timestamp)
             if held is not None:
@@ -6154,6 +6190,12 @@ def _place_package(
             + "."
         )
     current = evolve(state, allocation=allocation)
+    routes: list[tuple[str, str] | None] = []
+    for request in requests:
+        venue = _venue_for(current, request, event, timestamp)
+        if isinstance(venue, str):
+            return refuse(f"Leg {request.asset_id}: {venue}")
+        routes.append(venue)
     decisions: list[RiskDecision] = []
     for request in requests:
         current, decision = _evaluate_risk(current, request, timestamp, NO_RATES)
@@ -6175,8 +6217,10 @@ def _place_package(
             else _PACKAGE_AFTER
         ): repr(timestamp),
     }
-    for order in orders:
+    for order, venue in zip(orders, routes, strict=True):
         current = evolve(current, oms=OMSEngine.annotate(current.oms, order.order_id, entries))
+        if venue is not None:
+            current, _ = _record_venue(current, order, venue, timestamp)
         current, _ = _await_latency(
             current, current.oms.orders.find(order.order_id), timestamp, timestamp
         )
@@ -7223,7 +7267,7 @@ def _await_latency(
 
     if state.config.latency_pricing is not LatencyPricing.POST_LATENCY_EVENT:
         return state, None
-    model = state.config.simulator.latency_model
+    model = _simulator_for(state, order).latency_model
     ready = decided + model.calculate(str(order.order_id.value), decided)
     if ready <= now:
         return state, None
@@ -7576,9 +7620,9 @@ def _within_limit(order: OMSOrder, price: Decimal) -> bool:
 def _taker_price(
     state: ExecutionPipelineState, order: OMSOrder, event: MarketEvent, base: Decimal
 ) -> Decimal:
-    """What taking the market at ``event`` would cost per unit, by the run's cost model."""
+    """What taking the market at ``event`` would cost per unit, by its venue's cost model."""
 
-    simulator = state.config.simulator
+    simulator = _simulator_for(state, order)
     bid, ask = _available_quote(event)
     context = simulator.context(
         _instruction(order, state),
@@ -8973,7 +9017,7 @@ def _execute_order(
     """
 
     before = len(state.execution.history)
-    simulator = state.config.simulator
+    simulator = _simulator_for(state, order)
     if stamped_at_event:
         simulator = replace(simulator, latency_model=_NO_LATENCY)
     instruction = _instruction(order, state)
@@ -9324,10 +9368,107 @@ def _instruction(order: OMSOrder, state: ExecutionPipelineState) -> OrderInstruc
         order.remaining_quantity,
         state.market_prices[order.asset_id],
         order.side,
-        state.config.venue,
+        # The venue the order was routed to (ADR-0061), or the run's label.
+        order.metadata.get(_VENUE, state.config.venue),
         currency,
         # The account's unit for the settlement currency, so a simulated fill's
         # cash costs are rounded where the portfolio will book them.
+        minor_units=state.config.account.currency_units.minor_units(currency),
+    )
+
+
+#: Where an order records the venue it was routed to, how that venue was chosen
+#: -- by its terms, the run's router or its listing venue -- and when, in its
+#: metadata: the routing record, which every snapshot carries (ADR-0061).
+_VENUE: Final = "venue"
+_VENUE_BY: Final = "venue_by"
+_VENUE_AT: Final = "venue_at"
+
+
+def _venue_for(
+    state: ExecutionPipelineState, request: OrderRequest, event: MarketEvent | None, instant: float
+) -> tuple[str, str] | str | None:
+    """Where ``request`` is routed among the declared venues, and how (ADR-0061).
+
+    ``(code, how)``; a sentence when no declared venue routes it; ``None`` when
+    the run declares no venues, or routes to a real venue, and nothing is
+    routed. The first of: the venue its terms name; the run's router; its
+    instrument's listing venue, when declared.
+    """
+
+    venues = state.config.venues
+    if not venues or state.config.routing is ExecutionRouting.EXTERNAL:
+        return None
+    named = request.terms.venue
+    if named is not None:
+        if named in venues:
+            return named, "terms"
+        return f"The order names venue {named}, and the run declares only {', '.join(venues)}."
+    router = state.config.router
+    if router is not None:
+        price = state.market_prices[request.asset_id]
+        priced = None if event is None else _market_price(event)
+        own = priced is not None and priced[0] == request.asset_id and event is not None
+        bid, ask = _available_quote(event) if own and event is not None else (None, None)
+        available = _available_quantity(event, request.side) if own and event is not None else None
+
+        def cost_at(code: str) -> Decimal:
+            simulator = venues[code].simulator
+            context = simulator.context(
+                _request_instruction(state, request, code),
+                request.quantity,
+                price,
+                instant,
+                bid,
+                ask,
+                available,
+            )
+            return simulator.costs.quote(context).total(request.quantity)
+
+        return router.choose(tuple(venues), cost_at), "router"
+    listing = _listing_exchange(state, request.asset_id)
+    if listing is not None and listing in venues:
+        return listing, "listing"
+    return (
+        f"No declared venue routes the order: it names none, the run declares no router, and "
+        f"its instrument's listing venue, {listing or 'unregistered'}, is not among "
+        f"{', '.join(venues)}."
+    )
+
+
+def _record_venue(
+    state: ExecutionPipelineState, order: OMSOrder, venue: tuple[str, str], instant: float
+) -> tuple[ExecutionPipelineState, OMSOrder]:
+    """``order`` with its routing record -- the venue, how it was chosen, when (ADR-0061)."""
+
+    code, how = venue
+    entries = {_VENUE: code, _VENUE_BY: how, _VENUE_AT: repr(instant)}
+    oms = OMSEngine.annotate(state.oms, order.order_id, entries)
+    return evolve(state, oms=oms), oms.orders.find(order.order_id)
+
+
+def _simulator_for(state: ExecutionPipelineState, order: OMSOrder) -> ExecutionSimulator:
+    """The simulator ``order``'s fills are priced and stamped by: its venue's, or the run's."""
+
+    venue = order.metadata.get(_VENUE)
+    return state.config.simulator if venue is None else state.config.venues[venue].simulator
+
+
+def _request_instruction(
+    state: ExecutionPipelineState, request: OrderRequest, venue: str
+) -> OrderInstruction:
+    """``request`` as an instruction to ``venue``, for a router to price (ADR-0061)."""
+
+    currency = _settlement_currency_for(state, request.asset_id)
+    return OrderInstruction(
+        request.order_id,
+        request.strategy_id,
+        request.asset_id,
+        request.quantity,
+        state.market_prices[request.asset_id],
+        request.side,
+        venue,
+        currency,
         minor_units=state.config.account.currency_units.minor_units(currency),
     )
 

@@ -111,7 +111,8 @@ class ExecutionAssumptions:
         fill_policy: The fill policy, described.
         costs: The cost model every simulated fill was priced by, described --
             with the maker commission a resting fill pays instead, when one is
-            set (v3.11).
+            set (v3.11), and each declared venue's model and the router among
+            them, when venues are declared (v4.3, ADR-0061).
         latency: The latency model, described -- with ``pricing=`` and what it
             does, when a run declares that latency keeps an order from the market
             rather than only stamping its fill (v4.3, ADR-0060).
@@ -224,6 +225,15 @@ def execution_assumptions(
         # of the model the run's evidence was measured under, so part of what
         # identifies it; absent when not set, so every other run reads as it did.
         costs = f"{costs}; maker_commission={describe(simulator.maker_commission_model)}"
+    frictionless = simulator.is_frictionless
+    if pipeline.venues:
+        # Each declared venue's model and the router among them price every
+        # simulated order (ADR-0061): appended only when declared, as a maker
+        # commission is, so a one-model run is identified as it was.
+        costs = f"{costs}; venues={describe(dict(pipeline.venues))}"
+        if pipeline.router is not None:
+            costs = f"{costs}; router={describe(pipeline.router)}"
+        frictionless = all(venue.simulator.is_frictionless for venue in pipeline.venues.values())
     policy = describe(fill_policy)
     if pipeline.remainder is not None:
         # What a partial fill leaves is part of the fill model the evidence was
@@ -243,7 +253,7 @@ def execution_assumptions(
         fill_policy=policy,
         costs=costs,
         latency=latency,
-        frictionless=simulator.is_frictionless,
+        frictionless=frictionless,
         unlimited_liquidity=isinstance(fill_policy, ImmediateFill),
         queue_model=None if queue_model is None else describe(queue_model),
         venue_conditions=_venue_conditions(pipeline.instruments),

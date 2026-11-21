@@ -992,7 +992,9 @@ def test_every_config_field_is_carried_or_supplied() -> None:
     from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig
     from alphalab.runtime.snapshot import ConfigRecord
 
-    supplied = {"sizing_model", "simulator", "instruments"}
+    # v4.3 (ADR-0061): the router is supplied back as the sizing model is, its type
+    # recorded; the venues are carried as records, each model supplied back too.
+    supplied = {"sizing_model", "simulator", "instruments", "router"}
     carried = {field.name for field in fields(ConfigRecord)}
     declared = {f"{name}_type" for name in supplied}
 

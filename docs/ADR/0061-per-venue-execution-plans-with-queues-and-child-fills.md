@@ -189,6 +189,65 @@ A composed result's two books are captured by the payloads each already has.
      not subscribed, hears nothing and fills as the plain run does. A replay
      hears what the backtest hears, and a replay paused at each boundary
      resumes to the same result.
+3. **Per-venue execution models.**
+   - **Where they live.** `VenueExecution`, `VenueRouter` and `CheapestVenue`
+     are in `alphalab.execution.venue_models`, exported from
+     `alphalab.execution`. `ExecutionPipelineConfig.venues` is held sorted by
+     code, read-only; `router` requires venues.
+   - **Routing, before acceptance.** Under `SIMULATED` and `ALGORITHMIC`
+     routing, with venues declared, each request is routed after its terms
+     are judged and before risk: the venue its `OrderTerms.venue` names, the
+     router, then its instrument's listing exchange when one is declared under
+     that code. A request none of them routes is refused like any unworkable
+     request -- dropped, its reservation freed, the strategy told why -- and
+     never becomes an order. A package's legs are routed the same way, and a
+     leg no venue routes refuses the package. Under `EXTERNAL` routing the
+     venue is the live route's, and nothing is routed here.
+   - **What the router sees.** A function pricing the order at a venue: that
+     venue's cost model, for the order's whole quantity, at the deciding
+     event's price and its quote and size when the event is the order's
+     asset's. `CheapestVenue` takes the lowest, ties to the first code.
+   - **The routing record is metadata.** Each routed order carries `venue`,
+     `venue_by` (`terms`, `router` or `listing`) and `venue_at`, as
+     ADR-0060's and ADR-0062's state does. Every snapshot carries it, and a
+     run's record keeps its form, so no OMS schema moves.
+   - **The venue's model fills it.** Its simulator prices the fill, stamps it
+     -- its latency, under either latency pricing -- and judges a limit
+     order's taking price. The execution report's `venue` is the routed one.
+     A plan's child fills on its parent's venue. Queue places are each
+     order's or child's own, so they are per venue already.
+   - **`OrderTerms.venue`.** Written only when set, through the terms' own
+     serialization, so every earlier order's terms keep their bytes, and read
+     back optionally. Terms naming different venues are different terms, and
+     do not net.
+   - **Crypto venues.** `alphalab.crypto.crypto_venue_execution` builds a
+     venue's model from a `VenueSpecification`: its taker fee as the
+     commission and its maker fee as the resting fill's, with the spread,
+     slippage and latency required. It lives in the crypto package, which now
+     depends on the execution package, so the execution package knows nothing
+     of crypto.
+   - **What is recorded.** The configuration record writes each venue's code
+     and its simulator's type and description, and the router's, only when
+     declared, at version 9. `RuntimeObjects` gains `venues` and `router`,
+     supplied back on restore and held to what was recorded.
+     `execution_assumptions` appends the venues and the router to the costs'
+     description only when declared, and with venues declared `frictionless`
+     reads their models, since the run's own simulator then prices no order.
+   - **The ledger.** FUT-045 is implemented, its completion criteria met:
+     each venue's model described in the configuration, an order filled by
+     the model of the venue it was routed to, and a one-model run unchanged.
+     It leaves ROADMAP's Future work.
+   - **Tests.** `tests/regression/test_per_venue_execution.py` holds
+     hand-calculated fills:
+     - the cheapest venue chosen, ten cents and one second at ALPHA;
+     - a named venue, twenty cents and two seconds at BETA;
+     - a tie to the first code, and the listing venue without a router;
+     - both refusals, and a run declaring no venue unchanged, at version 8;
+     - costs reconciling per venue (GR-4's rule);
+     - the description, and the configuration's refusals;
+     - a resume at version 9, refused without its venues, with one configured
+       otherwise, or without its router;
+     - terms keeping their form, and a crypto venue's fees.
 
 # Compatibility
 

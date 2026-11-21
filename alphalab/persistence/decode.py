@@ -265,6 +265,10 @@ def as_order_terms(value: Any, field: str) -> OrderTerms:
                 TimeInForce, require(payload, "time_in_force"), f"{field}.time_in_force"
             ),
             expire_at=None if raw_expiry is None else as_float(raw_expiry, f"{field}.expire_at"),
+            # Written only when an order names its venue (v4.3, ADR-0061).
+            venue=None
+            if payload.get("venue") is None
+            else as_str(payload["venue"], f"{field}.venue"),
         )
     except AlphaLabValidationError as exc:
         raise StateDecodeError(f"{field} are not valid order terms: {exc}") from exc

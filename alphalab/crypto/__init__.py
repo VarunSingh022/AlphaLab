@@ -44,6 +44,7 @@ from alphalab.crypto.venue import (
     VenueDispersion,
     VenueSpecification,
     cross_venue_dispersion,
+    crypto_venue_execution,
     trading_fee,
 )
 
@@ -74,6 +75,7 @@ __all__ = [
     "coverage",
     "cross_venue_dispersion",
     "crypto_symbol",
+    "crypto_venue_execution",
     "funding_instants",
     "mark_to_market",
     "observation_gaps",

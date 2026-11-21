@@ -50,7 +50,7 @@ import math
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum, unique
-from typing import Final
+from typing import Any, Final
 
 from alphalab.common.arithmetic import canonical_text
 from alphalab.common.exceptions import AlphaLabValidationError
@@ -115,6 +115,10 @@ class OrderTerms:
         time_in_force: How long it lives. See the module docstring.
         expire_at: When a ``GTD`` order -- or a ``DAY`` order whose session close
             the caller knows -- stops working, in Unix seconds.
+        venue: The execution venue the order asks for, by the code a run
+            declares it under (v4.3, ADR-0061), or ``None`` for the run's
+            router or the instrument's listing venue to choose. Written only
+            when set, so every earlier order's terms keep their form.
 
     Raises:
         AlphaLabValidationError: If a price is missing for the type or given
@@ -128,8 +132,23 @@ class OrderTerms:
     stop_price: Decimal | None = None
     time_in_force: TimeInForce = TimeInForce.DAY
     expire_at: float | None = None
+    venue: str | None = None
+
+    def __serializable__(self) -> dict[str, Any]:
+        """The terms' fields, ``venue`` among them only when the order names one."""
+
+        return {
+            "order_type": self.order_type,
+            "limit_price": self.limit_price,
+            "stop_price": self.stop_price,
+            "time_in_force": self.time_in_force,
+            "expire_at": self.expire_at,
+            **({"venue": self.venue} if self.venue is not None else {}),
+        }
 
     def __post_init__(self) -> None:
+        if self.venue is not None and (not isinstance(self.venue, str) or not self.venue.strip()):
+            raise AlphaLabValidationError(f"A venue is named by its code, got {self.venue!r}.")
         _price(self.limit_price, "limit price")
         _price(self.stop_price, "stop price")
         needs_limit = self.order_type in (OrderType.LIMIT, OrderType.STOP_LIMIT)

@@ -127,6 +127,7 @@ from alphalab.execution.fill import FillStatus
 from alphalab.execution.policy import FillTiming, LatencyPricing, RestRemainder
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.state import ExecutionState
+from alphalab.execution.venue_models import VenueExecution
 from alphalab.instrument.controls import (
     DeliveredAuction,
     delivered_from_primitives,
@@ -1001,6 +1002,11 @@ class ConfigRecord:
     #: What the latency model does (ADR-0060). Written only when a run declares
     #: ``POST_LATENCY_EVENT``, on the same terms; absent reads as ``STAMP``.
     latency_pricing: LatencyPricing = LatencyPricing.STAMP
+    #: Each declared venue's model (ADR-0061), and the router among them, each
+    #: by type and configuration. Written only when declared.
+    venues: tuple[VenueRecord, ...] = ()
+    router_type: str | None = None
+    router_description: str | None = None
 
     def __serializable__(self) -> dict[str, Any]:
         """The record's fields, ``remainder`` and ``latency_pricing`` only when declared."""
@@ -1029,7 +1035,26 @@ class ConfigRecord:
                 if self.latency_pricing is not LatencyPricing.STAMP
                 else {}
             ),
+            **({"venues": self.venues} if self.venues else {}),
+            **(
+                {"router_type": self.router_type, "router_description": self.router_description}
+                if self.router_type is not None
+                else {}
+            ),
         }
+
+
+@dataclass(frozen=True, slots=True)
+class VenueRecord:
+    """One declared venue's model, as a snapshot records it (v4.3, ADR-0061).
+
+    The venue's code, and its simulator's type and configuration -- the live
+    model is supplied back on :func:`restore`, and held to both.
+    """
+
+    code: str
+    simulator_type: str
+    simulator_description: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -1227,12 +1252,17 @@ class RuntimeObjects:
         instruments: The instrument registry, when the run configured one. The
             snapshot says whether it did; supplying one for a run that had none,
             or omitting one for a run that had one, is refused.
+        venues: Each declared venue's model, by code, when the run declared
+            venues (v4.3, ADR-0061); held to what the snapshot recorded of each.
+        router: The venue router, when the run declared one.
     """
 
     sizing_model: object
     simulator: object
     strategies: Mapping[str, StrategyProtocol]
     instruments: InstrumentRegistry | None = None
+    venues: Mapping[str, VenueExecution] = field(default_factory=dict)
+    router: object | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1269,6 +1299,12 @@ def _capture_config(config: ExecutionPipelineConfig) -> ConfigRecord:
         simulator_description=describe(config.simulator),
         remainder=config.remainder,
         latency_pricing=config.latency_pricing,
+        venues=tuple(
+            VenueRecord(code, _type_name(venue.simulator), describe(venue.simulator))
+            for code, venue in config.venues.items()
+        ),
+        router_type=None if config.router is None else _type_name(config.router),
+        router_description=None if config.router is None else describe(config.router),
     )
 
 
@@ -1425,14 +1461,16 @@ def _written_version(config: ConfigRecord) -> int:
 
     :data:`PIPELINE_SNAPSHOT_SCHEMA` when the run declares one of M8's execution
     options -- a ``NEXT_OPEN`` fill timing, a resting remainder, ``POST_LATENCY_EVENT``
-    latency pricing -- and version 8 otherwise, so a run declaring none is
-    written as it was before they existed.
+    latency pricing, venues or a router (ADR-0061) -- and version 8 otherwise, so
+    a run declaring none is written as it was before they existed.
     """
 
     if (
         config.fill_timing is FillTiming.NEXT_OPEN
         or config.remainder is not None
         or config.latency_pricing is not LatencyPricing.STAMP
+        or config.venues
+        or config.router_type is not None
     ):
         return PIPELINE_SNAPSHOT_SCHEMA
     return _UNDECLARED
@@ -1586,6 +1624,45 @@ def _restore_config(record: ConfigRecord, objects: RuntimeObjects) -> ExecutionP
         retention=record.retention,
         remainder=record.remainder,
         latency_pricing=record.latency_pricing,
+        venues=_restore_venues(record, objects),
+        router=_restore_router(record, objects),
+    )
+
+
+def _restore_venues(record: ConfigRecord, objects: RuntimeObjects) -> dict[str, VenueExecution]:
+    """The venues the run declared, as supplied, each held to its record (ADR-0061)."""
+
+    recorded = {venue.code: venue for venue in record.venues}
+    supplied = dict(objects.venues)
+    if set(supplied) != set(recorded):
+        raise StateDecodeError(
+            f"The snapshot records venues {sorted(recorded)}, and venues {sorted(supplied)} were "
+            "supplied. A restored run continues with the venues it was captured with."
+        )
+    for code, venue in recorded.items():
+        model = supplied[code]
+        if not isinstance(model, VenueExecution):
+            raise StateDecodeError(f"Venue {code} was supplied as a {_type_name(model)}.")
+        _require_object(
+            model.simulator,
+            venue.simulator_type,
+            f"simulator of venue {code}",
+            venue.simulator_description,
+        )
+    return supplied
+
+
+def _restore_router(record: ConfigRecord, objects: RuntimeObjects) -> Any:
+    """The router the run declared, as supplied and held to its record, or ``None``."""
+
+    if record.router_type is None:
+        if objects.router is not None:
+            raise StateDecodeError(
+                "A venue router was supplied, and the snapshot records that the run declared none."
+            )
+        return None
+    return _require_object(
+        objects.router, record.router_type, "venue router", record.router_description
     )
 
 
@@ -2499,7 +2576,40 @@ def _config(value: Any) -> ConfigRecord:
         latency_pricing=_latency_pricing(
             payload.get("latency_pricing"), f"{where}.latency_pricing"
         ),
+        # And the venues and router (ADR-0061).
+        venues=_venue_records(payload.get("venues"), f"{where}.venues"),
+        router_type=_optional_text(payload.get("router_type"), f"{where}.router_type"),
+        router_description=_optional_text(
+            payload.get("router_description"), f"{where}.router_description"
+        ),
     )
+
+
+def _venue_records(value: Any, where: str) -> tuple[VenueRecord, ...]:
+    """The declared venues' records, or none (ADR-0061)."""
+
+    if value is None:
+        return ()
+    records = []
+    for index, item in enumerate(as_sequence(value, where)):
+        entry = as_mapping(item, f"{where}[{index}]")
+        records.append(
+            VenueRecord(
+                code=as_str(require(entry, "code"), f"{where}[{index}].code"),
+                simulator_type=as_str(
+                    require(entry, "simulator_type"), f"{where}[{index}].simulator_type"
+                ),
+                simulator_description=as_str(
+                    require(entry, "simulator_description"),
+                    f"{where}[{index}].simulator_description",
+                ),
+            )
+        )
+    return tuple(records)
+
+
+def _optional_text(value: Any, where: str) -> str | None:
+    return None if value is None else as_str(value, where)
 
 
 def _rest_remainder(value: Any, where: str) -> RestRemainder | None:

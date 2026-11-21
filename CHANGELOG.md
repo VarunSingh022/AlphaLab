@@ -1170,6 +1170,34 @@ entry below says otherwise.
   * **The tests.** `tests/regression/test_conservative_execution.py` holds a
     hand-calculated run.
 
+* **An execution model per venue** [plan WS-26, GAP-17, FUT-045, ADR-0061].
+  `ExecutionPipelineConfig.venues` maps each declared venue's code to a
+  `VenueExecution`, the simulator whose costs and latency fill the orders
+  routed there. Empty, the default, is one simulator for every order, as
+  before.
+  * **Every simulated order is routed.** It goes to the venue its new
+    `OrderTerms.venue` names, else to the venue the run's `router` chooses
+    (`CheapestVenue`, by each venue's own cost model at the deciding event),
+    else to its instrument's listing venue when declared. One none of these
+    routes is refused, never filled by a model nobody chose.
+  * **The routed venue's model fills it.** Its simulator prices and stamps the
+    fill, and the report carries the venue, so a run's costs reconcile per
+    venue. Each order records where it went, how and when, in its metadata. A
+    plan's children fill on their parent's venue, and a package's legs are
+    routed each.
+  * **Crypto venues.** `alphalab.crypto.crypto_venue_execution` builds a
+    venue's model from its `VenueSpecification`'s fees.
+  * **What is recorded.** The pipeline snapshot writes the venues and the
+    router only when declared, at version 9, and `RuntimeObjects` supplies
+    them back on restore, each held to its description. `execution_assumptions`
+    describes them only when declared. FUT-045 is delivered.
+  * **What does not change.** A run declaring no venue keeps its record,
+    payloads and identities, and an order's terms naming no venue keep their
+    form. The signatures that show default terms -- `Intent`'s and
+    `OrderRequest`'s -- now show `venue=None` among them.
+  * **The tests.** `tests/regression/test_per_venue_execution.py` holds
+    hand-calculated fills at two venues.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package
