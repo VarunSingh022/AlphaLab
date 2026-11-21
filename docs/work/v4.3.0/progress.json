@@ -2468,6 +2468,11 @@
         {
           "milestone": "M8",
           "item": "Per-venue execution models (TD-67, ADR-0061 settled point 3, FUT-045): ExecutionPipelineConfig.venues and router, OrderTerms.venue, CheapestVenue; every simulated order routed by terms, router or listing and filled by its venue's model; the routing record in metadata; version 9 when declared; crypto_venue_execution",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M8",
+          "item": "S-09 and GR-4 (ADR-0061 settled point 4): examples/82_research_execution_across_venues.py -- queued TWAP children at two declared venues and routed, commissions per venue, implementation shortfall, latency-priced fills, and a two-venue run reconciled venue by venue; in the installed smoke test",
           "status": "Local validation passed"
         }
       ],
@@ -2721,8 +2726,8 @@
       "id": "GAP-17",
       "problem": "One execution model per run",
       "severity": "H/P1",
-      "status": "Open",
-      "status_note": "Implemented at M8 (WS-26, ADR-0061, TD-67): a model per declared venue, every simulated order routed to one and filled by its model, and costs reconciling per venue. Closes with GR-4, M8's two-venue reconciliation, at the milestone's close.",
+      "status": "Closed",
+      "status_note": "Closed at M8 (WS-26, ADR-0061, TD-67): a model per declared venue, every simulated order routed to one and filled by its model; GR-4 holds a two-venue run's costs reconciling venue by venue (example 82, S-09).",
       "workstreams": [
         "WS-26"
       ],
@@ -3371,7 +3376,7 @@
   },
   "state": {
     "updated": "2026-11-21",
-    "remote_head": "e822fc1",
+    "remote_head": "b91fc0f",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4471,10 +4476,16 @@
         "workflow": "Optional Distributions",
         "run": 44877004058,
         "result": "success"
+      },
+      {
+        "sha": "b91fc0f",
+        "workflow": "Continuous Integration",
+        "run": 44894642984,
+        "result": "queued at this record, not counted as passed"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M8: S-09 and GR-4 (the execution-research scenario and the two-venue reconciliation, which close GAP-17); the execution guide, which closes GAP-53; M8's mutation series and close.",
+    "next": "M8: the execution guide, which closes GAP-53; M8's mutation series and close. b91fc0f's CI is read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -4861,6 +4872,10 @@
     {
       "date": "2026-11-21",
       "entry": "e822fc1 (the conservative builder, TD-66) passed the full gate on its first run (14,222 tests) and was pushed; 338beb6's and e822fc1's runs passed all six cells, so package intents and the builder are Hosted CI passed. Per-venue execution models validated locally (TD-67): every simulated order is routed before risk to a declared venue -- by its terms, the router or its listing venue -- and filled by that venue's model, its routing record in its metadata. OrderTerms is persisted in allocation's events and the algorithm book, so its new venue is written only when set and every earlier payload keeps its bytes. FUT-045 is implemented and leaves ROADMAP's Future work, as the ledger's own check requires. The commit's first gate failed on one test: OrderRequest's signature, whose default terms now show venue=None, was not named in the CHANGELOG. The local check had run another file in place of that test."
+    },
+    {
+      "date": "2026-11-21",
+      "entry": "b91fc0f (per-venue execution, TD-67) passed the full gate on its second run (14,235 tests) and was pushed. S-09 and GR-4 validated locally: example 82 researches one purchase across two declared venues, and its test holds every figure by hand. The scenario's finding is stated rather than repaired: CheapestVenue prices taking the market, so it routes a passive limit order to the venue where the order then pays more. GAP-17 closes with GR-4."
     }
   ]
 }

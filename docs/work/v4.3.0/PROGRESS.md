@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `e822fc1` |
+| Remote head | `b91fc0f` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M8: S-09 and GR-4 (the execution-research scenario and the two-venue reconciliation, which close GAP-17); the execution guide, which closes GAP-53; M8's mutation series and close. |
+| Next | M8: the execution guide, which closes GAP-53; M8's mutation series and close. b91fc0f's CI is read once at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -235,6 +235,7 @@ Never:
 | `e822fc1` | Continuous Integration | 44877004076 | success: all six quality-gate cells |
 | `e822fc1` | CodeQL | 44877004135 | success |
 | `e822fc1` | Optional Distributions | 44877004058 | success |
+| `b91fc0f` | Continuous Integration | 44894642984 | queued at this record, not counted as passed |
 
 ## Continuation log
 
@@ -334,6 +335,7 @@ Never:
 - **2026-11-21** e679ce2 (child fills, TD-64) passed the full gate on its first run (14,196 tests) and was pushed; 5497ea1's and e679ce2's runs passed all six cells, so plans with queues and child fills are Hosted CI passed. Package intents validated locally (TD-65): a package's legs are netted, sized and approved whole, linked in their metadata, and filled all or none at the close of an instant that priced every leg. Two places a run's record would have moved were kept still: the package identifier lives in each leg's metadata, since a run's steps record its orders, and the new feedback field decodes as empty from an older event. The slice close, which ran only when a strategy wanted slices, now also runs when a package is working; a run with neither returns at once, as before. The commit's first gate failed on one test, the pinned list of intent kinds. It also showed that allocation, given a package directly, would have sized it as a delta of its label; it now refuses one, as it refuses every instruction that is not one order.
 - **2026-11-21** 338beb6 (package intents, TD-65) passed the full gate on its second run and was pushed. The conservative builder validated locally (TD-66): conservative_execution states the conservative choice in every execution role from the researcher's own costs, participation and latency, refuses a cost model that charges nothing, and changes no default.
 - **2026-11-21** e822fc1 (the conservative builder, TD-66) passed the full gate on its first run (14,222 tests) and was pushed; 338beb6's and e822fc1's runs passed all six cells, so package intents and the builder are Hosted CI passed. Per-venue execution models validated locally (TD-67): every simulated order is routed before risk to a declared venue -- by its terms, the router or its listing venue -- and filled by that venue's model, its routing record in its metadata. OrderTerms is persisted in allocation's events and the algorithm book, so its new venue is written only when set and every earlier payload keeps its bytes. FUT-045 is implemented and leaves ROADMAP's Future work, as the ledger's own check requires. The commit's first gate failed on one test: OrderRequest's signature, whose default terms now show venue=None, was not named in the CHANGELOG. The local check had run another file in place of that test.
+- **2026-11-21** b91fc0f (per-venue execution, TD-67) passed the full gate on its second run (14,235 tests) and was pushed. S-09 and GR-4 validated locally: example 82 researches one purchase across two declared venues, and its test holds every figure by hand. The scenario's finding is stated rather than repaired: CheapestVenue prices taking the market, so it routes a passive limit order to the venue where the order then pays more. GAP-17 closes with GR-4.
 
 ## Milestones
 
@@ -1366,7 +1368,8 @@ Evidence:
 ### WS-26: Per-venue execution (FUT-045)
 
 - [Hosted CI passed] M8: ADR-0061 accepted (TD-58): per-venue execution models and routing (FUT-045), plans with queues, child fills
-- [Local validation passed] M8: Per-venue execution models (TD-67, ADR-0061 settled point 3, FUT-045): ExecutionPipelineConfig.venues and router, OrderTerms.venue, CheapestVenue; every simulated order routed by terms, router or listing and filled by its venue's model; the routing record in metadata; version 9 when declared; crypto_venue_execution
+- [Pushed] M8: Per-venue execution models (TD-67, ADR-0061 settled point 3, FUT-045): ExecutionPipelineConfig.venues and router, OrderTerms.venue, CheapestVenue; every simulated order routed by terms, router or listing and filled by its venue's model; the routing record in metadata; version 9 when declared; crypto_venue_execution
+- [Local validation passed] M8: S-09 and GR-4 (ADR-0061 settled point 4): examples/82_research_execution_across_venues.py -- queued TWAP children at two declared venues and routed, commissions per venue, implementation shortfall, latency-priced fills, and a two-venue run reconciled venue by venue; in the installed smoke test
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
@@ -1384,7 +1387,7 @@ Evidence:
 
 ## Gaps
 
-27 open, 22 closed, 4 discarded.
+26 open, 23 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -1404,7 +1407,7 @@ Evidence:
 | GAP-14 | Throughput | H/P2 | Open | WS-15 | M11 |
 | GAP-15 | Charter conflict | H/P0 | Open: the charter is accepted and the five documents reconciled; closes when G0 and M0 are accepted | WS-00 | G0 |
 | GAP-16 | No reference-data packs | H/P2 | Open (D-V3) | WS-13 | M10 |
-| GAP-17 | One execution model per run | H/P1 | Implemented at M8 (WS-26, ADR-0061, TD-67): a model per declared venue, every simulated order routed to one and filled by its model, and costs reconciling per venue. Closes with GR-4, M8's two-venue reconciliation, at the milestone's close. | WS-26 | M8 |
+| GAP-17 | One execution model per run | H/P1 | Closed at M8 (WS-26, ADR-0061, TD-67): a model per declared venue, every simulated order routed to one and filled by its model; GR-4 holds a two-venue run's costs reconciling venue by venue (example 82, S-09). | WS-26 | M8 |
 | GAP-18 | No run-level or intraday next-open | L-M/P1 | Closed at M8 (WS-11, ADR-0060, TD-60): FillTiming.NEXT_OPEN fills a market order's turn at a bar at the bar's open, and with a declared calendar an order decided after a session's last bar fills at the next session's first bar's open. Opt-in; the default stays SAME_EVENT in 4.x (D-V4). | WS-11 | M8 |
 | GAP-19 | Latency costs nothing | M/P2 | Closed at M8 (WS-11, ADR-0060, TD-62): LatencyPricing.POST_LATENCY_EVENT keeps an order from the market until its latency has passed. Its first turn is its asset's first event at or after then, stamped there, and at the intraday bar it reaches the market within it meets the close alone. Opt-in; a run under STAMP, the default, is unchanged. | WS-11 | M8 |
 | GAP-20 | Optimiser not on the path | M/P1 | Open (D-V3) | WS-12 | M9 |

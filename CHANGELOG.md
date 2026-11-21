@@ -1198,6 +1198,21 @@ entry below says otherwise.
   * **The tests.** `tests/regression/test_per_venue_execution.py` holds
     hand-calculated fills at two venues.
 
+* **`examples/82_research_execution_across_venues.py`** [plan S-09 and GR-4,
+  WS-26, ADR-0060, ADR-0061]. One purchase researched across two declared
+  venues with stated costs.
+  * **Queued children at each venue.** A TWAP of limit children waits its turn
+    in a queue model at ALPHA, at BETA, and routed between them. Each run's
+    commission is attributed to its venue, and its implementation shortfall is
+    measured.
+  * **A router is what it prices.** `CheapestVenue` prices taking the market,
+    and routes the passive order to the venue where it then pays more.
+  * **Latency priced.** A market order kept from the market by its venue's
+    ninety seconds fills at a later bar than a stamp would say.
+  * **GR-4.** A two-venue run's commissions and spend reconcile venue by venue.
+  * **The tests.** `tests/integration/test_execution_research_end_to_end.py`
+    holds every figure by hand, and the example joins the installed smoke test.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

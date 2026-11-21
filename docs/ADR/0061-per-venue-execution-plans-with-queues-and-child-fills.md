@@ -248,6 +248,24 @@ A composed result's two books are captured by the payloads each already has.
      - a resume at version 9, refused without its venues, with one configured
        otherwise, or without its router;
      - terms keeping their form, and a crypto venue's fees.
+4. **S-09 and GR-4.** `examples/82_research_execution_across_venues.py` runs
+   the plan's execution-research scenario over two declared venues with
+   stated costs, and `tests/integration/test_execution_research_end_to_end.py`
+   holds every figure by hand:
+   - a TWAP of limit children at 50.10, queued, fills 2,500 of 3,000 shares in
+     five maker fills at either venue, for 5.00 of commission at ALPHA and
+     12.50 at BETA;
+   - `CheapestVenue` prices taking the market -- 30.00 at BETA against 36.00
+     at ALPHA for 3,000 shares -- and routes the passive order to BETA, where
+     it then pays more. That a router is only what it prices is the
+     scenario's finding, stated, not repaired;
+   - a market order kept from the market by BETA's ninety seconds fills at
+     50.045 at 120 seconds, where a stamp says 50.025 at 150;
+   - GR-4: a thousand shares to each venue, ALPHA's at 50.03 with 2.00 of
+     commission and BETA's at 50.025 with 5.00, the run's commission and spend
+     their sum, 100,062.00.
+
+   It joins the installed smoke test, and GAP-17 closes with it.
 
 # Compatibility
 
