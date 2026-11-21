@@ -16,20 +16,29 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from collections.abc import Set as AbstractSet
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 from decimal import Decimal
 from enum import Enum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from alphalab.execution.policy import FillPolicy, FillTiming, ImmediateFill, LatencyPricing
+from alphalab.execution.costs import ExecutionCostModel
+from alphalab.execution.latency import LatencyModel
+from alphalab.execution.policy import (
+    FillPolicy,
+    FillTiming,
+    ImmediateFill,
+    LatencyPricing,
+    StrictLiquidityCappedFill,
+)
 from alphalab.execution.queue import QueueModel
+from alphalab.runtime.exceptions import RuntimeValidationError
 
 if TYPE_CHECKING:
     from alphalab.instrument.registry import InstrumentRegistry
     from alphalab.runtime.execution_pipeline import ExecutionPipelineConfig, ExecutionRouting
 
-__all__ = ["ExecutionAssumptions", "describe", "execution_assumptions"]
+__all__ = ["ExecutionAssumptions", "conservative_execution", "describe", "execution_assumptions"]
 
 
 def describe(value: Any) -> str:
@@ -239,6 +248,60 @@ def execution_assumptions(
         queue_model=None if queue_model is None else describe(queue_model),
         venue_conditions=_venue_conditions(pipeline.instruments),
     )
+
+
+def conservative_execution(
+    pipeline: ExecutionPipelineConfig,
+    *,
+    costs: ExecutionCostModel,
+    participation_rate: Decimal,
+    latency: LatencyModel,
+) -> tuple[ExecutionPipelineConfig, FillPolicy]:
+    """``pipeline`` with the conservative choice stated in every execution role (ADR-0060).
+
+    What a run measured to be believed would assume, where the defaults assume
+    the generous thing (v4.3, D-V4):
+
+    * ``NEXT_OPEN`` fill timing -- an order decided at one close trades at the
+      next open, never at the price that decided it;
+    * ``POST_LATENCY_EVENT`` latency pricing -- no order meets the market before
+      ``latency`` has passed;
+    * a :class:`~alphalab.execution.policy.StrictLiquidityCappedFill` at
+      ``participation_rate`` -- no fill larger than that share of what the
+      event showed, and data that shows no size refused rather than filled in
+      full.
+
+    ``costs`` and ``latency`` become the simulator's cost and latency models;
+    everything else ``pipeline`` states is kept. The three are required, and a
+    cost model that charges nothing by construction is refused: a builder that
+    invented costs would put a number nobody chose into a run. It changes no
+    default. Its choices are what :func:`execution_assumptions` reports, whose
+    :attr:`~ExecutionAssumptions.optimistic` is empty for its output.
+
+    Returns:
+        The configuration, and the fill policy to run it with.
+
+    Raises:
+        RuntimeValidationError: If ``costs`` charges nothing in every role.
+        ExecutionValidationError: If ``participation_rate`` is not a ``Decimal``
+            in ``(0, 1]``.
+    """
+
+    simulator = replace(pipeline.simulator, cost_model=costs, latency_model=latency)
+    if simulator.is_frictionless:
+        raise RuntimeValidationError(
+            "A conservative execution states its costs, and this cost model charges nothing in "
+            "every role: give it the spread, slippage, impact, commission, fees and tax the "
+            "venue charges."
+        )
+    policy = StrictLiquidityCappedFill(participation_rate)
+    configured = replace(
+        pipeline,
+        simulator=simulator,
+        fill_timing=FillTiming.NEXT_OPEN,
+        latency_pricing=LatencyPricing.POST_LATENCY_EVENT,
+    )
+    return configured, policy
 
 
 def _count(n: int, one: str, many: str) -> str:

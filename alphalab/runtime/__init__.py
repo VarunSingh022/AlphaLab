@@ -43,7 +43,11 @@ any more. ``EventDispatcher``, ``RuntimeEngine``, ``RuntimeSupervisor``,
 package; the canonical names beside them are unchanged.
 """
 
-from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
+from alphalab.runtime.assumptions import (
+    ExecutionAssumptions,
+    conservative_execution,
+    execution_assumptions,
+)
 from alphalab.runtime.broker_routing import (
     ChildOrderBindings,
     ChildRoutingResult,
@@ -159,6 +163,7 @@ __all__ = [
     "checkpoint",
     "checkpoint_schedule",
     "child_broker_order_id",
+    "conservative_execution",
     "execution_assumptions",
     "execution_report_from_broker",
     "live_health",

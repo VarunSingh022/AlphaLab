@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `e679ce2` |
+| Remote head | `338beb6` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M8, in the plan's commit order: conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close. |
+| Next | M8, in the plan's commit order: per-venue models, routing, the routing record and schema 9 (ADR-0061 section 1); S-09 and GR-4; the execution guide, which closes GAP-53; M8's mutation series and close. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -229,6 +229,7 @@ Never:
 | `e679ce2` | Continuous Integration | 44873619921 | success: all six quality-gate cells |
 | `e679ce2` | CodeQL | 44873619922 | success |
 | `e679ce2` | Optional Distributions | 44873619949 | success |
+| `338beb6` | Continuous Integration | 44876278521 | queued at this record, not counted as passed |
 
 ## Continuation log
 
@@ -326,6 +327,7 @@ Never:
 - **2026-11-21** 939ba55 (latency pricing, TD-62) passed the full gate on its first run (14,182 tests) and was pushed. ec1ca9b's third attempt passed all six cells. Plans with queues validated locally (TD-63): an execution plan and a queue model run together, the plan's limit children resting in the queue book, each joined at the event it was released at, and the result an AlgorithmicQueuedResult holding both books. A paused replay already kept both books in optional fields, so no schema moved; its pause now keeps the working children's places rather than the run's own orders', which a plan's run has none of. The new tests' two first failures were the tests': a replay's result_id differs from a backtest's by the run's mode, and a RunConfig derives its routing from its mode. The commit's first gate failed on mypy alone, every test passing: strict mode found the new test reading replace through the queue suite's module, an implicit re-export; unpacking a book typed Any; and narrowing a result to its base class before reading its queue. mypy had been run on the package, not on the whole tree as CI runs it.
 - **2026-11-21** 5497ea1 (plans with queues, TD-63) passed the full gate (14,190 tests) and was pushed. 939ba55's run passed all six cells, so latency pricing is Hosted CI passed. Child-fill feedback validated locally (TD-64): a strategy that defines on_child_fill and subscribes to child_fills hears each child's fill at the event it happened, divided as a fill is, and its answers route as any intent, under a plan as new parents. The event lives in the strategy layer beside FillEvent, since the backtesting layer's ChildFill is above it, and has its own topic, as slices and observations have theirs. The optional-protocol pattern is codified in the protocol's docstring, the strategy package's and the strategy guide.
 - **2026-11-21** e679ce2 (child fills, TD-64) passed the full gate on its first run (14,196 tests) and was pushed; 5497ea1's and e679ce2's runs passed all six cells, so plans with queues and child fills are Hosted CI passed. Package intents validated locally (TD-65): a package's legs are netted, sized and approved whole, linked in their metadata, and filled all or none at the close of an instant that priced every leg. Two places a run's record would have moved were kept still: the package identifier lives in each leg's metadata, since a run's steps record its orders, and the new feedback field decodes as empty from an older event. The slice close, which ran only when a strategy wanted slices, now also runs when a package is working; a run with neither returns at once, as before. The commit's first gate failed on one test, the pinned list of intent kinds. It also showed that allocation, given a package directly, would have sized it as a delta of its label; it now refuses one, as it refuses every instruction that is not one order.
+- **2026-11-21** 338beb6 (package intents, TD-65) passed the full gate on its second run and was pushed. The conservative builder validated locally (TD-66): conservative_execution states the conservative choice in every execution role from the researcher's own costs, participation and latency, refuses a cost model that charges nothing, and changes no default.
 
 ## Milestones
 
@@ -1042,6 +1044,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0062-combo-and-multi-leg-intents.md (settled point 1); CHANGELOG
 - **Tests:** tests/integration/test_package_intents.py (18): a pair at one instant, A at 100 and B at 50; NEXT_EVENT and NEXT_OPEN at 101 and 49; a package waiting for an instant that priced every leg, at 102 and 48; a cap filling neither leg, and a resting remainder filling at the next instant, or spent; risk refusing the package whole; six and four packages netting into ten, apart from an order for one leg, each leg's fill divided six to four; a cancel naming a leg refused; every refusal, and the refusal under a plan; each leg's fill and order event carrying its package; a replay paused at each boundary resuming to the same result. tests/regression/test_allocation_semantics.py: allocation refuses a package whole.
 
+### TD-66: conservative_execution: one builder states NEXT_OPEN, POST_LATENCY_EVENT and a strict cap, with the researcher's costs, participation and latency (ADR-0060 settled point 4, GAP-53) (WS-11, 2026-11-21)
+
+- **Problem:** Every execution default is the generous one, each stated in execution_assumptions, and nothing states the conservative alternative in one place (GAP-53). ADR-0060 section 6 asks for a builder that changes no default and invents no number.
+- **Alternatives:** Conservative defaults, or a builder; a builder that fills unstated roles with plausible costs, or one that requires them; its home in alphalab.runtime.assumptions beside execution_assumptions, or a new module; refusing a frictionless model by its type, or by the simulator's is_frictionless.
+- **Decision:** conservative_execution(pipeline, *, costs, participation_rate, latency) in alphalab.runtime.assumptions, exported from alphalab.runtime, returns the configuration with NEXT_OPEN, POST_LATENCY_EVENT and costs and latency as the simulator's models, everything else kept, and a StrictLiquidityCappedFill at the rate. A cost model that charges nothing in every role is refused through the simulator's is_frictionless, and a rate outside (0, 1] by the strict cap itself. No default moves (D-V4).
+- **Rationale:** A builder that required its numbers puts none into a run that nobody chose; reading is_frictionless keeps one definition of frictionless, maker commission included. Its output is what execution_assumptions reports, with optimistic empty.
+- **Compatibility:** Additive: one function (one export). Every default is unchanged.
+- **Recorded in:** docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md (settled point 4); CHANGELOG
+- **Tests:** tests/regression/test_conservative_execution.py (7): the three choices and nothing else changed; execution_assumptions naming no optimism; a frictionless cost model refused; rates outside (0, 1] refused; a run filling ten shares at the next open of 103 with a cent a share in commission, 1,030.10 in all.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1263,7 +1275,8 @@ Evidence:
 - [Hosted CI passed] M8: RestRemainder and StrictLiquidityCappedFill (TD-61, ADR-0060 settled point 2, GAP-38): a market turn's remainder rests for events or seconds, its allowance on the order through OMSEngine.annotate, and is cancelled when the rest ends; a strict cap refuses an event with no size; version 9 when declared
 - [Hosted CI passed] M8: LatencyPricing.POST_LATENCY_EVENT (TD-62, ADR-0060 settled point 3, GAP-19): an order's first turn is its asset's first event at or after its decision plus its latency, stamped there; at the intraday bar it reaches the market within, the close alone; no turn, queue place or auction part on its way; version 9 when declared
 - [Hosted CI passed] M8: Plans with queues (TD-63, ADR-0061 settled point 1, GAP-44): an execution plan's limit children rest in the queue book, each joined at its release event, filling only as far as the model allows; AlgorithmicQueuedResult holds both books; a paused replay resumes to the same books
-- [Local validation passed] M8: Package intents (TD-65, ADR-0062 settled point 1, GAP-26): IntentKind.PACKAGE with Leg ratios, netted and approved whole, legs linked in metadata and worked only together, filled all or none at a slice close; PackageRefused recorded
+- [Pushed] M8: Package intents (TD-65, ADR-0062 settled point 1, GAP-26): IntentKind.PACKAGE with Leg ratios, netted and approved whole, legs linked in metadata and worked only together, filled all or none at a slice close; PackageRefused recorded
+- [Local validation passed] M8: conservative_execution (TD-66, ADR-0060 settled point 4, GAP-53): NEXT_OPEN, POST_LATENCY_EVENT and a strict cap with the researcher's costs, participation and latency; a frictionless cost model refused; no default changed
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1410,7 +1423,7 @@ Evidence:
 | GAP-50 | No lot-relief methods (FIFO, LIFO, specific identification, pooling); proportional cost basis only | M/P2 | New (audit §F "to verify": verified absent) | WS-13 | M10 |
 | GAP-51 | Missing instrument classes: swaps (IRS, CDS, TRS), non-FX forwards, funds/ETFs as a booking class, inflation-linked, repos, securities lending as an instrument, structured products | M/P2 | New (audit §F row "Missing classes") | WS-14, WS-28, WS-13 | M10 |
 | GAP-52 | No native pegged or trailing orders (trailing is strategy logic by design) | L/P3 | New (audit §H) | WS-20, WS-26 | After M13 |
-| GAP-53 | Optimistic default execution choices (same-event, frictionless, fill-on-touch, static full fill), all stated in `execution_assumptions` | M/P1 | New (audit §H grouping) | WS-11 | M8 |
+| GAP-53 | Optimistic default execution choices (same-event, frictionless, fill-on-touch, static full fill), all stated in `execution_assumptions` | M/P1 | New (audit §H grouping). The builder is implemented at M8 (TD-66): conservative_execution states NEXT_OPEN, POST_LATENCY_EVENT and a strict cap with the researcher's costs, participation and latency. Closes with M8's execution guide, which documents it; 5.0's required fill timing is D-V4's. | WS-11 | M8 |
 
 ## ADR programme
 

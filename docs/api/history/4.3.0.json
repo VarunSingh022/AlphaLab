@@ -2976,6 +2976,7 @@
       "checkpoint": "function alphalab.runtime.checkpoint.checkpoint(state: 'RunState', previous: 'CheckpointMark | None' = None, *, schedule: 'ScheduleBinding | None' = None) -> 'tuple[str, CheckpointMark]'",
       "checkpoint_schedule": "function alphalab.runtime.checkpoint.checkpoint_schedule(payloads: 'Sequence[str]') -> 'ScheduleBinding | None'",
       "child_broker_order_id": "function alphalab.runtime.broker_routing.child_broker_order_id(parent: 'OMSOrder', sequence: 'int') -> 'str'",
+      "conservative_execution": "function alphalab.runtime.assumptions.conservative_execution(pipeline: 'ExecutionPipelineConfig', *, costs: 'ExecutionCostModel', participation_rate: 'Decimal', latency: 'LatencyModel') -> 'tuple[ExecutionPipelineConfig, FillPolicy]'",
       "execution_assumptions": "function alphalab.runtime.assumptions.execution_assumptions(pipeline: 'ExecutionPipelineConfig', fill_policy: 'FillPolicy', queue_model: 'QueueModel | None' = None) -> 'ExecutionAssumptions'",
       "execution_report_from_broker": "function alphalab.runtime.broker_routing.execution_report_from_broker(execution: 'BrokerExecution', oms_order: 'OMSOrder', config: 'RoutingConfig') -> 'ExecutionReport'",
       "live_health": "function alphalab.runtime.live.live_health(state: 'LiveRunState') -> 'tuple[str, ...]'",

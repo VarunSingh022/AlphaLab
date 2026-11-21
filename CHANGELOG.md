@@ -1154,6 +1154,22 @@ entry below says otherwise.
   * **The tests.** `tests/integration/test_package_intents.py` holds
     hand-calculated fills of a pair.
 
+* **The conservative choice in one call** [plan WS-11, GAP-53, ADR-0060].
+  `alphalab.runtime.conservative_execution(pipeline, *, costs,
+  participation_rate, latency)` returns a pipeline configuration and a fill
+  policy that assume nothing generous. They fill at the next open
+  (`NEXT_OPEN`), keep an order from the market until its latency has passed
+  (`POST_LATENCY_EVENT`), and take no more than `participation_rate` of what
+  an event shows (`StrictLiquidityCappedFill`).
+  * **What it requires.** The costs, the participation rate and the latency
+    are the researcher's to state: a cost model that charges nothing is
+    refused, since a builder that invented costs would put a number nobody
+    chose into a run.
+  * **What does not change.** Every default. The builder states its choices,
+    and `execution_assumptions` reports them, its `optimistic` empty.
+  * **The tests.** `tests/regression/test_conservative_execution.py` holds a
+    hand-calculated run.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

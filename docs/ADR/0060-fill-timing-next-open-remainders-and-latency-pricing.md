@@ -299,6 +299,25 @@ empty for its output.
      the way, quotes, queues, both kinds of reopening auction, the description
      and a resume at version 9. The bar ledger draws each pricing, and checks
      that no fill comes before its order's latency has passed.
+4. **The conservative builder.**
+   - **Its signature.** `conservative_execution(pipeline, *, costs,
+     participation_rate, latency)` lives in `alphalab.runtime.assumptions`
+     and is exported from `alphalab.runtime`. It returns the configuration and
+     the fill policy to run it with: section 6's three choices, `costs` and
+     `latency` as the simulator's cost and latency models, everything else
+     `pipeline` states kept.
+   - **Refusals.** A cost model whose every role charges nothing by
+     construction is refused with a `RuntimeValidationError`, read through the
+     simulator's own `is_frictionless`, so a maker commission set on the
+     simulator counts. A rate outside `(0, 1]` is refused by
+     `StrictLiquidityCappedFill` itself.
+   - **No default moves.** The builder replaces fields of the configuration
+     it is given. `ExecutionPipelineConfig`'s defaults stay `SAME_EVENT` and
+     `STAMP` (D-V4).
+   - **Tests.** `tests/regression/test_conservative_execution.py`: the three
+     choices and nothing else changed; `execution_assumptions` naming no
+     optimism; both refusals; and a run filling ten shares at the next open of
+     103 with a cent a share in commission, 1,030.10 in all.
 
 # Compatibility
 

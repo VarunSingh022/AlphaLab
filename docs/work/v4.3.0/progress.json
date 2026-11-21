@@ -1107,6 +1107,19 @@
       "compatibility": "Additive: an appended intent kind, a trailing field on Intent, a Leg type and a PackageRefused event (two exports), a trailing package_id on FillEvent and OrderEvent, a keyword on close_slice. A run placing no package keeps its record, snapshot bytes and identities; its slice closes still return at once.",
       "record": "docs/ADR/0062-combo-and-multi-leg-intents.md (settled point 1); CHANGELOG",
       "tests": "tests/integration/test_package_intents.py (18): a pair at one instant, A at 100 and B at 50; NEXT_EVENT and NEXT_OPEN at 101 and 49; a package waiting for an instant that priced every leg, at 102 and 48; a cap filling neither leg, and a resting remainder filling at the next instant, or spent; risk refusing the package whole; six and four packages netting into ten, apart from an order for one leg, each leg's fill divided six to four; a cancel naming a leg refused; every refusal, and the refusal under a plan; each leg's fill and order event carrying its package; a replay paused at each boundary resuming to the same result. tests/regression/test_allocation_semantics.py: allocation refuses a package whole."
+    },
+    {
+      "id": "TD-66",
+      "date": "2026-11-21",
+      "workstream": "WS-11",
+      "title": "conservative_execution: one builder states NEXT_OPEN, POST_LATENCY_EVENT and a strict cap, with the researcher's costs, participation and latency (ADR-0060 settled point 4, GAP-53)",
+      "problem": "Every execution default is the generous one, each stated in execution_assumptions, and nothing states the conservative alternative in one place (GAP-53). ADR-0060 section 6 asks for a builder that changes no default and invents no number.",
+      "alternatives": "Conservative defaults, or a builder; a builder that fills unstated roles with plausible costs, or one that requires them; its home in alphalab.runtime.assumptions beside execution_assumptions, or a new module; refusing a frictionless model by its type, or by the simulator's is_frictionless.",
+      "decision": "conservative_execution(pipeline, *, costs, participation_rate, latency) in alphalab.runtime.assumptions, exported from alphalab.runtime, returns the configuration with NEXT_OPEN, POST_LATENCY_EVENT and costs and latency as the simulator's models, everything else kept, and a StrictLiquidityCappedFill at the rate. A cost model that charges nothing in every role is refused through the simulator's is_frictionless, and a rate outside (0, 1] by the strict cap itself. No default moves (D-V4).",
+      "rationale": "A builder that required its numbers puts none into a run that nobody chose; reading is_frictionless keeps one definition of frictionless, maker commission included. Its output is what execution_assumptions reports, with optimistic empty.",
+      "compatibility": "Additive: one function (one export). Every default is unchanged.",
+      "record": "docs/ADR/0060-fill-timing-next-open-remainders-and-latency-pricing.md (settled point 4); CHANGELOG",
+      "tests": "tests/regression/test_conservative_execution.py (7): the three choices and nothing else changed; execution_assumptions naming no optimism; a frictionless cost model refused; rates outside (0, 1] refused; a run filling ten shares at the next open of 103 with a cent a share in commission, 1,030.10 in all."
     }
   ],
   "plan_changes": [
@@ -2120,6 +2133,11 @@
         {
           "milestone": "M8",
           "item": "Package intents (TD-65, ADR-0062 settled point 1, GAP-26): IntentKind.PACKAGE with Leg ratios, netted and approved whole, legs linked in metadata and worked only together, filled all or none at a slice close; PackageRefused recorded",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M8",
+          "item": "conservative_execution (TD-66, ADR-0060 settled point 4, GAP-53): NEXT_OPEN, POST_LATENCY_EVENT and a strict cap with the researcher's costs, participation and latency; a frictionless cost model refused; no default changed",
           "status": "Local validation passed"
         }
       ],
@@ -3114,7 +3132,7 @@
       "problem": "Optimistic default execution choices (same-event, frictionless, fill-on-touch, static full fill), all stated in `execution_assumptions`",
       "severity": "M/P1",
       "status": "Open",
-      "status_note": "New (audit §H grouping)",
+      "status_note": "New (audit §H grouping). The builder is implemented at M8 (TD-66): conservative_execution states NEXT_OPEN, POST_LATENCY_EVENT and a strict cap with the researcher's costs, participation and latency. Closes with M8's execution guide, which documents it; 5.0's required fill timing is D-V4's.",
       "workstreams": [
         "WS-11"
       ],
@@ -3335,7 +3353,7 @@
   },
   "state": {
     "updated": "2026-11-21",
-    "remote_head": "e679ce2",
+    "remote_head": "338beb6",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4399,10 +4417,16 @@
         "workflow": "Optional Distributions",
         "run": 44873619949,
         "result": "success"
+      },
+      {
+        "sha": "338beb6",
+        "workflow": "Continuous Integration",
+        "run": 44876278521,
+        "result": "queued at this record, not counted as passed"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M8, in the plan's commit order: conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close.",
+    "next": "M8, in the plan's commit order: per-venue models, routing, the routing record and schema 9 (ADR-0061 section 1); S-09 and GR-4; the execution guide, which closes GAP-53; M8's mutation series and close.",
     "open_questions": []
   },
   "log": [
@@ -4781,6 +4805,10 @@
     {
       "date": "2026-11-21",
       "entry": "e679ce2 (child fills, TD-64) passed the full gate on its first run (14,196 tests) and was pushed; 5497ea1's and e679ce2's runs passed all six cells, so plans with queues and child fills are Hosted CI passed. Package intents validated locally (TD-65): a package's legs are netted, sized and approved whole, linked in their metadata, and filled all or none at the close of an instant that priced every leg. Two places a run's record would have moved were kept still: the package identifier lives in each leg's metadata, since a run's steps record its orders, and the new feedback field decodes as empty from an older event. The slice close, which ran only when a strategy wanted slices, now also runs when a package is working; a run with neither returns at once, as before. The commit's first gate failed on one test, the pinned list of intent kinds. It also showed that allocation, given a package directly, would have sized it as a delta of its label; it now refuses one, as it refuses every instruction that is not one order."
+    },
+    {
+      "date": "2026-11-21",
+      "entry": "338beb6 (package intents, TD-65) passed the full gate on its second run and was pushed. The conservative builder validated locally (TD-66): conservative_execution states the conservative choice in every execution role from the researcher's own costs, participation and latency, refuses a cost model that charges nothing, and changes no default."
     }
   ]
 }
