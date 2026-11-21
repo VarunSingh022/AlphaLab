@@ -41,14 +41,14 @@ Never:
 - Deleting Git history or force-pushing.
 - Disabling security controls or rulesets to bypass a failure.
 
-## Current state (2026-11-21)
+## Current state (2026-11-22)
 
 | | |
 | --- | --- |
-| Remote head | `2313baa` |
+| Remote head | `b431c9b` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M8 waits on hosted CI for its close (4b9d8e8, f990eca and the close's records), on its checkpoint benchmarks on hosted Linux, and on the owner's acceptance. M9 (WS-12) begins with ADR-0063, the rebalancing bridge and certified solvers, before its code. |
+| Next | M9 (WS-12), in ADR-0063's order: the objective protocol; the certified linear program, checked against an exact rational reference, and its budget measured; scenario risk and the cardinality relaxation; the rebalancing package; then the rebalancing backtest with CVaR and the guide. The Linux 3.12 cell of M8's checkpoint benchmarks is read at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -247,6 +247,10 @@ Never:
 | `2313baa` | Continuous Integration | 44920680139 | success: all six quality-gate cells |
 | `2313baa` | CodeQL | 44920680114 | success |
 | `2313baa` | Optional Distributions | 44920680102 | success |
+| `b431c9b` | Continuous Integration | 44933653977 | success: all six quality-gate cells |
+| `b431c9b` | CodeQL | 44933654071 | success |
+| `b431c9b` | Optional Distributions | 44933654056 | success |
+| `b431c9b` | Benchmarks | 44933670178 | M8's checkpoint: Linux CPython 3.13 and 3.14 (authoritative) and macOS 3.12, 3.13 and 3.14 (diagnostic) passed; Linux 3.12 running when this was recorded, not counted |
 
 ## Continuation log
 
@@ -350,6 +354,7 @@ Never:
 - **2026-11-21** d9c22e9 (S-09 and GR-4) passed the full gate on its first run (14,242 tests) and was pushed; the distribution smoke now runs examples 11 and 70 to 82. The execution-realism guide validated locally: docs/EXECUTION_REALISM.md sets out each generous default beside the cautious choice that replaces it, and closes GAP-53 with the conservative builder it documents. The guide's first gate failed on formatting alone: ruff formats the Python blocks in a guide too, and one was hand-aligned.
 - **2026-11-21** f1a7733 (the execution-realism guide) passed the full gate on its second run (14,242 tests) and was pushed; b91fc0f's and d9c22e9's runs passed all six cells, so per-venue execution and S-09 are Hosted CI passed. M8's close scope check listed the milestone's deliverables from section J, section S, WS-10, WS-11 and WS-26 and ADR-0060, ADR-0061 and ADR-0062, before the mutation series, so that what it found joins the series' tree. Verified as built: StrategyProtocol's and BaseStrategy's manifest entries are unchanged since M7's close, and the certificate has moved only its source digest, its manifest digest and its export count (3,084 to 3,100), so every identity claim for a run declaring nothing is as it was. Found open, and closed in the next commit: the independent accounting ledger drew neither packages nor venues, which WS-11's integration line requires; ADR-0061 section 1 said the trade record carries the venue, which nothing had settled -- it carries none, and attribution reads the venue from the report the trade shares its id with, as ADR-0062 settled a package's identifier; section J's GAP-53 row has the docs lead with the builders, and WS-11's docs line asks for an execution_assumptions reference. Carried to the release commit (PC-04): docs/INTEGRATION.md and docs/GETTING_STARTED.md are release-facing and describe 4.2.1 until then, so their M8 content is recorded as WS-20's M13 item. Still to measure: the one-percent budget for runs that declare nothing. Read against the suite before it runs, the mutation series predicted two survivors, and a test was added for each. Venues declared without a router write version 9 and resume: every snapshot test had also declared a router, so a writer that forgot the venues still wrote version 9. That mutant was run on a full copy of the tree and failed only the new test, 8 for 9. Two contributors to one netted parent each hear their own share of its child's fills, 12, 30 and 18 of S's sixty and 8, 20 and 12 of T's forty; until now the share rule was tested with one contributor alone. Every mutant in the series was applied to a scratch copy and checked for undefined names and syntax errors: none.
 - **2026-11-21** 2313baa (the scope check's fixes and the XR series) passed the full gate (14,275 tests) and was pushed; f1a7733's and 2313baa's runs passed all six cells. The XR series caught 38 of 41 on 2313baa's tree, and each survivor showed a rule no test held: a child behind its queue is not asked (XR14), a child the run's end cancels leaves the book (XR17, restated, its first form changing no output), and an answer to a child's fill rests (XR20). Each has its test (4b9d8e8). The per-venue stress scenario passed. The one-percent budget failed its first measurement: a backtest and a replay cost +1.71% against M7's close, the excess calls a run declaring nothing still made. Guards that change no outcome (TD-68, f990eca) brought the dearest workload to +0.67%, and the whole series ran again on that tree: all 41 caught, every first failure replayed alone and read. M8 is closed locally and waits on hosted CI and the owner's acceptance.
+- **2026-11-22** b431c9b (M8's close) passed the full gate (14,278 tests) and was pushed with 4b9d8e8 and f990eca; its run passed all six cells, so every M8 commit passed hosted CI and M8 is Hosted CI passed. M8's checkpoint benchmarks passed on five of six cells, Linux 3.12 still running. M9 begun. Its scope was taken from the plan's WS-12 section, H.5, P.2, the new-capability table and the register before any code. ADR-0063 accepted under delegation (TD-69), deciding D-V3's two M9 reopenings as P.2 states them: one solver becomes every solver certified, and the optimizer-to-orders non-goal reopens narrowly through a separate rebalancing package. A kernel probe measured the budget's operations first, so the ADR records that 60 seconds for a certified CVaR construction at 1,000 assets over 2,520 scenarios is not expected in pure Python, and leaves the figure to the implementation's measurement.
 
 ## Milestones
 
@@ -364,8 +369,8 @@ Never:
 | M5 | Hosted CI passed | WS-24, WS-06 | S-13; leak mutants caught; promotion refusal |
 | M6 | Hosted CI passed | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Hosted CI passed | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
-| M8 | Local validation passed | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
-| M9 | Not started | WS-12 | A rebalancing backtest with CVaR, certified |
+| M8 | Hosted CI passed | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
+| M9 | In progress | WS-12 | A rebalancing backtest with CVaR, certified |
 | M10 | Not started | WS-13, WS-27, WS-14, WS-28 | S-03, S-04, S-05, S-06, S-14; GR-1, GR-3, GR-6 |
 | M11 | Not started | WS-15, WS-09, WS-25, WS-21 | Benchmarks; the 500-asset × 10-year run ≤ 5 minutes with the same `result_id` |
 | M12 | Not started | WS-16, WS-18, WS-20 | S-08; a stress family reproduced |
@@ -384,7 +389,7 @@ Never:
 | 1 | Plan | The master development plan as the implementation blueprint | Approved | G0 | Approved on 2026-11-09 with its 30 workstreams and M0-M13 milestones. Every existing identifier, dependency and acceptance criterion is preserved. The plan may evolve on verified implementation findings; each change is recorded under plan_changes with its reason. |
 | 2 | D-V1 | Universal quantitative-engine charter revision | Approved | G0; its documents in M0 | Reconcile the five documents that state the product's direction -- ROADMAP.md, docs/VISION.md, nowandfuture.md, docs/ARCHITECTURE.md and docs/SYSTEM_DESIGN.md -- around one authoritative product vision, preserving the no-single-runtime architectural boundary. The charter ADR's number waits for item 16. Delivered as ADR-0056 (accepted 2026-11-10). |
 | 3 | D-V2 | Optional, separately installable research and computational dependencies | Approved | M7 | The AlphaLab core stays free of mandatory runtime dependencies; optional packages integrate through stable core interfaces (AC-38). |
-| 4 | D-V3 | Boundary reopenings (plan section P.2) | Delegated (2026-11-10): decided at its milestone | Each before its milestone (M2-M10) | Each reopening gets its own ADR before its milestone. Not to be assumed. Decided so far: OFE-007 (a fitted half-life) reopened by ADR-0074, and OFE-010 (statistical regime models) reopened by ADR-0075, both 2026-11-16 (TD-30, TD-31). |
+| 4 | D-V3 | Boundary reopenings (plan section P.2) | Delegated (2026-11-10): decided at its milestone | Each before its milestone (M2-M10) | Each reopening gets its own ADR before its milestone. Not to be assumed. Decided so far: OFE-007 (a fitted half-life) reopened by ADR-0074, and OFE-010 (statistical regime models) reopened by ADR-0075, both 2026-11-16 (TD-30, TD-31). M9's two decided by ADR-0063 (2026-11-22, TD-69): the single-solver boundary reopened as every solver certified, and the optimizer-to-orders non-goal reopened narrowly through the rebalancing package; integer programs, exact cardinality and multi-period construction stay boundaries. |
 | 5 | D-V4 | Fill timing: NEXT_OPEN and an intraday rule in 4.3; fill_timing required in 5.0 | Decided under delegation (2026-11-17) | Before M8 | TD-57, ADR-0060: FillTiming.NEXT_OPEN and the intraday opening rule in 4.3, opt-in; the default stays SAME_EVENT throughout 4.x; 5.0 makes fill_timing required. |
 | 6 | ADR-0053 | ADR-0053 revised (R53-1..8, CR-53-1..9) | Decided under delegation (2026-11-10) | Before M1 | ADR-0053 revision 3 accepted: the draft's option C-e with R53-1 to R53-8 applied and CR-53-1 to CR-53-9 held, departing from R53-1's letter where TD-06 records. Implemented in M1. |
 | 7 | ADR-0054 | ADR-0054 split into 0054A and 0054B; D-54-5 revised | Delegated (2026-11-10): decided at its milestone | 0054A before M2; 0054B before M4 | 0054A accepted as ADR-0054 on 2026-11-14 (TD-10), applying R54-8, D-54-2, D-54-4 and D-54-12; 0054B, the experiment and trial ledger, is ADR-0072, before M4. |
@@ -1097,6 +1102,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/audit/scripts/spine_overhead.py; CHANGELOG [4.3.0] Added; M8's evidence.
 - **Tests:** The full suite, unchanged. spine_overhead.py on f990eca's tree, fifteen rounds on the reference machine on battery power: a backtest +0.05%, a replay +0.67%, the pipeline +0.34%, the OMS +0.19%, the portfolio engine -0.14%. Profiles of the backtest and the replay find the same ten extra calls a record on each, so their difference is the measurement's spread.
 
+### TD-69: ADR-0063 accepted: rebalancing on the run's path, and every construction solver certified (D-V3's two M9 reopenings) (WS-12, 2026-11-22)
+
+- **Problem:** Construction is standalone (GAP-20): portfolio_optimizer has no importer and example 10 bridges by hand. Its objectives are closed and one kind of program is solved (GAP-37): CVaR and drawdown need a linear program over scenarios, which ADR-0046 decision 10 recorded as a boundary, and AC-27 and nowandfuture's rule say no second solver. ADR-0043 lists order generation from a construction as a non-goal. D-V3 delegates each reopening to its own ADR before its milestone, not to be assumed.
+- **Alternatives:** (a) Keep both boundaries: no CVaR or drawdown construction, and construction research stays off the path. (b) Let portfolio_optimizer generate orders: it would import the path, which test_v38_invariants forbids, and the optimizer would gain an authority it must not hold. (c) As plan section P.2 states: reopen one solver as every solver certified, and the optimizer-to-orders non-goal narrowly through a separate rebalancing package that states targets.
+- **Decision:** (c). construct stays the one authority, its certification contract the rule, with three methods behind it: the dense quadratic method, the factor-structured interior point and a certified linear program. The LP is Mehrotra's interior point with an exact finish: primal and dual feasibility, complementary slackness and the relative duality gap verified; INFEASIBLE only with a verified Farkas ray; checked against an exact rational simplex. An objective protocol declares each objective's rendering and class -- LINEAR, CONVEX_QUADRATIC, CONVEX or NONCONVEX -- and dispatches by it, refusing what no certified method takes. Scenario risk is linear once lifted: Rockafellar and Uryasev's CVaR, and Chekhlov, Uryasev and Zabarankin's drawdown of the cumulative sum. A cardinality limit is relaxed in two certified steps with both optima stated. alphalab.rebalancing (common, conventions, strategy, analytics, portfolio_optimizer; nothing imports it) carries RebalancingStrategy. It decides at a slice's close by calendar, threshold and drift triggers with every parameter stated, constructs from the run's state and the researcher's model, trades only certified answers, and states TARGET_QUANTITY intents after round_to_lots. portfolio_optimizer.rebalance's standalone rules are superseded in documentation until 5.0.
+- **Rationale:** The certification contract, not the count of solvers, is what AC-27 protects, and the plan reopens exactly that. The optimizer still never generates an order: the bridge states targets, and the run's target path orders them as any strategy's.
+- **Compatibility:** Additive. Every existing construction problem and result keeps its identity, lines being added only for what a problem newly declares; a run with no rebalancing strategy is unchanged. A quadratic objective under a scenario limit is refused at M9.
+- **Recorded in:** docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md; decision D-V3.
+- **Tests:** To be built with M9's commits: the LP against an exact rational reference; the refusals by class; the cardinality bounds; the triggers; a rebalancing backtest with CVaR, certified and reconciled to its fills. A kernel probe measured the budget's operations first: a 2,520 x 1,000 product 0.08 s, a 300-row normal matrix 1.5 s, a Cholesky at 1,000 about 6 s -- so 60 s at the budget's size is not expected in pure Python, and the measured figure decides whether the compute backend (M11) meets it.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1125,8 +1140,8 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | Hosted CI passed |
 | WS-09 | Optional distributions and backends | M7, M11 | In progress |
 | WS-10 | Strategy authoring and safe extensibility | M8, M13 | In progress |
-| WS-11 | Execution realism: fills, partial fills, latency, plan+queue, combos | M8 | Local validation passed |
-| WS-12 | Portfolio construction and rebalancing | M9 | Not started |
+| WS-11 | Execution realism: fills, partial fills, latency, plan+queue, combos | M8 | Hosted CI passed |
+| WS-12 | Portfolio construction and rebalancing | M9 | In progress |
 | WS-13 | Global conventions, reference data and historical universes | M2, M3, M10 | In progress |
 | WS-14 | Fixed income and rates | M10 | Not started |
 | WS-15 | Performance and scale | M11 | Not started |
@@ -1140,7 +1155,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-23 | Security and trust boundaries | M0, M4 | In progress |
 | WS-24 | Validation over actual backtests | M5 | In progress |
 | WS-25 | Factor and feature research | M6, M11 | In progress |
-| WS-26 | Per-venue execution (FUT-045) | M8 | Local validation passed |
+| WS-26 | Per-venue execution (FUT-045) | M8 | Hosted CI passed |
 | WS-27 | FX and multi-currency correctness | M10 | Not started |
 | WS-28 | Options and futures depth | M10 | Not started |
 | WS-29 | Release engineering and v4.3.0 artifacts | M0, M13 | In progress |
@@ -1324,8 +1339,12 @@ Evidence:
 - [Hosted CI passed] M8: The execution-realism guide (GAP-53): docs/EXECUTION_REALISM.md -- the defaults and what they assume, fill timing, fill policies and remainders, latency pricing, conservative_execution, queues, plans and child fills, packages, venues and routing, what is recorded, and what is not here
 - [Hosted CI passed] M8: The independent accounting ledger over packages and venues (WS-11's integration line, found open by M8's close scope check): tests/regression/test_accounting_matches_an_independent_ledger.py draws two declared venues on its bar runs, each order charged its routed venue's commission and its routing recorded, and books 30 seeded runs of packages and single orders -- money to the cent, each package at one instant, every leg at its ratio or none, and under an immediate fill at the first instant that priced every leg after its decision and latency
 - [Hosted CI passed] M8: The guide leads with conservative_execution (section J's GAP-53 row: the docs lead with the builders) and reads execution_assumptions field by field, each declared option's extension named (WS-11's docs line)
-- [Local validation passed] M8: M8's mutation series XR (40 mutations, V02 re-targeted): all caught on the final tree, f990eca; three survivors closed by tests -- a child behind its queue not asked, a child the run's end cancels leaving the book, an answer to a child's fill resting -- and XR17 restated
-- [Local validation passed] M8: The one-percent budget for a run declaring no M8 option (TD-68, PRF-006): guards on the slice close, the package intake and the per-order checks; docs/audit/scripts/spine_overhead.py against M7's close, the dearest workload +0.67% on f990eca's tree
+- [Hosted CI passed] M8: M8's mutation series XR (40 mutations, V02 re-targeted): all caught on the final tree, f990eca; three survivors closed by tests -- a child behind its queue not asked, a child the run's end cancels leaving the book, an answer to a child's fill resting -- and XR17 restated
+- [Hosted CI passed] M8: The one-percent budget for a run declaring no M8 option (TD-68, PRF-006): guards on the slice close, the package intake and the per-order checks; docs/audit/scripts/spine_overhead.py against M7's close, the dearest workload +0.67% on f990eca's tree
+
+### WS-12: Portfolio construction and rebalancing
+
+- [Local validation passed] M9: ADR-0063 accepted (TD-69, D-V3): every construction solver certified -- the objective protocol, a certified linear program, scenario risk lifted to linear, a cardinality relaxation with both optima stated -- and the rebalancing package, which states targets and never orders
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1403,7 +1422,7 @@ Evidence:
 - [Hosted CI passed] M8: Per-venue execution models (TD-67, ADR-0061 settled point 3, FUT-045): ExecutionPipelineConfig.venues and router, OrderTerms.venue, CheapestVenue; every simulated order routed by terms, router or listing and filled by its venue's model; the routing record in metadata; version 9 when declared; crypto_venue_execution
 - [Hosted CI passed] M8: S-09 and GR-4 (ADR-0061 settled point 4): examples/82_research_execution_across_venues.py -- queued TWAP children at two declared venues and routed, commissions per venue, implementation shortfall, latency-priced fills, and a two-venue run reconciled venue by venue; in the installed smoke test
 - [Hosted CI passed] M8: The venue measures read the routed venue (section J: analytics measures and reads the per-venue projection; ADR-0061 settled point 3): venue_quality finds GR-4's ALPHA fill six basis points above the 50.00 arrival and BETA's five, and attribution's venue dimension covers both trades through the reports they share their ids with; ADR-0061 section 1's 'and trade record' settled differently -- no record type gains a field; venues routed by listing alone recorded at version 9 and resumed
-- [Local validation passed] M8: The per-venue stress scenario (stress_v4_3.py venues): 4,000 orders routed by size between a per-share and a per-order venue, every route, each venue's commission and their sum asserted, flat at ten times the run
+- [Hosted CI passed] M8: The per-venue stress scenario (stress_v4_3.py venues): 4,000 orders routed by size between a per-share and a per-order venue, every route, each venue's commission and their sum asserted, flat at ten times the run
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
@@ -1444,7 +1463,7 @@ Evidence:
 | GAP-17 | One execution model per run | H/P1 | Closed at M8 (WS-26, ADR-0061, TD-67): a model per declared venue, every simulated order routed to one and filled by its model; GR-4 holds a two-venue run's costs reconciling venue by venue (example 82, S-09). | WS-26 | M8 |
 | GAP-18 | No run-level or intraday next-open | L-M/P1 | Closed at M8 (WS-11, ADR-0060, TD-60): FillTiming.NEXT_OPEN fills a market order's turn at a bar at the bar's open, and with a declared calendar an order decided after a session's last bar fills at the next session's first bar's open. Opt-in; the default stays SAME_EVENT in 4.x (D-V4). | WS-11 | M8 |
 | GAP-19 | Latency costs nothing | M/P2 | Closed at M8 (WS-11, ADR-0060, TD-62): LatencyPricing.POST_LATENCY_EVENT keeps an order from the market until its latency has passed. Its first turn is its asset's first event at or after then, stamped there, and at the intraday bar it reaches the market within it meets the close alone. Opt-in; a run under STAMP, the default, is unchanged. | WS-11 | M8 |
-| GAP-20 | Optimiser not on the path | M/P1 | Open (D-V3) | WS-12 | M9 |
+| GAP-20 | Optimiser not on the path | M/P1 | Open: reopened by ADR-0063 (D-V3, 2026-11-22), the rebalancing package; closes with M9's rebalancing backtest. | WS-12 | M9 |
 | GAP-21 | DL and RL not end to end | M/P2 | Open | WS-16 | M12 |
 | GAP-22 | No depth, L2 or ns time | M/P3 | Open (after M13; ns in 5.0) | WS-17 | After M13 |
 | GAP-23 | FX booked as units | M/P2 | Open | WS-27 | M10 |
@@ -1461,7 +1480,7 @@ Evidence:
 | GAP-34 | 9,248-line pipeline module | L/P3 | Open | WS-15 | M11 |
 | GAP-35 | Windows untested | M/P2 | Open | WS-21 | M11 [OD] |
 | GAP-36 | US-centric day counts | H/P1 | Closed at M2's hosted exit gate (fe3c80b; N21, TD-14): the world's bond and swap day counts, each by its published definition, an instrument's terms explicit; GR-2's published worked examples matched. N21's other conventions in plan G.3 -- business-day conventions and FX value dates -- are where plan G.2 places them, at M10 with WS-14 (GR-6) and WS-27 (GR-3). | WS-13 | M2 |
-| GAP-37 | Closed construction objectives; one solver | M/P2 | Open (D-V3) | WS-12 | M9 |
+| GAP-37 | Closed construction objectives; one solver | M/P2 | Open: reopened by ADR-0063 (D-V3, 2026-11-22), every solver certified; closes with M9's certified linear program and objective protocol. | WS-12 | M9 |
 | GAP-38 | Remainders cancelled; size-less fills | M/P2 | Closed at M8 (WS-11, ADR-0060, TD-61): RestRemainder keeps a partial fill's remainder working for a stated number of events or seconds, then cancels it; StrictLiquidityCappedFill refuses an event with no size instead of filling in full. Both opt-in; a run declaring neither is unchanged. | WS-11 | M8 |
 | GAP-39 | (candidate) silent zero fill | — | Discarded | — | — |
 | GAP-40 | (candidate) no history accessor | — | Discarded | — | — |
@@ -1496,7 +1515,7 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | ADR-0060 | Fill timing `NEXT_OPEN`, intraday opening, `RemainderPolicy`, latency pricing (D-V4) | WS-11 | Before M8 | Accepted (2026-11-17) |
 | ADR-0061 | Per-venue execution (FUT-045) and plan+queue composition | WS-26 | Before M8 | Accepted (2026-11-17) |
 | ADR-0062 | Combo and multi-leg intents (N16) | WS-11 | Before M8 | Accepted (2026-11-17) |
-| ADR-0063 | Rebalancing bridge and certified additional solvers (reopens ADR-0043's non-goal and §19) | WS-12 | Before M9 | Not drafted in the repository |
+| ADR-0063 | Rebalancing bridge and certified additional solvers (reopens ADR-0043's non-goal and §19) | WS-12 | Before M9 | Accepted (2026-11-22) |
 | ADR-0064 | Research model protocol and artifacts (N8) | WS-08 | Before M7 | Accepted (2026-11-16) |
 | ADR-0065 | Fixed income and rates (reopens BDY-014) | WS-14 | Before M10 | Not drafted in the repository |
 | ADR-0066 | Volatility models (reopens BDY-015) | WS-28 | Before M10 | Not drafted in the repository |

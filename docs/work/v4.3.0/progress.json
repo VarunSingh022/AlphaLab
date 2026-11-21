@@ -62,7 +62,7 @@
       "title": "Boundary reopenings (plan section P.2)",
       "status": "Delegated (2026-11-10): decided at its milestone",
       "due": "Each before its milestone (M2-M10)",
-      "note": "Each reopening gets its own ADR before its milestone. Not to be assumed. Decided so far: OFE-007 (a fitted half-life) reopened by ADR-0074, and OFE-010 (statistical regime models) reopened by ADR-0075, both 2026-11-16 (TD-30, TD-31)."
+      "note": "Each reopening gets its own ADR before its milestone. Not to be assumed. Decided so far: OFE-007 (a fitted half-life) reopened by ADR-0074, and OFE-010 (statistical regime models) reopened by ADR-0075, both 2026-11-16 (TD-30, TD-31). M9's two decided by ADR-0063 (2026-11-22, TD-69): the single-solver boundary reopened as every solver certified, and the optimizer-to-orders non-goal reopened narrowly through the rebalancing package; integer programs, exact cardinality and multi-period construction stay boundaries."
     },
     {
       "item": 5,
@@ -1146,6 +1146,19 @@
       "compatibility": "No output, identity, payload or public name changes; the full suite and the certificate hold.",
       "record": "docs/audit/scripts/spine_overhead.py; CHANGELOG [4.3.0] Added; M8's evidence.",
       "tests": "The full suite, unchanged. spine_overhead.py on f990eca's tree, fifteen rounds on the reference machine on battery power: a backtest +0.05%, a replay +0.67%, the pipeline +0.34%, the OMS +0.19%, the portfolio engine -0.14%. Profiles of the backtest and the replay find the same ten extra calls a record on each, so their difference is the measurement's spread."
+    },
+    {
+      "id": "TD-69",
+      "date": "2026-11-22",
+      "workstream": "WS-12",
+      "title": "ADR-0063 accepted: rebalancing on the run's path, and every construction solver certified (D-V3's two M9 reopenings)",
+      "problem": "Construction is standalone (GAP-20): portfolio_optimizer has no importer and example 10 bridges by hand. Its objectives are closed and one kind of program is solved (GAP-37): CVaR and drawdown need a linear program over scenarios, which ADR-0046 decision 10 recorded as a boundary, and AC-27 and nowandfuture's rule say no second solver. ADR-0043 lists order generation from a construction as a non-goal. D-V3 delegates each reopening to its own ADR before its milestone, not to be assumed.",
+      "alternatives": "(a) Keep both boundaries: no CVaR or drawdown construction, and construction research stays off the path. (b) Let portfolio_optimizer generate orders: it would import the path, which test_v38_invariants forbids, and the optimizer would gain an authority it must not hold. (c) As plan section P.2 states: reopen one solver as every solver certified, and the optimizer-to-orders non-goal narrowly through a separate rebalancing package that states targets.",
+      "decision": "(c). construct stays the one authority, its certification contract the rule, with three methods behind it: the dense quadratic method, the factor-structured interior point and a certified linear program. The LP is Mehrotra's interior point with an exact finish: primal and dual feasibility, complementary slackness and the relative duality gap verified; INFEASIBLE only with a verified Farkas ray; checked against an exact rational simplex. An objective protocol declares each objective's rendering and class -- LINEAR, CONVEX_QUADRATIC, CONVEX or NONCONVEX -- and dispatches by it, refusing what no certified method takes. Scenario risk is linear once lifted: Rockafellar and Uryasev's CVaR, and Chekhlov, Uryasev and Zabarankin's drawdown of the cumulative sum. A cardinality limit is relaxed in two certified steps with both optima stated. alphalab.rebalancing (common, conventions, strategy, analytics, portfolio_optimizer; nothing imports it) carries RebalancingStrategy. It decides at a slice's close by calendar, threshold and drift triggers with every parameter stated, constructs from the run's state and the researcher's model, trades only certified answers, and states TARGET_QUANTITY intents after round_to_lots. portfolio_optimizer.rebalance's standalone rules are superseded in documentation until 5.0.",
+      "rationale": "The certification contract, not the count of solvers, is what AC-27 protects, and the plan reopens exactly that. The optimizer still never generates an order: the bridge states targets, and the run's target path orders them as any strategy's.",
+      "compatibility": "Additive. Every existing construction problem and result keeps its identity, lines being added only for what a problem newly declares; a run with no rebalancing strategy is unchanged. A quadratic objective under a scenario limit is refused at M9.",
+      "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md; decision D-V3.",
+      "tests": "To be built with M9's commits: the LP against an exact rational reference; the refusals by class; the cardinality bounds; the triggers; a rebalancing backtest with CVaR, certified and reconciled to its fills. A kernel probe measured the budget's operations first: a 2,520 x 1,000 product 0.08 s, a 300-row normal matrix 1.5 s, a Cholesky at 1,000 about 6 s -- so 60 s at the budget's size is not expected in pure Python, and the measured figure decides whether the compute backend (M11) meets it."
     }
   ],
   "plan_changes": [
@@ -1431,7 +1444,7 @@
       "deliverables": "`NEXT_OPEN`; intraday opening; `RemainderPolicy`; latency pricing; plan + queue; child fills; combos; per-venue models",
       "exit_gate": "S-09; GR-4; leg atomicity; certificate unchanged for default runs",
       "size": "XL",
-      "status": "Local validation passed",
+      "status": "Hosted CI passed",
       "evidence": [
         "Exit gate, S-09: examples/82_research_execution_across_venues.py researches one purchase across two declared venues. A TWAP of limit children queues at each venue and is routed by CheapestVenue; its commission is attributed by the reports to the venue that charged it, 5.00 at ALPHA and 12.50 at BETA for 2,500 shares in five maker fills; its implementation shortfall is measured; and a market order kept from the market by BETA's ninety-second latency fills at 50.045 at 120 seconds, where a stamp says 50.025 at 150. Every figure is held by hand (tests/integration/test_execution_research_end_to_end.py), and the example runs from each installed distribution. Its finding is stated, not repaired: CheapestVenue prices taking the market, so it routes a passive order to the venue where the order then pays more.",
         "Exit gate, GR-4: a thousand shares to each venue in one run, ALPHA's at 50.03 with 2.00 of commission and BETA's at 50.025 with 5.00, the run's commission and spend their sum, 100,062.00. The library's venue measures read the routed venue -- venue_quality six and five basis points above the 50.00 arrival, attribution's venue dimension covering both trades -- and the independent accounting ledger's bar runs draw two declared venues, each fill charged its routed venue's commission. A run declaring one model records no routing and writes pipeline version 8, byte for byte.",
@@ -1444,7 +1457,7 @@
         "Defects M8 found, each fixed with what found it: ADR-0060's first section, corrected before its push (a held limit already meets the next bar from its open); the pipeline schema's pins and the *_SCHEMA scanners, by ec1ca9b's first gate; a field added to ExecutionAssumptions moving every experiment's identity, by bc11621's first gate, so declared options extend existing descriptions; latency's arriving rule on harness bars stamped a second apart, by its first tests, so only the first turn arrives; allocation sizing a package given to it directly, through the pinned list of intent kinds; OrderRequest's signature missing from the CHANGELOG, by b91fc0f's first gate; example 82's single-venue runs refused for want of a router, by its first run; a hand-aligned block in the guide, by ruff; and the one-percent budget's overrun, by its measurement (TD-68).",
         "Mutation series XR (WS-10, WS-11, WS-26; ADR-0060 to ADR-0062), 40 mutations with v3.12's V02 re-targeted, each caught on the final tree (f990eca) by: V02 (NEXT_EVENT fills at the deciding event): test_algorithms_on_the_historical_path::test_algorithmic_children_are_costed_against_the_same_run_filling_whole; XR01 (NEXT_OPEN fills a market order at the bar's close): test_accounting_matches_an_independent_ledger::test_the_engine_books_what_an_independent_ledger_books_on_bars[0]; XR02 (a pre- or post-market bar gives orders their turn): test_next_open::test_with_the_venues_calendar_the_order_fills_at_the_next_sessions_first_open; XR03 (a resting remainder's turn that fills nothing closes it): test_remainders_and_strict_caps::test_a_turn_that_fills_nothing_counts_and_the_remainder_works_on; XR04 (a seconds rest is not checked before the turn): test_remainders_and_strict_caps::test_a_remainder_rests_for_its_seconds_then_is_withdrawn_without_a_turn; XR05 (the strict cap fills in full on an event with no size): test_remainders_and_strict_caps::test_a_strict_cap_refuses_an_event_with_no_size; XR06 (latency pricing keeps no order from the market): test_execution_research_end_to_end::test_latency_kept_from_the_market_fills_at_a_later_bar[post-latency-event]; XR07 (an order meets the market before its latency has passed): test_execution_research_end_to_end::test_latency_kept_from_the_market_fills_at_a_later_bar[post-latency-event]; XR08 (an order arriving within an intraday bar meets its open): test_latency_pricing::test_a_latency_longer_than_the_bar_fills_at_a_later_bars_price[post-next-open]; XR09 (every later turn of a latency-kept order arrives too): test_latency_pricing::test_an_order_ready_inside_the_halt_waits_for_the_reopening_auction; XR10 (an order on its way joins a queue at the event it was placed on): test_latency_pricing::test_an_order_on_its_way_takes_no_place_in_the_queue_at_the_event_it_was_placed_on; XR11 (a computed auction counts an order by its placement, not its arrival): test_latency_pricing::test_only_an_order_that_reached_the_market_in_the_halt_is_in_the_computed_book; XR12 (a latency-priced fill keeps its latency stamp): test_execution_research_end_to_end::test_latency_kept_from_the_market_fills_at_a_later_bar[post-latency-event]; XR13 (a queue model is refused beside an execution plan): test_child_fill_feedback::test_a_strategy_hears_each_childs_fill_with_its_share; XR14 (a resting child fills before it reaches the front of its level): test_plans_with_queues::test_the_fill_policy_is_not_asked_about_a_child_the_queue_has_not_reached (added for it); XR15 (a resting child fills more than the queue allows): test_child_fill_feedback::test_a_strategy_hears_each_childs_fill_with_its_share; XR16 (a released limit child joins no queue): test_child_fill_feedback::test_a_strategy_hears_each_childs_fill_with_its_share; XR17 (a child the run's end cancels keeps its place in the result's queue book): test_plans_with_queues::test_a_child_the_runs_end_cancels_leaves_the_book (restated, and added for it); XR18 (each contributor hears a child's whole fill as its share): test_child_fill_feedback::test_each_contributor_to_a_netted_parent_hears_its_own_share (added before the run); XR19 (a child's fill reaches no strategy): test_child_fill_feedback::test_a_strategy_hears_each_childs_fill_with_its_share; XR20 (an answer to a child's fill trades in the step that reported it): test_child_fill_feedback::test_an_answer_rests_until_its_assets_next_event_whoever_fills_the_run (added for it); XR21 (a package of one leg is placed): test_package_intents::test_a_package_that_cannot_be_traded_is_refused_whole[one-leg]; XR22 (a package naming a leg twice is placed): test_package_intents::test_a_package_that_cannot_be_traded_is_refused_whole[twice]; XR23 (a package fills when only some legs would fill in full): test_package_intents::test_a_cap_that_would_fill_one_leg_in_part_fills_neither; XR24 (a package fills at an instant that did not price every leg): test_package_intents::test_a_package_waits_for_an_instant_that_prices_every_leg; XR25 (a package under NEXT_EVENT fills at the instant it was decided): test_package_intents::test_the_fill_timing_applies_to_the_package[next_event]; XR26 (a leg takes a turn alone at its asset's event): test_package_intents::test_a_package_waits_for_an_instant_that_prices_every_leg; XR27 (a cancel withdraws one leg of a package): test_package_intents::test_a_cancel_naming_a_leg_is_refused_and_the_package_trades; XR28 (risk refusing one leg leaves the package placed): test_package_intents::test_risk_refusing_one_leg_refuses_the_package; XR29 (a package works only when a strategy wants the slice): test_package_intents::test_a_pair_trades_as_one_order_at_one_instant; XR30 (allocation sizes a package given to it directly): test_allocation_semantics::test_a_package_is_refused_by_allocation_and_never_sized_whole; XR31 (the conservative builder accepts a cost model that charges nothing): test_conservative_execution::test_a_cost_model_that_charges_nothing_is_refused; XR32 (an order's named venue is ignored): test_execution_research_end_to_end::test_gr4_a_two_venue_run_reconciles_venue_by_venue; XR33 (the cheapest venue is the dearest): test_execution_research_end_to_end::test_the_router_prices_taking_the_market_and_routes_a_passive_order_to_beta; XR34 (a tie goes to the last venue by code): test_accounting_matches_an_independent_ledger::test_the_engine_books_what_an_independent_ledger_books_on_bars[5]; XR35 (a routed order is filled by the run's own simulator): test_execution_research_end_to_end::test_each_venue_fills_the_queued_children_at_its_own_commission; XR36 (an order no venue routes is not refused): test_per_venue_execution::test_an_order_no_declared_venue_routes_is_refused[undeclared]; XR37 (the report names the run's venue, not the routed one): test_execution_research_end_to_end::test_each_venue_fills_the_queued_children_at_its_own_commission; XR38 (a run declaring venues without a router writes version 8): test_per_venue_execution::test_venues_routed_by_listing_alone_are_recorded_and_resume (added before the run); XR39 (terms naming no venue write one): test_experiment_assessment::test_the_assessments_identity_is_pinned_and_states_every_choice; XR40 (a restore accepts a venue configured otherwise): test_per_venue_execution::test_a_run_paused_with_an_order_working_resumes_with_its_venues.",
         "Mutation history: reading the series against the suite before its run added two tests, for XR38 (venues declared without a router) and the share rule XR18 reaches (two contributors). The first run, on 2313baa's tree, caught 38 of 41. XR14 survived: its check is redundant with the queue's cap except for a venue that refuses or expires whatever it is asked, which the queue suite held for orders and a test now holds for children. XR17's first form changed no output, since both drivers filter the queue book again at every boundary a caller sees, and it was restated as the end's filter, which a child cancelled by the run's end depends on. XR20 cannot move a plan's run, and a test now holds deliver_child_fills's resting answer on a run that fills its own orders. The three were caught when run again. The one-percent budget then guarded lines XR04 and XR29 target, so the whole series ran again on f990eca: all 41 caught. Every first failure was replayed alone under its mutant and read -- most are assertions; XR05, XR31 and XR40 do not raise; XR13 is the mutated refusal itself; XR21 and XR27 leave no refusal to read; XR24 reads a leg's event at an instant that never priced it and XR36 records a venue from a refusal's reason -- each the defect's own effect. None is a NameError, and none read a clock. Baselines: 14,185, 14,188 and 14188 passed, 90 deselected (the tests that read a clock, and the certificate's source digest).",
-        "Hosted CI: every M8 commit pushed through 2313baa passed all six cells, CodeQL and Optional Distributions; ec1ca9b passed on attempt 3, its macOS cells twice never acquired by a runner and re-run, not counted until they passed. 2313baa: CI run 44920680139. The close's commits are read at the next boundary, and M8's checkpoint benchmarks run on hosted Linux after their push."
+        "Hosted CI: every M8 commit passed all six cells, CodeQL and Optional Distributions. ec1ca9b passed on attempt 3: its macOS cells were twice never acquired by a runner, re-run, and not counted until they passed. The close's commits ended at b431c9b (CI run 44933653977). M8's checkpoint benchmarks, run 44933670178 on b431c9b: Linux CPython 3.13 and 3.14, authoritative, and the three diagnostic macOS cells passed; Linux 3.12 was still running when this was recorded, and is not counted."
       ],
       "note": "Decided under delegation at M8: ADR-0060, ADR-0061 and ADR-0062 (TD-57 to TD-59), D-V4; TD-60 to TD-68; PC-08."
     },
@@ -1457,7 +1470,7 @@
       "deliverables": "`rebalancing`; certified LP; objective protocol",
       "exit_gate": "A rebalancing backtest with CVaR, certified",
       "size": "L",
-      "status": "Not started",
+      "status": "In progress",
       "evidence": []
     },
     {
@@ -2143,7 +2156,7 @@
       "milestones": [
         "M8"
       ],
-      "status": "Local validation passed",
+      "status": "Hosted CI passed",
       "items": [
         {
           "milestone": "M8",
@@ -2203,12 +2216,12 @@
         {
           "milestone": "M8",
           "item": "M8's mutation series XR (40 mutations, V02 re-targeted): all caught on the final tree, f990eca; three survivors closed by tests -- a child behind its queue not asked, a child the run's end cancels leaving the book, an answer to a child's fill resting -- and XR17 restated",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M8",
           "item": "The one-percent budget for a run declaring no M8 option (TD-68, PRF-006): guards on the slice close, the package intake and the per-order checks; docs/audit/scripts/spine_overhead.py against M7's close, the dearest workload +0.67% on f990eca's tree",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -2219,8 +2232,14 @@
       "milestones": [
         "M9"
       ],
-      "status": "Not started",
-      "items": [],
+      "status": "In progress",
+      "items": [
+        {
+          "milestone": "M9",
+          "item": "ADR-0063 accepted (TD-69, D-V3): every construction solver certified -- the objective protocol, a certified linear program, scenario risk lifted to linear, a cardinality relaxation with both optima stated -- and the rebalancing package, which states targets and never orders",
+          "status": "Local validation passed"
+        }
+      ],
       "evidence": []
     },
     {
@@ -2520,7 +2539,7 @@
       "milestones": [
         "M8"
       ],
-      "status": "Local validation passed",
+      "status": "Hosted CI passed",
       "items": [
         {
           "milestone": "M8",
@@ -2545,7 +2564,7 @@
         {
           "milestone": "M8",
           "item": "The per-venue stress scenario (stress_v4_3.py venues): 4,000 orders routed by size between a per-share and a per-order venue, every route, each venue's commission and their sum asserted, flat at ten times the run",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": []
@@ -2835,7 +2854,7 @@
       "problem": "Optimiser not on the path",
       "severity": "M/P1",
       "status": "Open",
-      "status_note": "Open (D-V3)",
+      "status_note": "Open: reopened by ADR-0063 (D-V3, 2026-11-22), the rebalancing package; closes with M9's rebalancing backtest.",
       "workstreams": [
         "WS-12"
       ],
@@ -3038,7 +3057,7 @@
       "problem": "Closed construction objectives; one solver",
       "severity": "M/P2",
       "status": "Open",
-      "status_note": "Open (D-V3)",
+      "status_note": "Open: reopened by ADR-0063 (D-V3, 2026-11-22), every solver certified; closes with M9's certified linear program and objective protocol.",
       "workstreams": [
         "WS-12"
       ],
@@ -3330,7 +3349,7 @@
       "plan_section": "§J",
       "workstream": "WS-12",
       "needed": "Before M9",
-      "status": "Not drafted in the repository"
+      "status": "Accepted (2026-11-22)"
     },
     {
       "id": "ADR-0064",
@@ -3447,8 +3466,8 @@
     ]
   },
   "state": {
-    "updated": "2026-11-21",
-    "remote_head": "2313baa",
+    "updated": "2026-11-22",
+    "remote_head": "b431c9b",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4620,10 +4639,34 @@
         "workflow": "Optional Distributions",
         "run": 44920680102,
         "result": "success"
+      },
+      {
+        "sha": "b431c9b",
+        "workflow": "Continuous Integration",
+        "run": 44933653977,
+        "result": "success: all six quality-gate cells"
+      },
+      {
+        "sha": "b431c9b",
+        "workflow": "CodeQL",
+        "run": 44933654071,
+        "result": "success"
+      },
+      {
+        "sha": "b431c9b",
+        "workflow": "Optional Distributions",
+        "run": 44933654056,
+        "result": "success"
+      },
+      {
+        "sha": "b431c9b",
+        "workflow": "Benchmarks",
+        "run": 44933670178,
+        "result": "M8's checkpoint: Linux CPython 3.13 and 3.14 (authoritative) and macOS 3.12, 3.13 and 3.14 (diagnostic) passed; Linux 3.12 running when this was recorded, not counted"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M8 waits on hosted CI for its close (4b9d8e8, f990eca and the close's records), on its checkpoint benchmarks on hosted Linux, and on the owner's acceptance. M9 (WS-12) begins with ADR-0063, the rebalancing bridge and certified solvers, before its code.",
+    "next": "M9 (WS-12), in ADR-0063's order: the objective protocol; the certified linear program, checked against an exact rational reference, and its budget measured; scenario risk and the cardinality relaxation; the rebalancing package; then the rebalancing backtest with CVaR and the guide. The Linux 3.12 cell of M8's checkpoint benchmarks is read at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -5026,6 +5069,10 @@
     {
       "date": "2026-11-21",
       "entry": "2313baa (the scope check's fixes and the XR series) passed the full gate (14,275 tests) and was pushed; f1a7733's and 2313baa's runs passed all six cells. The XR series caught 38 of 41 on 2313baa's tree, and each survivor showed a rule no test held: a child behind its queue is not asked (XR14), a child the run's end cancels leaves the book (XR17, restated, its first form changing no output), and an answer to a child's fill rests (XR20). Each has its test (4b9d8e8). The per-venue stress scenario passed. The one-percent budget failed its first measurement: a backtest and a replay cost +1.71% against M7's close, the excess calls a run declaring nothing still made. Guards that change no outcome (TD-68, f990eca) brought the dearest workload to +0.67%, and the whole series ran again on that tree: all 41 caught, every first failure replayed alone and read. M8 is closed locally and waits on hosted CI and the owner's acceptance."
+    },
+    {
+      "date": "2026-11-22",
+      "entry": "b431c9b (M8's close) passed the full gate (14,278 tests) and was pushed with 4b9d8e8 and f990eca; its run passed all six cells, so every M8 commit passed hosted CI and M8 is Hosted CI passed. M8's checkpoint benchmarks passed on five of six cells, Linux 3.12 still running. M9 begun. Its scope was taken from the plan's WS-12 section, H.5, P.2, the new-capability table and the register before any code. ADR-0063 accepted under delegation (TD-69), deciding D-V3's two M9 reopenings as P.2 states them: one solver becomes every solver certified, and the optimizer-to-orders non-goal reopens narrowly through a separate rebalancing package. A kernel probe measured the budget's operations first, so the ADR records that 60 seconds for a certified CVaR construction at 1,000 assets over 2,520 scenarios is not expected in pure Python, and leaves the figure to the implementation's measurement."
     }
   ]
 }
