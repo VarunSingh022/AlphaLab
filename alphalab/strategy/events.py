@@ -40,6 +40,7 @@ from alphalab.common.point_in_time import StampedRecord
 
 __all__ = [
     "CancelRefused",
+    "ChildFillReceived",
     "ExerciseRefused",
     "FillEvent",
     "Intent",
@@ -395,6 +396,42 @@ class FillEvent(StrategyRuntimeEvent):
     """
 
     order_id: str
+    instrument: str
+    fill_quantity: Decimal
+    fill_price: Decimal
+    side: str = ""
+    attributed_quantity: Decimal | None = None
+    execution_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ChildFillReceived(StrategyRuntimeEvent):
+    """A fill of one of the children an execution plan works a strategy's order in (v4.3).
+
+    Delivered at the event the child filled at, after the plan's work there, to
+    each strategy that contributed to the parent, is subscribed to
+    ``child_fills`` and defines ``on_child_fill`` (ADR-0061). What it asks for
+    rests until its asset's next event, as what a strategy asks for from a fill
+    does. The parent is the order the strategy's intent became; a plan works it
+    in children, so until v4.3 the strategy learned of their fills only through
+    its book.
+
+    Attributes:
+        child_id: The child that filled.
+        parent_order_id: The order it works: the one the strategy contributed to.
+        instrument: Its asset.
+        fill_quantity: What the child filled, unsigned -- the whole fill.
+        fill_price: At what price.
+        side: The parent's side, ``"buy"`` or ``"sell"``.
+        attributed_quantity: This strategy's signed share of the fill, divided
+            among the strategies the parent represents by their signed
+            contributions, as a :class:`FillEvent`'s is.
+        execution_id: The fill's identity, as the parent's execution report
+            records it. A fill is delivered once.
+    """
+
+    child_id: str
+    parent_order_id: str
     instrument: str
     fill_quantity: Decimal
     fill_price: Decimal

@@ -161,6 +161,7 @@ from alphalab.portfolio.fx import NO_RATES, FxRates
 # reads it for an order resting there: one reading for a plan's children and a
 # run's own orders (ADR-0061).
 from alphalab.runtime.execution_pipeline import (
+    ContextFactory,
     ExecutionPipeline,
     ExecutionPipelineState,
     ExecutionRouting,
@@ -825,6 +826,8 @@ def work(
     state: RunState,
     event: MarketEvent,
     rates: FxRates = NO_RATES,
+    *,
+    context_factory: ContextFactory | None = None,
 ) -> tuple[AlgorithmBook, RunState]:
     """Work every parent in ``event``'s asset at ``event``, after the run's own step at it.
 
@@ -832,12 +835,16 @@ def work(
     :attr:`~alphalab.runtime.execution_pipeline.ExecutionPipelineResult.market_event`
     of :meth:`~alphalab.runtime.run.RunEngine.advance` -- and not for a record
     the run skipped. See the module docstring for what happens, in order.
+    Given ``context_factory`` (v4.3, ADR-0061), it then tells the strategies
+    that define ``on_child_fill`` what their parents' children filled here
+    (:meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.deliver_child_fills`),
+    as both historical drivers do.
 
     Raises:
         ExecutionPlanError: If the run does not route ``ALGORITHMIC``.
     """
 
-    book, state, _ = _work(book, state, event, rates, None)
+    book, state, _ = _work(book, state, event, rates, None, context_factory)
     return book, state
 
 
@@ -847,6 +854,7 @@ def _work(
     event: MarketEvent,
     rates: FxRates,
     queue: QueueBook | None,
+    context_factory: ContextFactory | None = None,
 ) -> tuple[AlgorithmBook, RunState, QueueBook | None]:
     """:func:`work`, under the queue book ``queue`` when one is given (ADR-0061).
 
@@ -864,11 +872,20 @@ def _work(
     if asset_id is None:
         return book, state, queue
     book, pipeline = _adopt(book, pipeline, asset_id, event.timestamp)
+    fills_before = len(book.fills)
+    history_before = len(pipeline.execution.history)
     for order_id, algorithm in tuple(book.working.items()):
         if algorithm.parent.asset_id != asset_id:
             continue
         book, pipeline, queue = _work_parent(
             book, pipeline, order_id, event, rates, state.config.fill_policy, queue
+        )
+    if context_factory is not None and len(book.fills) > fills_before:
+        # The children's fills here, each with the report it settled through.
+        reports = {r.execution_id: r for r in pipeline.execution.history[history_before:]}
+        filled = tuple((f.child_id, reports[f.execution_id]) for f in book.fills[fills_before:])
+        pipeline, _ = ExecutionPipeline.deliver_child_fills(
+            pipeline, event, filled, context_factory, state.config.fill_policy, rates
         )
     if queue is not None:
         queue = queue.keeping(_resting_children(book))

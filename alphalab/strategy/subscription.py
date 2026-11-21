@@ -41,12 +41,16 @@ Topic        Hook               What arrives
                                 has been published
 ``observ-    ``on_observation`` a point-in-time record, at the instant it
 ations``                        became knowable (v3.12, ledger OFE-009)
+``child_     ``on_child_fill``  a fill of one of the children an execution
+fills``                         plan works an order this strategy contributed
+                                to in (v4.3, ADR-0061)
 ===========  =================  ==============================================
 
 The four market topics take an asset, and ``observations`` takes a subject --
 ``"observations:<subject>"`` is what one issuer's filings or one ticker's news
-look like. A fill or an order event is already addressed to the strategies that
-asked for the order, and a timer or a slice is not about one instrument.
+look like. A fill, a child's fill or an order event is already addressed to the
+strategies that asked for the order, and a timer or a slice is not about one
+instrument.
 
 Anything else is refused -- an unknown topic, an asset on a topic that has none,
 a blank asset, an empty declaration. An empty set would be a strategy that can
@@ -75,6 +79,7 @@ from types import MappingProxyType
 from typing import Final
 
 from alphalab.strategy.events import (
+    ChildFillReceived,
     FillEvent,
     ObservationReceived,
     OrderEvent,
@@ -110,6 +115,7 @@ class Topic(StrEnum):
     TIMERS = "timers"
     SLICES = "slices"
     OBSERVATIONS = "observations"
+    CHILD_FILLS = "child_fills"
 
 
 #: The topics a subscription may scope to one asset.
@@ -173,6 +179,8 @@ def topic_of(event: object) -> tuple[Topic, str | None] | None:
         return Topic.SLICES, None
     if isinstance(event, ObservationReceived):
         return Topic.OBSERVATIONS, event.subject
+    if isinstance(event, ChildFillReceived):
+        return Topic.CHILD_FILLS, None
     return None
 
 

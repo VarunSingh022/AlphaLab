@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `939ba55` |
+| Remote head | `5497ea1` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M8, in the plan's commit order: child-fill feedback; package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close. 939ba55's CI is read once at the next boundary. |
+| Next | M8, in the plan's commit order: package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close. 5497ea1's CI is read once at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -220,9 +220,12 @@ Never:
 | `bc11621` | Continuous Integration | 44223589275 | success: all six quality-gate cells |
 | `bc11621` | CodeQL | 44223589253 | success |
 | `bc11621` | Optional Distributions | 44223589202 | success |
-| `939ba55` | Continuous Integration | 44869945073 | macOS 3.13 and 3.14 passed; four cells running at this record, not counted as passed |
+| `939ba55` | Continuous Integration | 44869945073 | success: all six quality-gate cells |
 | `939ba55` | CodeQL | 44869945079 | success |
 | `939ba55` | Optional Distributions | 44869945078 | success |
+| `5497ea1` | Continuous Integration | 44872211295 | macOS 3.13 passed; five cells running at this record, not counted as passed |
+| `5497ea1` | CodeQL | 44872211298 | success |
+| `5497ea1` | Optional Distributions | 44872211315 | success |
 
 ## Continuation log
 
@@ -318,6 +321,7 @@ Never:
 - **2026-11-17** baaa305 (NEXT_OPEN, TD-60) passed the full gate (14,128 tests) and was pushed. M7's re-run macOS cells passed, so every M7 commit passed all six cells: M7 and WS-08 are Hosted CI passed. At M7's checkpoint the authoritative Linux benchmarks built WS-08's 500-asset training set in 28.6 to 31.9 CPU s against 60. RestRemainder and StrictLiquidityCappedFill validated locally (TD-61), each order's allowance kept in its metadata through an event-less OMS transition, as trigger is. The commit's first gate failed on three tests. The pinned reference experiment's identity and an assessment's had moved, because ExecutionAssumptions had gained a remainder field and every experiment's identity holds the assumptions whole. A third test required the changed ExecutionAssumptions to be named in the CHANGELOG. The field was removed and the remainder folded into the fill policy's description only when declared, so every pin holds.
 - **2026-11-21** bc11621 (remainders and strict caps, TD-61) passed the full gate (14,150 tests) and was pushed. baaa305's and bc11621's runs passed all six cells, with CodeQL and the optional distributions, so NEXT_OPEN, the remainders and M8's ADRs are Hosted CI passed. ec1ca9b's own re-run macOS cells were again never acquired by a runner: not counted, and re-run once more. Latency pricing validated locally (TD-62). Implementing it found that section 5's rule, a bar's open under NEXT_OPEN, would fill an order whose latency ends inside an intraday bar at a price from before it reached the market -- the combination conservative_execution states. ADR-0060 settled point 3 makes that turn an arriving one, the bar's close alone, and meets a daily bar's session from its open. Its first tests found that the rule must hold at the first turn only: the reopening tests' minute bars are stamped a second apart, so every later bar's interval held the ready instant too. The first turn is now recorded on the order.
 - **2026-11-21** 939ba55 (latency pricing, TD-62) passed the full gate on its first run (14,182 tests) and was pushed. ec1ca9b's third attempt passed all six cells. Plans with queues validated locally (TD-63): an execution plan and a queue model run together, the plan's limit children resting in the queue book, each joined at the event it was released at, and the result an AlgorithmicQueuedResult holding both books. A paused replay already kept both books in optional fields, so no schema moved; its pause now keeps the working children's places rather than the run's own orders', which a plan's run has none of. The new tests' two first failures were the tests': a replay's result_id differs from a backtest's by the run's mode, and a RunConfig derives its routing from its mode. The commit's first gate failed on mypy alone, every test passing: strict mode found the new test reading replace through the queue suite's module, an implicit re-export; unpacking a book typed Any; and narrowing a result to its base class before reading its queue. mypy had been run on the package, not on the whole tree as CI runs it.
+- **2026-11-21** 5497ea1 (plans with queues, TD-63) passed the full gate (14,190 tests) and was pushed. 939ba55's run passed all six cells, so latency pricing is Hosted CI passed. Child-fill feedback validated locally (TD-64): a strategy that defines on_child_fill and subscribes to child_fills hears each child's fill at the event it happened, divided as a fill is, and its answers route as any intent, under a plan as new parents. The event lives in the strategy layer beside FillEvent, since the backtesting layer's ChildFill is above it, and has its own topic, as slices and observations have theirs. The optional-protocol pattern is codified in the protocol's docstring, the strategy package's and the strategy guide.
 
 ## Milestones
 
@@ -1014,6 +1018,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0061-per-venue-execution-plans-with-queues-and-child-fills.md (settled point 1); CHANGELOG
 - **Tests:** tests/integration/test_plans_with_queues.py (8): from the queue suite's records, a one-slice TWAP's limit child fills 20, 50 and 30 as the queue clears, where the plan alone fills 100 at the first print -- the fills of the same order resting on its own; a child short of the front keeps its place of 50; a two-slice TWAP's expired child leaves the book and the next, placed at a print, starts from an unknown queue; market children and the run's record unchanged; the result's books and assumptions; the refusal only on EXTERNAL routing; the replay equal to the backtest; and a replay paused at each boundary resuming to the same books and result. tests/integration/test_queue_model.py's refusal test keeps its live half.
 
+### TD-64: ChildFillStrategyProtocol: a strategy hears its orders' children's fills on its own topic, its share as a fill's, and answers with ordinary intents (ADR-0061 settled point 2, GAP-45) (WS-10, 2026-11-21)
+
+- **Problem:** Under an execution plan a strategy's order is a parent worked in children, and a child's fill reached the algorithm book and the portfolio but never the strategy (GAP-45). ADR-0061 section 3 asks for an optional protocol dispatched only to implementers, and the pattern codified. The backtesting layer's ChildFill cannot be the event, since the strategy layer imports nothing above it, and the children are worked after the run's step, outside the step's own feedback.
+- **Alternatives:** The fill delivered as an on_fill FillEvent of the parent, or as a new event on its own hook. Under the fills topic, or a topic of its own. Each strategy's share from the parent's contributions in the allocation ledger, or from the fill's trade record. Delivery inside work_child, per child, or once per event after the plan's work. The driver building the events, or the pipeline.
+- **Decision:** ChildFillReceived in alphalab.strategy.events, mirroring FillEvent with the child and parent ids; Topic.CHILD_FILLS appended, so subscribing to child_fills or * reaches it; Dispatcher calls on_child_fill when the instance has one; ChildFillStrategyProtocol (runtime_checkable) and defines_on_child_fill, BaseStrategy's default answering nothing. ExecutionPipeline.deliver_child_fills takes the children's fills at an event as (child id, execution report) pairs, splits each by the contributions its trade record holds -- falling back to the parent's -- delivers through StrategyEngine.deliver, and routes the answers as a fill's are: cancels and amends, then allocation, risk and the OMS with rest=True, then exercise instructions and elections at the instant. The algorithmic driver calls it once per event after the plan's work there; work() takes a keyword-only context_factory, which both drivers give. Nothing is built when no running strategy subscribed to child_fills defines the hook. The pattern is stated in the protocol's docstring, the strategy package's and docs/COMPOSING_STRATEGIES.md.
+- **Rationale:** A new hook keeps on_fill's meaning -- the strategy's own order's fill, after its step -- and a topic of its own keeps a strategy subscribed to fills from being called with events it did not ask for, as slices and observations have theirs. The trade record holds a fill's contributions even after the parent's leave the ledger, which is why fill feedback reads it too. Delivering once per event gives each strategy one context of the book as the children leave it.
+- **Compatibility:** Additive: an appended topic member, one event, one protocol and one helper (three exports), a BaseStrategy default answering nothing, a static method, and a keyword-only parameter defaulting to None on algorithmic.work. StrategyProtocol is unchanged, and a run whose strategies do not define the hook is unchanged.
+- **Recorded in:** docs/ADR/0061-per-venue-execution-plans-with-queues-and-child-fills.md (settled point 2); docs/COMPOSING_STRATEGIES.md; CHANGELOG
+- **Tests:** tests/integration/test_child_fill_feedback.py (6): from the queue suite's records a strategy hears its child's fills of 20, 50 and 30, each its whole share, a buy, by the parent's execution ids, and without the queue the one fill of 100; an answer of a sale of 10 is placed at the fill it answers, adopted, filled at 99.985 two records later, and its child's fill heard with a share of -10; a strategy without the hook, or not subscribed, hears nothing and fills as the plain run does; a replay hears what the backtest hears, and a replay paused at each boundary resumes to the same result.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1041,7 +1055,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-07 | Econometrics and time series | M6 | Hosted CI passed |
 | WS-08 | Research model interfaces, ML datasets, hyperparameter search | M7 | Hosted CI passed |
 | WS-09 | Optional distributions and backends | M7, M11 | In progress |
-| WS-10 | Strategy authoring and safe extensibility | M8, M13 | Not started |
+| WS-10 | Strategy authoring and safe extensibility | M8, M13 | In progress |
 | WS-11 | Execution realism: fills, partial fills, latency, plan+queue, combos | M8 | In progress |
 | WS-12 | Portfolio construction and rebalancing | M9 | Not started |
 | WS-13 | Global conventions, reference data and historical universes | M2, M3, M10 | In progress |
@@ -1224,7 +1238,7 @@ Evidence:
 
 ### WS-10: Strategy authoring and safe extensibility
 
-- [Not started] M8: ChildFillStrategyProtocol and the optional-protocol pattern codified (ADR-0061 section 3, GAP-45)
+- [Local validation passed] M8: ChildFillStrategyProtocol and the optional-protocol pattern codified (ADR-0061 section 3, GAP-45)
 - [Not started] M13: strategy.compose helpers, typed-configuration templates and the authoring guide: needed by S-12 at M13. The plan's milestone table gives WS-10 to M8 for its child-fill protocol only, so these are recorded here to be scheduled
 
 ### WS-11: Execution realism: fills, partial fills, latency, plan+queue, combos
@@ -1233,8 +1247,8 @@ Evidence:
 - [Hosted CI passed] M8: ADR-0062 accepted (TD-59): package intents, all legs or none at one instant (N16)
 - [Hosted CI passed] M8: FillTiming.NEXT_OPEN and the intraday opening rule (TD-60, ADR-0060 settled point 1, GAP-18): a market order's turn at a bar fills at the open, stamped at the delivering event; a declared calendar's pre- and post-market bars give no turn; pipeline schema 9 written only when declared and read strictly; hand-calculated fills at daily and one-minute bars
 - [Hosted CI passed] M8: RestRemainder and StrictLiquidityCappedFill (TD-61, ADR-0060 settled point 2, GAP-38): a market turn's remainder rests for events or seconds, its allowance on the order through OMSEngine.annotate, and is cancelled when the rest ends; a strict cap refuses an event with no size; version 9 when declared
-- [Pushed] M8: LatencyPricing.POST_LATENCY_EVENT (TD-62, ADR-0060 settled point 3, GAP-19): an order's first turn is its asset's first event at or after its decision plus its latency, stamped there; at the intraday bar it reaches the market within, the close alone; no turn, queue place or auction part on its way; version 9 when declared
-- [Local validation passed] M8: Plans with queues (TD-63, ADR-0061 settled point 1, GAP-44): an execution plan's limit children rest in the queue book, each joined at its release event, filling only as far as the model allows; AlgorithmicQueuedResult holds both books; a paused replay resumes to the same books
+- [Hosted CI passed] M8: LatencyPricing.POST_LATENCY_EVENT (TD-62, ADR-0060 settled point 3, GAP-19): an order's first turn is its asset's first event at or after its decision plus its latency, stamped there; at the intraday bar it reaches the market within, the close alone; no turn, queue place or auction part on its way; version 9 when declared
+- [Pushed] M8: Plans with queues (TD-63, ADR-0061 settled point 1, GAP-44): an execution plan's limit children rest in the queue book, each joined at its release event, filling only as far as the model allows; AlgorithmicQueuedResult holds both books; a paused replay resumes to the same books
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1325,7 +1339,7 @@ Evidence:
 
 ## Gaps
 
-29 open, 20 closed, 4 discarded.
+28 open, 21 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -1373,7 +1387,7 @@ Evidence:
 | GAP-42 | (candidate) no multi-currency trading | — | Discarded | — | — |
 | GAP-43 | No PIT universe membership | H/P1 | Closed at M3 (WS-13, ADR-0059, TD-18): dated membership carried by the registry and read as known through the strategy's context, the survivorship review and the reference-pack format; GR-5 holds exactly on hosted CI (acf4ce4). | WS-13 | M3 |
 | GAP-44 | Plan + queue mutually exclusive | M/P2 | Closed at M8 (WS-11, ADR-0061, TD-63): an execution plan and a queue model run together. The plan's limit children rest in the queue book, each joined at its release event, and fill only as far as the model allows; AlgorithmicQueuedResult holds both books, and a paused replay resumes to the same ones. | WS-11 | M8 |
-| GAP-45 | Child fills don't reach `on_fill` | L-M/P2 | Open | WS-10, WS-11 | M8 |
+| GAP-45 | Child fills don't reach `on_fill` | L-M/P2 | Closed at M8 (WS-10, ADR-0061, TD-64): a strategy that defines on_child_fill and subscribes to child_fills hears each child's fill at the event it happened, its share signed, and what it answers routes as any intent. StrategyProtocol is unchanged, and the optional-protocol pattern is codified. | WS-10, WS-11 | M8 |
 | GAP-46 | RL environment invents limits | M/P2 | Open | WS-16 | M12 |
 | GAP-47 | No incremental feature evaluator | M/P2 | Open | WS-25 | M11 |
 | GAP-48 | → Expanded: duplicate authorities in `ml`: `ml.linalg` *and* a second walk-forward splitter | L/P3 | M2 (PC-05): the duplicates in ml (ml.linalg's four helpers, ml.cross_validation's two splitters) and deep_learning.gradient_check.numerical_gradient are documented and recorded, kept unchanged, and nothing outside ml may compute through ml's (a regression test). Closed at M7 (WS-08, TD-55, ADR-0064 settled point 23): the six are deprecated in documentation, each docstring naming its replacement in common.linalg or research, and kept until 5.0 removes them (plan V.3); the package raises no warning, as its suite has held since v2.17. The deep-learning gradient check keeps its own central difference, recorded for deprecation in 5.0 (M2). | WS-03, WS-08 | M7 |

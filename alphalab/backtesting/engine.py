@@ -397,7 +397,7 @@ def _drive(
                 queued = result.queue
             if book is not None and result is not None:
                 book, state, queued = work_children(
-                    book, state, result.market_event, cursor.rates, queued
+                    book, state, result.market_event, cursor.rates, queued, context_factory
                 )
                 if observe is not None:
                     observe(state, cursor.rates)

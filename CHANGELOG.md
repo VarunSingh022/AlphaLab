@@ -1105,6 +1105,30 @@ entry below says otherwise.
   * **The tests.** `tests/integration/test_plans_with_queues.py` holds
     hand-calculated fills from the queue suite's records.
 
+* **A strategy hears its children's fills** [plan WS-10, GAP-45, ADR-0061].
+  Under an execution plan a strategy's order is a parent, worked in children.
+  A strategy that defines `on_child_fill` and subscribes to `child_fills` (or
+  `*`) now hears each child's fill at the event it happened, where until now it
+  learned of them only through its book.
+  * **`ChildFillStrategyProtocol` and `ChildFillReceived`.** The event carries
+    the child, the parent order, the fill, its price, the parent's side and the
+    strategy's signed share, divided as a `FillEvent`'s is.
+    `defines_on_child_fill` says whether a strategy has the hook, and
+    `BaseStrategy`'s answers nothing. `Topic` gains `CHILD_FILLS`, appended.
+  * **An answer is an intent like any other.** It rests until its asset's next
+    event; under a plan a new order is a parent the plan then works.
+    `ExecutionPipeline.deliver_child_fills` delivers and routes; the
+    algorithmic driver's `work` takes the context factory as a keyword, and
+    both historical drivers give it.
+  * **The pattern, codified.** A strategy capability added after the ten hooks
+    is an optional protocol with its own ADR, dispatched only to the strategies
+    that define its hook, never a new method on `StrategyProtocol`. The strategy
+    package's documentation and `docs/COMPOSING_STRATEGIES.md` state it.
+  * **What does not change.** `StrategyProtocol`, and every run whose strategies
+    do not define the hook.
+  * **The tests.** `tests/integration/test_child_fill_feedback.py` holds
+    hand-calculated deliveries from the queue suite's records.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

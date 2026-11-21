@@ -26,10 +26,18 @@ families, and a new idea needs no change to the engine.
 | `on_observation` | `ObservationReceived(record, delivery_id, subject)` | when a point-in-time record becomes knowable |
 | `on_timer` | `TimerEvent` | when the driver fires a timer |
 | `on_fill`, `on_order` | the strategy's own fills and order changes | after the step that produced them |
+| `on_child_fill` | `ChildFillReceived(child_id, parent_order_id, attributed_quantity, ...)` | each fill of a child an execution plan works the strategy's order in, at the event it filled (v4.3) |
 | `on_start`, `on_shutdown`, `on_stop` | -- | lifecycle |
 
+The hooks added after the first ten -- `on_slice`, `on_observation`,
+`on_child_fill` -- are optional protocols (`SliceStrategyProtocol`,
+`ObservationStrategyProtocol`, `ChildFillStrategyProtocol`), each with its own
+ADR and dispatched only to the strategies that define the hook. A strategy
+without one is unchanged. A new strategy capability is added the same way, never
+as a new method on `StrategyProtocol` (ADR-0061).
+
 Subscriptions decide what is delivered: `bars`, `quotes`, `slices`,
-`observations` (or `observations:<subject>`), `timers`, `*`. A hook returns
+`observations` (or `observations:<subject>`), `timers`, `child_fills`, `*`. A hook returns
 `Intent`s -- `DELTA`, `TARGET_QUANTITY` or `TARGET_WEIGHT`, with `OrderTerms`
 (market, limit, stop, opening or closing auction). That is the only way a
 strategy affects anything: allocation nets intents, risk gates the requests,
@@ -223,7 +231,13 @@ is refused or rejected, never filled whole. The result is an
 parent, child and fill; `alphalab.execution.quality.implementation_shortfall`
 measures them (example 74). A `VenueCheck` on the plan checks every child against
 a venue's declared capabilities. A child's fill reaches its strategy through the
-portfolio its next context shows, not `on_fill`.
+portfolio its next context shows, not `on_fill`; a strategy that defines
+`on_child_fill` and subscribes to `child_fills` also hears each one at the event
+it happened, its share signed, and what it answers is an intent like any other,
+resting until the asset's next event (v4.3, ADR-0061). Give the run a queue model
+beside the plan and its limit children wait their turn at their price level,
+filling only as far as the model says has reached the front; the result is then
+an `AlgorithmicQueuedResult`, holding both books (v4.3, ADR-0061).
 
 ## 6. Features, factors and models
 

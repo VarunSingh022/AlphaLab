@@ -150,6 +150,45 @@ A composed result's two books are captured by the payloads each already has.
      They also cover the result's books and assumptions, the refusal, the
      replay equal to the backtest, and a replay paused at each boundary
      resuming to the same books and result.
+2. **Child fills reach the strategy.**
+   - **The event and its topic.** `ChildFillReceived` lives in the strategy
+     layer beside `FillEvent`, which it mirrors: the child, the parent order,
+     the instrument, the whole fill and its price, the parent's side, the
+     strategy's signed share and the execution id the parent's report records.
+     The backtesting layer's `ChildFill` cannot be the event, since the
+     strategy layer imports nothing above it. It has its own topic,
+     `child_fills`, as slices and observations have theirs, so a strategy
+     subscribed to `*` that defines the hook hears it.
+   - **Who hears it.** Each strategy that contributed to the parent, divided
+     by the contributions the fill's trade record holds -- the parent's own
+     leave the ledger once it is filled -- as a `FillEvent` is. Only a running
+     strategy subscribed to `child_fills` whose class defines `on_child_fill`
+     of its own (`defines_on_child_fill`; `BaseStrategy`'s answers nothing).
+     A run none of whose strategies would hear one builds no context and is
+     the run it was.
+   - **When.** At the event the children filled at, after the plan's work
+     there: `ExecutionPipeline.deliver_child_fills`, which the algorithmic
+     driver calls with each child's id and the report it settled through.
+     `algorithmic.work` takes the context factory as a keyword, and both
+     historical drivers give it.
+   - **What an answer is.** An intent like any other: cancels and amends
+     first, then allocation, risk and the OMS, resting until its asset's next
+     event, as what a strategy asks for from a fill does. Under a plan a new
+     order is a parent, which the plan adopts at that event. Exercise
+     instructions and elections take effect at the instant, as a step's do.
+   - **The pattern.** `ChildFillStrategyProtocol`'s docstring, the strategy
+     package's and `docs/COMPOSING_STRATEGIES.md` state it: a capability added
+     after the ten hooks is an optional protocol with its own ADR, dispatched
+     only to implementers, never a new method on `StrategyProtocol`.
+   - **Tests.** `tests/integration/test_child_fill_feedback.py`: under the
+     queue suite's records a strategy hears its child's fills of 20, 50 and 30,
+     each its whole share, a buy, by the parent's execution ids, and without
+     the queue the one fill of 100. An answer of a sale of 10 is placed at the
+     fill it answers, adopted and filled at 99.985 two records later, and its
+     child's fill is heard with a share of -10. A strategy without the hook, or
+     not subscribed, hears nothing and fills as the plain run does. A replay
+     hears what the backtest hears, and a replay paused at each boundary
+     resumes to the same result.
 
 # Compatibility
 

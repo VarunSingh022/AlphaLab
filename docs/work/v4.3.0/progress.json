@@ -1081,6 +1081,19 @@
       "compatibility": "Additive: one exported class (one export), a keyword-only parameter defaulting to None on ExecutionPipeline.work_child, new overloads, and a refusal lifted. A run given only a plan, or only a queue model, keeps its result type, record and identities; a run given both was refused before.",
       "record": "docs/ADR/0061-per-venue-execution-plans-with-queues-and-child-fills.md (settled point 1); CHANGELOG",
       "tests": "tests/integration/test_plans_with_queues.py (8): from the queue suite's records, a one-slice TWAP's limit child fills 20, 50 and 30 as the queue clears, where the plan alone fills 100 at the first print -- the fills of the same order resting on its own; a child short of the front keeps its place of 50; a two-slice TWAP's expired child leaves the book and the next, placed at a print, starts from an unknown queue; market children and the run's record unchanged; the result's books and assumptions; the refusal only on EXTERNAL routing; the replay equal to the backtest; and a replay paused at each boundary resuming to the same books and result. tests/integration/test_queue_model.py's refusal test keeps its live half."
+    },
+    {
+      "id": "TD-64",
+      "date": "2026-11-21",
+      "workstream": "WS-10",
+      "title": "ChildFillStrategyProtocol: a strategy hears its orders' children's fills on its own topic, its share as a fill's, and answers with ordinary intents (ADR-0061 settled point 2, GAP-45)",
+      "problem": "Under an execution plan a strategy's order is a parent worked in children, and a child's fill reached the algorithm book and the portfolio but never the strategy (GAP-45). ADR-0061 section 3 asks for an optional protocol dispatched only to implementers, and the pattern codified. The backtesting layer's ChildFill cannot be the event, since the strategy layer imports nothing above it, and the children are worked after the run's step, outside the step's own feedback.",
+      "alternatives": "The fill delivered as an on_fill FillEvent of the parent, or as a new event on its own hook. Under the fills topic, or a topic of its own. Each strategy's share from the parent's contributions in the allocation ledger, or from the fill's trade record. Delivery inside work_child, per child, or once per event after the plan's work. The driver building the events, or the pipeline.",
+      "decision": "ChildFillReceived in alphalab.strategy.events, mirroring FillEvent with the child and parent ids; Topic.CHILD_FILLS appended, so subscribing to child_fills or * reaches it; Dispatcher calls on_child_fill when the instance has one; ChildFillStrategyProtocol (runtime_checkable) and defines_on_child_fill, BaseStrategy's default answering nothing. ExecutionPipeline.deliver_child_fills takes the children's fills at an event as (child id, execution report) pairs, splits each by the contributions its trade record holds -- falling back to the parent's -- delivers through StrategyEngine.deliver, and routes the answers as a fill's are: cancels and amends, then allocation, risk and the OMS with rest=True, then exercise instructions and elections at the instant. The algorithmic driver calls it once per event after the plan's work there; work() takes a keyword-only context_factory, which both drivers give. Nothing is built when no running strategy subscribed to child_fills defines the hook. The pattern is stated in the protocol's docstring, the strategy package's and docs/COMPOSING_STRATEGIES.md.",
+      "rationale": "A new hook keeps on_fill's meaning -- the strategy's own order's fill, after its step -- and a topic of its own keeps a strategy subscribed to fills from being called with events it did not ask for, as slices and observations have theirs. The trade record holds a fill's contributions even after the parent's leave the ledger, which is why fill feedback reads it too. Delivering once per event gives each strategy one context of the book as the children leave it.",
+      "compatibility": "Additive: an appended topic member, one event, one protocol and one helper (three exports), a BaseStrategy default answering nothing, a static method, and a keyword-only parameter defaulting to None on algorithmic.work. StrategyProtocol is unchanged, and a run whose strategies do not define the hook is unchanged.",
+      "record": "docs/ADR/0061-per-venue-execution-plans-with-queues-and-child-fills.md (settled point 2); docs/COMPOSING_STRATEGIES.md; CHANGELOG",
+      "tests": "tests/integration/test_child_fill_feedback.py (6): from the queue suite's records a strategy hears its child's fills of 20, 50 and 30, each its whole share, a buy, by the parent's execution ids, and without the queue the one fill of 100; an answer of a sale of 10 is placed at the fill it answers, adopted, filled at 99.985 two records later, and its child's fill heard with a share of -10; a strategy without the hook, or not subscribed, hears nothing and fills as the plain run does; a replay hears what the backtest hears, and a replay paused at each boundary resumes to the same result."
     }
   ],
   "plan_changes": [
@@ -2038,12 +2051,12 @@
         "M8",
         "M13"
       ],
-      "status": "Not started",
+      "status": "In progress",
       "items": [
         {
           "milestone": "M8",
           "item": "ChildFillStrategyProtocol and the optional-protocol pattern codified (ADR-0061 section 3, GAP-45)",
-          "status": "Not started"
+          "status": "Local validation passed"
         },
         {
           "milestone": "M13",
@@ -2084,12 +2097,12 @@
         {
           "milestone": "M8",
           "item": "LatencyPricing.POST_LATENCY_EVENT (TD-62, ADR-0060 settled point 3, GAP-19): an order's first turn is its asset's first event at or after its decision plus its latency, stamped there; at the intraday bar it reaches the market within, the close alone; no turn, queue place or auction part on its way; version 9 when declared",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M8",
           "item": "Plans with queues (TD-63, ADR-0061 settled point 1, GAP-44): an execution plan's limit children rest in the queue book, each joined at its release event, filling only as far as the model allows; AlgorithmicQueuedResult holds both books; a paused replay resumes to the same books",
-          "status": "Local validation passed"
+          "status": "Pushed"
         }
       ],
       "evidence": []
@@ -2981,8 +2994,8 @@
       "id": "GAP-45",
       "problem": "Child fills don't reach `on_fill`",
       "severity": "L-M/P2",
-      "status": "Open",
-      "status_note": "",
+      "status": "Closed",
+      "status_note": "Closed at M8 (WS-10, ADR-0061, TD-64): a strategy that defines on_child_fill and subscribes to child_fills hears each child's fill at the event it happened, its share signed, and what it answers routes as any intent. StrategyProtocol is unchanged, and the optional-protocol pattern is codified.",
       "workstreams": [
         "WS-10",
         "WS-11"
@@ -3304,7 +3317,7 @@
   },
   "state": {
     "updated": "2026-11-21",
-    "remote_head": "939ba55",
+    "remote_head": "5497ea1",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4319,7 +4332,7 @@
         "sha": "939ba55",
         "workflow": "Continuous Integration",
         "run": 44869945073,
-        "result": "macOS 3.13 and 3.14 passed; four cells running at this record, not counted as passed"
+        "result": "success: all six quality-gate cells"
       },
       {
         "sha": "939ba55",
@@ -4332,10 +4345,28 @@
         "workflow": "Optional Distributions",
         "run": 44869945078,
         "result": "success"
+      },
+      {
+        "sha": "5497ea1",
+        "workflow": "Continuous Integration",
+        "run": 44872211295,
+        "result": "macOS 3.13 passed; five cells running at this record, not counted as passed"
+      },
+      {
+        "sha": "5497ea1",
+        "workflow": "CodeQL",
+        "run": 44872211298,
+        "result": "success"
+      },
+      {
+        "sha": "5497ea1",
+        "workflow": "Optional Distributions",
+        "run": 44872211315,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M8, in the plan's commit order: child-fill feedback; package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close. 939ba55's CI is read once at the next boundary.",
+    "next": "M8, in the plan's commit order: package intents; conservative builders; per-venue models, routing, the routing record and schema 9; S-09 and GR-4; the execution guide; M8's mutation series and close. 5497ea1's CI is read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -4706,6 +4737,10 @@
     {
       "date": "2026-11-21",
       "entry": "939ba55 (latency pricing, TD-62) passed the full gate on its first run (14,182 tests) and was pushed. ec1ca9b's third attempt passed all six cells. Plans with queues validated locally (TD-63): an execution plan and a queue model run together, the plan's limit children resting in the queue book, each joined at the event it was released at, and the result an AlgorithmicQueuedResult holding both books. A paused replay already kept both books in optional fields, so no schema moved; its pause now keeps the working children's places rather than the run's own orders', which a plan's run has none of. The new tests' two first failures were the tests': a replay's result_id differs from a backtest's by the run's mode, and a RunConfig derives its routing from its mode. The commit's first gate failed on mypy alone, every test passing: strict mode found the new test reading replace through the queue suite's module, an implicit re-export; unpacking a book typed Any; and narrowing a result to its base class before reading its queue. mypy had been run on the package, not on the whole tree as CI runs it."
+    },
+    {
+      "date": "2026-11-21",
+      "entry": "5497ea1 (plans with queues, TD-63) passed the full gate (14,190 tests) and was pushed. 939ba55's run passed all six cells, so latency pricing is Hosted CI passed. Child-fill feedback validated locally (TD-64): a strategy that defines on_child_fill and subscribes to child_fills hears each child's fill at the event it happened, divided as a fill is, and its answers route as any intent, under a plan as new parents. The event lives in the strategy layer beside FillEvent, since the backtesting layer's ChildFill is above it, and has its own topic, as slices and observations have theirs. The optional-protocol pattern is codified in the protocol's docstring, the strategy package's and the strategy guide."
     }
   ]
 }

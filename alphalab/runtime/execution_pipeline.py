@@ -180,6 +180,7 @@ from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
     AmendRefused,
     CancelRefused,
+    ChildFillReceived,
     ElectionMade,
     ExerciseRefused,
     FillEvent,
@@ -194,7 +195,11 @@ from alphalab.strategy.events import (
     TimerEvent,
     UnitsElected,
 )
-from alphalab.strategy.protocol import defines_on_observation, defines_on_slice
+from alphalab.strategy.protocol import (
+    defines_on_child_fill,
+    defines_on_observation,
+    defines_on_slice,
+)
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 from alphalab.strategy.state import StrategyStatus
 from alphalab.strategy.subscription import Topic, market_topic
@@ -1642,6 +1647,105 @@ class ExecutionPipeline:
             quantity,
             outcome,
         )
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_child_fills(
+        state: ExecutionPipelineState,
+        event: MarketEvent,
+        fills: Sequence[tuple[str, ExecutionReport]],
+        context_factory: ContextFactory,
+        fill_policy: FillPolicy,
+        rates: FxRates = NO_RATES,
+    ) -> tuple[ExecutionPipelineState, tuple[Intent, ...]]:
+        """Tell each strategy what its parents' children filled at ``event``, and route its answer.
+
+        The strategy feedback of execution-algorithm children (v4.3, ADR-0061).
+        ``fills`` are the children's fills at ``event``, in the order they
+        happened, each as its child's id and the execution report it settled
+        through on its parent (:meth:`work_child`). Each strategy that
+        contributed to the parent, is running, is subscribed to ``child_fills``
+        and defines ``on_child_fill`` receives a
+        :class:`~alphalab.strategy.events.ChildFillReceived` with its share,
+        divided as a fill's is. It sees the book as the children leave it, and
+        what it asks for goes through allocation, risk and the OMS like any
+        intent, resting until its asset's next event, as what a strategy asks
+        for from a fill does; its exercise instructions and elections take
+        effect at ``event``'s instant. A run none of whose strategies would
+        receive one builds nothing, dispatches nothing, and is the run it was.
+        """
+
+        if not fills or not _wants_child_fills(state.strategy):
+            return state, ()
+        instant = event.timestamp
+        # Each fill's contributions as its trade record holds them -- the
+        # parent's own leave the ledger once it is filled -- read from the
+        # records the children's fills just appended.
+        records = state.trade_records[max(0, len(state.trade_records) - len(fills)) :]
+        recorded = {record.trade_id: record.contributions for record in records}
+        deliveries: list[tuple[str, StrategyInboundEvent]] = []
+        for child_id, report in fills:
+            parent = state.oms.orders.find(OrderId(UUID(report.order_id)))
+            contributions = recorded.get(report.execution_id) or state.allocation.contributions.get(
+                report.order_id, ()
+            )
+            signed = report.fill_quantity if parent.side is OMSSide.BUY else -report.fill_quantity
+            for strategy_id, share in split_by_contribution(
+                signed, contributions, _ATTRIBUTION_QUANTUM
+            ):
+                deliveries.append(
+                    (
+                        strategy_id,
+                        ChildFillReceived(
+                            f"child-fill:{report.execution_id}:{strategy_id}",
+                            report.timestamp,
+                            child_id=child_id,
+                            parent_order_id=report.order_id,
+                            instrument=report.asset_id,
+                            fill_quantity=report.fill_quantity,
+                            fill_price=report.fill_price,
+                            side=parent.side.value,
+                            attributed_quantity=share,
+                            execution_id=report.execution_id,
+                        ),
+                    )
+                )
+        if not deliveries:
+            return state, ()
+
+        populated = _populate_context(
+            context_factory,
+            portfolio=state.portfolio,
+            risk=state.risk,
+            market=state.market,
+            market_prices=state.market_prices,
+            shares=order_shares_by_strategy(state.oms, state.allocation),
+            instruments=state.config.instruments,
+            reopened=state.execution.reopened,
+            window=state.config.retention.market_history,
+            as_of=instant,
+        )
+        strategy, intents = StrategyEngine.deliver(state.strategy, deliveries, populated, instant)
+        current, ordered, _ = _instructions_requested(
+            evolve(state, strategy=strategy),
+            intents,
+            instant,
+            event=event,
+            policy=fill_policy,
+            rates=rates,
+            rest=True,
+        )
+        if ordered:
+            allocation, requests = _allocate(
+                current, ordered, current.market_prices, rates, instant
+            )
+            current = evolve(current, allocation=allocation)
+            current, _ = _route_requests(
+                current, event, ordered, requests, fill_policy, rates, rest=True, at=instant
+            )
+        current = _exercises_requested(current, intents, instant, rates)
+        current = _elections_requested(current, intents, instant)
+        return evolve(current, id_position=current_id_position()), intents
 
     @staticmethod
     @in_accounting_context
@@ -6332,6 +6436,17 @@ def _instant_assets(events: AppendOnlyLog[MarketEvent], at: float) -> tuple[str,
             assets.add(topic[1])
         index -= 1
     return tuple(sorted(assets))
+
+
+def _wants_child_fills(strategies: StrategyRuntimeState) -> bool:
+    """Whether a running strategy subscribed to child fills defines ``on_child_fill`` (ADR-0061)."""
+
+    held = strategies.strategies
+    return any(
+        held[strategy_id].status is StrategyStatus.RUNNING
+        and defines_on_child_fill(held[strategy_id].instance)
+        for strategy_id in strategies.reach.reaching(Topic.CHILD_FILLS)
+    )
 
 
 def _wants_feedback(strategies: StrategyRuntimeState) -> bool:

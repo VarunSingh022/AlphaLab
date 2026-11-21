@@ -549,7 +549,7 @@ def _drive(
             queue = result.queue
         if book is not None and result is not None:
             book, state, queue = work_children(
-                book, state, result.market_event, inputs.rates, queue
+                book, state, result.market_event, inputs.rates, queue, context_factory
             )
         # The cursor's lifecycle log is an audit trail like any subsystem's, and
         # a declared retention bounds it as it bounds theirs (v4.1): until then
