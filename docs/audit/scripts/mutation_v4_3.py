@@ -20,7 +20,8 @@ fail ``mutation_v4_1.py --check`` against the v4.2.1 tag too -- and are
 re-targeted here as the same defect in today's code (``RETARGETED``): X15
 (observation delivery moved into the schedule cursor), A04 (``PausedReplay``
 gained its schedule, book and queue) and G02 (INTEGRATION's commands name
-4.2.1's assets).
+4.2.1's assets). M8 re-targets a fourth, v3.12's V02: the held fill timings are
+a set since ``NEXT_OPEN`` joined ``NEXT_EVENT`` (ADR-0060).
 
 M0's series:
 
@@ -149,6 +150,17 @@ refusal's reason: without the kind check, the hyperparameter check still
 refuses another kind's bytes, under a message naming the wrong difference. No
 first failure read a clock. The test that caught each is recorded in the
 progress register, in M7's evidence.
+
+M8's series:
+
+* **XR** -- WS-10, WS-11 and WS-26, ADR-0060 to ADR-0062: ``NEXT_OPEN`` and the
+  intraday opening rule, resting remainders and the strict cap, latency
+  pricing and its arriving rule, plans with queues, child fills, package
+  intents, the conservative builder, and per-venue execution with its routing,
+  record and restore.
+
+Its run, every first failure replayed alone and read, is recorded in the
+progress register, in M8's evidence.
 """
 
 from __future__ import annotations
@@ -789,6 +801,14 @@ RETARGETED: dict[str, Any] = {
         "docs/INTEGRATION.md",
         'curl -fsSLO "${RELEASE}/SHA256SUMS-4.2.1"\n',
         'curl -fsSLO \\ \n  "${RELEASE}/SHA256SUMS-4.2.1"\n',
+    ),
+    # M8 (ADR-0060): the held timings are a set since NEXT_OPEN joined NEXT_EVENT.
+    "V02": Mutation(
+        "V02",
+        "NEXT_EVENT fills at the deciding event",
+        "alphalab/runtime/execution_pipeline.py",
+        "        if rest or current.config.fill_timing in _HELD_TIMINGS:\n",
+        "        if rest:\n",
     ),
 }
 
@@ -2231,6 +2251,354 @@ V43_M7: tuple[Any, ...] = (
 )
 
 
+_EXEC_PIPE = "alphalab/runtime/execution_pipeline.py"
+_EXEC_POLICY = "alphalab/execution/policy.py"
+_EXEC_SNAP = "alphalab/runtime/snapshot.py"
+_EXEC_ALGO = "alphalab/backtesting/algorithmic.py"
+_EXEC_QUEUEING = "alphalab/backtesting/queueing.py"
+_EXEC_VENUES = "alphalab/execution/venue_models.py"
+_EXEC_ASSUME = "alphalab/runtime/assumptions.py"
+_EXEC_TERMS = "alphalab/common/order_terms.py"
+_EXEC_ALLOC = "alphalab/allocation/engine.py"
+_EXEC_RUN = "alphalab/runtime/run.py"
+
+#: M8's behaviour, one rule each.
+V43_M8: tuple[Any, ...] = (
+    # --- XR: execution realism -- fill timing, remainders, strict caps, latency
+    # pricing, plans with queues, child fills, packages, the conservative
+    # builder and per-venue execution (WS-10, WS-11, WS-26; ADR-0060 to ADR-0062)
+    Mutation(
+        "XR01",
+        "NEXT_OPEN fills a market order at the bar's close",
+        _EXEC_PIPE,
+        ("        return event.bar.open\n    return None\n"),
+        ("        return None\n    return None\n"),
+    ),
+    Mutation(
+        "XR02",
+        "a pre- or post-market bar gives orders their turn",
+        _EXEC_PIPE,
+        (
+            "    if state.config.fill_timing is not FillTiming.NEXT_OPEN "
+            "or not isinstance(event, BarClosed):\n"
+        ),
+        "    if True:\n",
+    ),
+    Mutation(
+        "XR03",
+        "a resting remainder's turn that fills nothing closes it",
+        _EXEC_PIPE,
+        "        if decision.status is FillStatus.NO_FILL and _resting(order):\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "XR04",
+        "a seconds rest is not checked before the turn",
+        _EXEC_PIPE,
+        "    if _rest_over(order, timestamp):\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "XR05",
+        "the strict cap fills in full on an event with no size",
+        _EXEC_POLICY,
+        (
+            "            raise ExecutionValidationError(\n"
+            '                f"The event for {context.asset_id}'
+        ),
+        (
+            "            return FillDecision(FillStatus.FULL_FILL, context.requested_quantity)\n"
+            "            raise ExecutionValidationError(\n"
+            '                f"The event for {context.asset_id}'
+        ),
+    ),
+    Mutation(
+        "XR06",
+        "latency pricing keeps no order from the market",
+        _EXEC_PIPE,
+        ("    if ready <= now:\n        return state, None\n"),
+        ("    if True:\n        return state, None\n"),
+    ),
+    Mutation(
+        "XR07",
+        "an order meets the market before its latency has passed",
+        _EXEC_PIPE,
+        "    return ready is None or timestamp >= float(ready)\n",
+        "    return True\n",
+    ),
+    Mutation(
+        "XR08",
+        "an order arriving within an intraday bar meets its open",
+        _EXEC_PIPE,
+        "    return bar.timestamp - seconds < float(ready)\n",
+        "    return False\n",
+    ),
+    Mutation(
+        "XR09",
+        "every later turn of a latency-kept order arrives too",
+        _EXEC_PIPE,
+        (
+            "    if ready is None or _FIRST_TURN in order.metadata or not"
+            " isinstance(event, BarClosed):\n"
+        ),
+        "    if ready is None or not isinstance(event, BarClosed):\n",
+    ),
+    Mutation(
+        "XR10",
+        "an order on its way joins a queue at the event it was placed on",
+        _EXEC_PIPE,
+        "        if not _queued(order) or not _ready(order, event.timestamp):\n",
+        "        if not _queued(order):\n",
+    ),
+    Mutation(
+        "XR11",
+        "a computed auction counts an order by its placement, not its arrival",
+        _EXEC_PIPE,
+        "        if _arrived_at(order) < ended\n",
+        "        if order.created_at < ended\n",
+    ),
+    Mutation(
+        "XR12",
+        "a latency-priced fill keeps its latency stamp",
+        _EXEC_PIPE,
+        "    return state.config.latency_pricing is LatencyPricing.POST_LATENCY_EVENT\n",
+        "    return False\n",
+    ),
+    Mutation(
+        "XR13",
+        "a queue model is refused beside an execution plan",
+        _EXEC_QUEUEING,
+        "    if routing is ExecutionRouting.EXTERNAL:\n",
+        "    if routing is not ExecutionRouting.SIMULATED:\n",
+    ),
+    Mutation(
+        "XR14",
+        "a resting child fills before it reaches the front of its level",
+        _EXEC_PIPE,
+        "                if queue_turn is not None and not queue_turn.may_fill:\n",
+        "                if False:\n",
+    ),
+    Mutation(
+        "XR15",
+        "a resting child fills more than the queue allows",
+        _EXEC_PIPE,
+        "        if passive and queue_turn is not None and queue_turn.eligible is not None:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "XR16",
+        "a released limit child joins no queue",
+        _EXEC_ALGO,
+        (
+            "                queue = queue.placed(\n"
+            "                    child.child_id, queue.model.join(child.s"
+            "ide, child.limit_price, observation)\n"
+            "                )\n"
+        ),
+        "                pass\n",
+    ),
+    Mutation(
+        "XR17",
+        "a finished child keeps its queue place",
+        _EXEC_ALGO,
+        "        queue = queue.keeping(_resting_children(book))\n",
+        "        pass\n",
+    ),
+    Mutation(
+        "XR18",
+        "each contributor hears a child's whole fill as its share",
+        _EXEC_PIPE,
+        (
+            "                            side=parent.side.value,\n"
+            "                            attributed_quantity=share,\n"
+        ),
+        (
+            "                            side=parent.side.value,\n"
+            "                            attributed_quantity=report.fill_quantity,\n"
+        ),
+    ),
+    Mutation(
+        "XR19",
+        "a child's fill reaches no strategy",
+        _EXEC_ALGO,
+        "    if context_factory is not None and len(book.fills) > fills_before:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "XR20",
+        "an answer to a child's fill trades in the step that reported it",
+        _EXEC_PIPE,
+        (
+            "                current, event, ordered, requests, fill_poli"
+            "cy, rates, rest=True, at=instant\n"
+        ),
+        (
+            "                current, event, ordered, requests, fill_poli"
+            "cy, rates, rest=False, at=instant\n"
+        ),
+    ),
+    Mutation(
+        "XR21",
+        "a package of one leg is placed",
+        _EXEC_PIPE,
+        "    if len(legs) < 2:\n",
+        "    if len(legs) < 1:\n",
+    ),
+    Mutation(
+        "XR22",
+        "a package naming a leg twice is placed",
+        _EXEC_PIPE,
+        "        if leg.instrument in seen:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "XR23",
+        "a package fills when only some legs would fill in full",
+        _EXEC_PIPE,
+        ("    if not all(\n        decision.status is FillStatus.FULL_FILL\n"),
+        ("    if not any(\n        decision.status is FillStatus.FULL_FILL\n"),
+    ),
+    Mutation(
+        "XR24",
+        "a package fills at an instant that did not price every leg",
+        _EXEC_PIPE,
+        "    if any(leg.asset_id not in assets or not _ready(leg, at) for leg in legs):\n",
+        "    if any(not _ready(leg, at) for leg in legs):\n",
+    ),
+    Mutation(
+        "XR25",
+        "a package under NEXT_EVENT fills at the instant it was decided",
+        _EXEC_PIPE,
+        (
+            "    if (after is not None and at <= float(after)) or (from_ "
+            "is not None and at < float(from_)):\n"
+        ),
+        "    if from_ is not None and at < float(from_):\n",
+    ),
+    Mutation(
+        "XR26",
+        "a leg takes a turn alone at its asset's event",
+        _EXEC_PIPE,
+        (
+            "        if _PACKAGE in order.metadata:\n"
+            "            # A leg is worked with its package, at a slice close (ADR-0062).\n"
+            "            continue\n"
+        ),
+        "",
+    ),
+    Mutation(
+        "XR27",
+        "a cancel withdraws one leg of a package",
+        _EXEC_PIPE,
+        "            if _PACKAGE in current.oms.orders.find(order_id).metadata:\n",
+        "            if False:\n",
+    ),
+    Mutation(
+        "XR28",
+        "risk refusing one leg leaves the package placed",
+        _EXEC_PIPE,
+        ("        if not decision.approved:\n            return refuse("),
+        ("        if False:\n            return refuse("),
+    ),
+    Mutation(
+        "XR29",
+        "a package works only when a strategy wants the slice",
+        _EXEC_RUN,
+        (
+            "        if not wants_slices(pipeline.strategy) and not _packages_working(\n"
+            "            pipeline, _instant_assets(events, at)\n"
+            "        ):\n"
+        ),
+        "        if not wants_slices(pipeline.strategy):\n",
+    ),
+    Mutation(
+        "XR30",
+        "allocation sizes a package given to it directly",
+        _EXEC_ALLOC,
+        "            if intent.kind is IntentKind.PACKAGE:\n",
+        "            if False:\n",
+    ),
+    Mutation(
+        "XR31",
+        "the conservative builder accepts a cost model that charges nothing",
+        _EXEC_ASSUME,
+        ("    if simulator.is_frictionless:\n        raise RuntimeValidationError(\n"),
+        ("    if False:\n        raise RuntimeValidationError(\n"),
+    ),
+    Mutation(
+        "XR32",
+        "an order's named venue is ignored",
+        _EXEC_PIPE,
+        "    named = request.terms.venue\n",
+        "    named = None\n",
+    ),
+    Mutation(
+        "XR33",
+        "the cheapest venue is the dearest",
+        _EXEC_VENUES,
+        "            if best is None or cost < best[0]:\n",
+        "            if best is None or cost > best[0]:\n",
+    ),
+    Mutation(
+        "XR34",
+        "a tie goes to the last venue by code",
+        _EXEC_VENUES,
+        "            if best is None or cost < best[0]:\n",
+        "            if best is None or cost <= best[0]:\n",
+    ),
+    Mutation(
+        "XR35",
+        "a routed order is filled by the run's own simulator",
+        _EXEC_PIPE,
+        (
+            "    return state.config.simulator if venue is None else stat"
+            "e.config.venues[venue].simulator\n"
+        ),
+        "    return state.config.simulator\n",
+    ),
+    Mutation(
+        "XR36",
+        "an order no venue routes is not refused",
+        _EXEC_PIPE,
+        (
+            "        if isinstance(venue, str):\n"
+            "            # No declared venue routes it: refused, never filled by a model\n"
+        ),
+        (
+            "        if False:\n"
+            "            # No declared venue routes it: refused, never filled by a model\n"
+        ),
+    ),
+    Mutation(
+        "XR37",
+        "the report names the run's venue, not the routed one",
+        _EXEC_PIPE,
+        "        order.metadata.get(_VENUE, state.config.venue),\n",
+        "        state.config.venue,\n",
+    ),
+    Mutation(
+        "XR38",
+        "a run declaring venues without a router writes version 8",
+        _EXEC_SNAP,
+        ("        or config.venues\n        or config.router_type is not None\n"),
+        "        or config.router_type is not None\n",
+    ),
+    Mutation(
+        "XR39",
+        "terms naming no venue write one",
+        _EXEC_TERMS,
+        '            **({"venue": self.venue} if self.venue is not None else {}),\n',
+        '            "venue": self.venue,\n',
+    ),
+    Mutation(
+        "XR40",
+        "a restore accepts a venue configured otherwise",
+        _EXEC_SNAP,
+        ("        _require_object(\n            model.simulator,\n"),
+        ("        (\n            model.simulator,\n"),
+    ),
+)
+
 MUTATIONS: tuple[Any, ...] = (
     tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS)
     + V43_M0
@@ -2241,6 +2609,7 @@ MUTATIONS: tuple[Any, ...] = (
     + V43_M5
     + V43_M6
     + V43_M7
+    + V43_M8
 )
 
 
