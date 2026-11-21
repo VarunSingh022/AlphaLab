@@ -360,6 +360,7 @@
     "alphalab.backtesting": {
       "AlgorithmAssignment": "class alphalab.backtesting.algorithmic.AlgorithmAssignment(algorithm: 'ExecutionAlgorithm', window_seconds: 'float', quantity_increment: 'Decimal') -> None",
       "AlgorithmBook": "class alphalab.backtesting.algorithmic.AlgorithmBook(plan: 'ExecutionPlan', working: 'PersistentMap[str, AlgorithmState]' = <factory>, finished: 'PersistentMap[str, FinishedParent]' = <factory>, fills: 'AppendOnlyLog[ChildFill]' = <factory>) -> None",
+      "AlgorithmicQueuedResult": "class alphalab.backtesting.state.AlgorithmicQueuedResult(run: 'RunState', algorithms: 'AlgorithmBook', queue: 'QueueBook') -> None",
       "AlgorithmicResult": "class alphalab.backtesting.state.AlgorithmicResult(run: 'RunState', algorithms: 'AlgorithmBook') -> None",
       "BacktestEngine": "class alphalab.backtesting.engine.BacktestEngine()",
       "BacktestError": "class alphalab.backtesting.exceptions.BacktestError",

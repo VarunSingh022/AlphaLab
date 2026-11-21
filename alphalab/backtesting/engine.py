@@ -37,14 +37,19 @@ from typing import Any, Protocol, overload
 
 from alphalab.alt_data.streaming import ObservationDelivery
 from alphalab.backtesting.algorithmic import ExecutionPlan, algorithmic_run
+from alphalab.backtesting.algorithmic import _work as work_children
 from alphalab.backtesting.algorithmic import finish as finish_children
-from alphalab.backtesting.algorithmic import work as work_children
 from alphalab.backtesting.dataset import MarketDataset, MarketRecord
-from alphalab.backtesting.queueing import queued_result, queued_run
+from alphalab.backtesting.queueing import _planned_result, queued_result, queued_run
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE, RunSchedule, ScheduleCursor
 from alphalab.backtesting.schedule import _before as schedule_before
 from alphalab.backtesting.schedule import _finish as schedule_finish
-from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, QueuedResult
+from alphalab.backtesting.state import (
+    AlgorithmicQueuedResult,
+    AlgorithmicResult,
+    BacktestResult,
+    QueuedResult,
+)
 from alphalab.common.evolve import evolve
 from alphalab.common.ids import id_scope, id_source
 from alphalab.execution.queue import QueueModel
@@ -236,6 +241,20 @@ class BacktestEngine:
         observations: Iterable[ObservationDelivery[Any]] = (),
         *,
         schedule: RunSchedule = EMPTY_SCHEDULE,
+        execution: ExecutionPlan,
+        queue: QueueModel,
+    ) -> AlgorithmicQueuedResult: ...
+
+    @overload
+    @staticmethod
+    def run(
+        config: RunConfig,
+        dataset: MarketDataset,
+        strategy_state: StrategyRuntimeState,
+        context_factory: ContextFactory,
+        observations: Iterable[ObservationDelivery[Any]] = (),
+        *,
+        schedule: RunSchedule = EMPTY_SCHEDULE,
         execution: ExecutionPlan | None,
         queue: QueueModel | None = None,
     ) -> BacktestResult: ...
@@ -286,7 +305,10 @@ class BacktestEngine:
         model says has reached the front -- see
         :mod:`alphalab.backtesting.queueing`. The result is then a
         :class:`~alphalab.backtesting.state.QueuedResult`, whose execution
-        assumptions name the model. Refused beside ``execution``.
+        assumptions name the model. Beside ``execution`` (v4.3, ADR-0061) it
+        governs the plan's resting limit children, and the result is an
+        :class:`~alphalab.backtesting.state.AlgorithmicQueuedResult` holding both
+        books.
         """
 
         return _drive(
@@ -360,15 +382,23 @@ def _drive(
             )
             if observe is not None:
                 observe(state, cursor.rates)
+            # Under a plan the run's own orders are parents, which never rest: the
+            # queue book is the children's, worked beside them (ADR-0061).
             state, result = RunEngine.advance(
-                state, record, context_factory, rates=cursor.rates, queue=queued
+                state,
+                record,
+                context_factory,
+                rates=cursor.rates,
+                queue=queued if book is None else None,
             )
             if observe is not None:
                 observe(state, cursor.rates)
             if result is not None and result.queue is not None:
                 queued = result.queue
             if book is not None and result is not None:
-                book, state = work_children(book, state, result.market_event, cursor.rates)
+                book, state, queued = work_children(
+                    book, state, result.market_event, cursor.rates, queued
+                )
                 if observe is not None:
                     observe(state, cursor.rates)
             if observer is not None:
@@ -379,12 +409,14 @@ def _drive(
         state = RunEngine.close_slice(state, context_factory, cursor.rates)
         if observe is not None:
             observe(state, cursor.rates)
-        if book is not None and queued is None:
+        if book is not None:
             book, state = finish_children(book, state)
             if observe is not None:
                 observe(state, cursor.rates)
         if observer is not None:
             observer.step_ended()
+        if book is not None and queued is not None:
+            return _planned_result(state, book, queued)
         if queued is not None:
             return queued_result(state, queued)
         if book is None:

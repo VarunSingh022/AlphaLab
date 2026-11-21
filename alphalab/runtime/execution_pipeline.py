@@ -1514,6 +1514,7 @@ class ExecutionPipeline:
         rates: FxRates = NO_RATES,
         *,
         arriving: bool,
+        queue_turn: QueueTurn | None = None,
     ) -> ChildTurn:
         """One execution-algorithm child's turn at ``event``, its fill settled on the parent.
 
@@ -1537,6 +1538,13 @@ class ExecutionPipeline:
         trades through it -- the rules :func:`_work_order` applies to an order.
         Nothing here reads a later event: ``event`` is the one the child is
         worked at, and the caller decides which events a child may see.
+
+        ``queue_turn`` is a queue model's answer for a resting ``LIMIT`` child at
+        ``event`` (v4.3, ADR-0061): its resting turn fills nothing until the
+        model puts it at the front of its price level, and no more than the
+        model says traded beyond the queue ahead of it, the fill policy deciding
+        within that -- what a resting limit order's turn is under a queue model
+        (FUT-011). A child taking the market on its first turn is not governed.
 
         Raises:
             RuntimeValidationError: If the run does not route algorithmically;
@@ -1590,6 +1598,9 @@ class ExecutionPipeline:
             else:
                 price = _resting_fill_price(view, event)
                 passive = True
+                if queue_turn is not None and not queue_turn.may_fill:
+                    # Not yet at the front of its level: it rests on (ADR-0061).
+                    price = None
         if price is None:
             return ChildTurn(state, (), (), (), Decimal("0"), None)
 
@@ -1600,6 +1611,8 @@ class ExecutionPipeline:
             unworked = OrderStatus.CANCELLED if child.order_type is OrderType.MARKET else None
             return ChildTurn(state, (), (), (), Decimal("0"), unworked)
         decision = _decide_fill(policy, view, event, price, _whole_units(state))
+        if passive and queue_turn is not None and queue_turn.eligible is not None:
+            decision = _within_queue(decision, view, queue_turn.eligible, _whole_units(state))
         if decision.status is FillStatus.REJECTED:
             return ChildTurn(state, (), (), (), Decimal("0"), OrderStatus.REJECTED)
         if decision.status is FillStatus.EXPIRED:

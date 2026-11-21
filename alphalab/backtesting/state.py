@@ -37,7 +37,13 @@ from alphalab.runtime.run import RunConfig, RunState, RunStep, StrategyFailure
 if TYPE_CHECKING:
     from alphalab.backtesting.algorithmic import AlgorithmBook
 
-__all__ = ["AlgorithmicResult", "BacktestResult", "QueuedResult", "ReplayResult"]
+__all__ = [
+    "AlgorithmicQueuedResult",
+    "AlgorithmicResult",
+    "BacktestResult",
+    "QueuedResult",
+    "ReplayResult",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +240,31 @@ class QueuedResult(BacktestResult):
 
 
 @dataclass(frozen=True, slots=True)
+class AlgorithmicQueuedResult(AlgorithmicResult):
+    """A finished run whose execution plan's resting children a queue model governed (v4.3).
+
+    Everything :class:`AlgorithmicResult` reads, and the queue book: each of the
+    plan's limit children that rested kept its place at its price level and
+    filled only as far as the model said had reached the front (ADR-0061). Its
+    :attr:`execution_assumptions` name the queue model, as a
+    :class:`QueuedResult`'s do.
+
+    Attributes:
+        queue: The queue model, and the place of every limit child still
+            resting when the data ended.
+    """
+
+    queue: QueueBook
+
+    @property
+    def execution_assumptions(self) -> ExecutionAssumptions:
+        """How the run modelled execution, its queue model included."""
+
+        config = self.run.config
+        return execution_assumptions(config.pipeline, config.fill_policy, self.queue.model)
+
+
+@dataclass(frozen=True, slots=True)
 class ReplayResult:
     """A replay run: the backtest result plus the replay cursor it was driven by."""
 
@@ -261,10 +292,15 @@ class ReplayResult:
 
     @property
     def queue(self) -> QueueBook | None:
-        """The queue book, for a replay given a queue model (v4.1.1); ``None`` otherwise."""
+        """The queue book, for a replay given a queue model (v4.1.1); ``None`` otherwise.
+
+        Its children's, for a replay given an execution plan too (v4.3, ADR-0061).
+        """
 
         backtest = self.backtest
-        return backtest.queue if isinstance(backtest, QueuedResult) else None
+        if isinstance(backtest, QueuedResult | AlgorithmicQueuedResult):
+            return backtest.queue
+        return None
 
     @property
     def unpriced_assets(self) -> tuple[UnpricedAsset, ...]:

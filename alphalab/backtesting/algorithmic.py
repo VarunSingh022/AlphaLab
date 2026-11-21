@@ -145,6 +145,7 @@ from alphalab.execution.algorithms import (
 )
 from alphalab.execution.exceptions import ExecutionValidationError
 from alphalab.execution.policy import FillPolicy, FillTiming
+from alphalab.execution.queue import QueueBook, QueueObservation, QueuePosition, QueueTurn
 from alphalab.market.events import (
     BarClosed,
     MarketEvent,
@@ -155,10 +156,15 @@ from alphalab.market.events import (
 from alphalab.oms.ids import OrderId
 from alphalab.oms.order import Order as OMSOrder
 from alphalab.portfolio.fx import NO_RATES, FxRates
+
+# _queue_observation is what an event shows a queue model, read as the pipeline
+# reads it for an order resting there: one reading for a plan's children and a
+# run's own orders (ADR-0061).
 from alphalab.runtime.execution_pipeline import (
     ExecutionPipeline,
     ExecutionPipelineState,
     ExecutionRouting,
+    _queue_observation,
 )
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunState
 
@@ -601,12 +607,20 @@ def _turn(
     fill_policy: FillPolicy,
     *,
     arriving: bool,
+    queue_turn: QueueTurn | None = None,
 ) -> tuple[AlgorithmBook, ExecutionPipelineState, AlgorithmState]:
     """One child's turn at ``event``: its fill settled on the parent, its outcome booked."""
 
     progress = algorithm.children[child.child_id]
     turn = ExecutionPipeline.work_child(
-        pipeline, child, progress.working, event, fill_policy, rates, arriving=arriving
+        pipeline,
+        child,
+        progress.working,
+        event,
+        fill_policy,
+        rates,
+        arriving=arriving,
+        queue_turn=queue_turn,
     )
     fills = book.fills
     for report in turn.reports:
@@ -636,27 +650,45 @@ def _work_parent(
     event: MarketEvent,
     rates: FxRates,
     fill_policy: FillPolicy,
-) -> tuple[AlgorithmBook, ExecutionPipelineState]:
+    queue: QueueBook | None = None,
+) -> tuple[AlgorithmBook, ExecutionPipelineState, QueueBook | None]:
     at = event.timestamp
     algorithm = book.working[order_id]
     parent = pipeline.oms.orders.find(_oms_id(order_id))
     same_event = pipeline.config.fill_timing is FillTiming.SAME_EVENT
+    observation = None if queue is None else _queue_observation(event)
 
     if not parent.is_open:
         # The run ended it -- a split, a settlement -- so the algorithm stops.
         algorithm = _cancel_working(algorithm, at, f"The run ended the parent: {parent.status}.")
-        return _end(book, pipeline, parent, parent.status, at, algorithm.reason, algorithm)
+        return (
+            *_end(book, pipeline, parent, parent.status, at, algorithm.reason, algorithm),
+            queue,
+        )
 
     # Children past their slice, or the window, expire before anything trades.
     for child in algorithm.working_children:
         if at >= algorithm.terms.end or (child.expires_at is not None and at >= child.expires_at):
             algorithm = record_child_outcome(algorithm, child.child_id, OrderStatus.EXPIRED, at)
 
-    # Children released before this event -- or at it, under SAME_EVENT -- trade.
+    # Children released before this event -- or at it, under SAME_EVENT -- trade:
+    # under a queue model, a resting limit child from where the event leaves its
+    # place in its level (ADR-0061).
     for child in algorithm.working_children:
         if child.released_at < at or (same_event and child.released_at == at):
+            turn = None
+            if queue is not None and observation is not None and _queued_child(child):
+                queue, turn = _advance_child(queue, child, observation)
             book, pipeline, algorithm = _turn(
-                book, pipeline, algorithm, child, event, rates, fill_policy, arriving=False
+                book,
+                pipeline,
+                algorithm,
+                child,
+                event,
+                rates,
+                fill_policy,
+                arriving=False,
+                queue_turn=turn,
             )
 
     if not algorithm.is_terminal:
@@ -683,6 +715,18 @@ def _work_parent(
                 book, pipeline, algorithm = _turn(
                     book, pipeline, algorithm, child, event, rates, fill_policy, arriving=True
                 )
+            if (
+                queue is not None
+                and observation is not None
+                and _queued_child(child)
+                and algorithm.children[child.child_id].outcome is None
+            ):
+                # Resting from the event it was placed at, it joins its level's
+                # queue there, as a resting limit order does (ADR-0061).
+                assert child.limit_price is not None  # a queued child is a limit child
+                queue = queue.placed(
+                    child.child_id, queue.model.join(child.side, child.limit_price, observation)
+                )
 
     if algorithm.is_terminal:
         parent = pipeline.oms.orders.find(parent.order_id)
@@ -694,8 +738,44 @@ def _work_parent(
             AlgorithmStatus.CANCELLED: OrderStatus.CANCELLED,
             AlgorithmStatus.FAILED: OrderStatus.REJECTED,
         }[algorithm.status]
-        return _end(book, pipeline, parent, status, at, algorithm.reason, algorithm)
-    return replace(book, working=book.working.set(order_id, algorithm)), pipeline
+        return (*_end(book, pipeline, parent, status, at, algorithm.reason, algorithm), queue)
+    return replace(book, working=book.working.set(order_id, algorithm)), pipeline, queue
+
+
+def _queued_child(child: ChildOrder) -> bool:
+    """Whether a queue model governs ``child``: a limit child, which can rest (ADR-0061)."""
+
+    return child.order_type is OrderType.LIMIT and child.limit_price is not None
+
+
+def _advance_child(
+    queue: QueueBook, child: ChildOrder, observation: QueueObservation
+) -> tuple[QueueBook, QueueTurn]:
+    """``child``'s place after an event, and the model's answer for its turn there.
+
+    From where it stood -- or, for a child that has not joined, from an unknown
+    queue, as for an order that has not (FUT-011).
+    """
+
+    limit = child.limit_price
+    assert limit is not None  # a queued child is a limit child
+    held = queue.position_of(child.child_id)
+    position = (
+        held if held is not None and held.limit_price == limit else QueuePosition(limit, None)
+    )
+    turn = queue.model.advance(position, child.side, observation)
+    if turn.position != held:
+        queue = queue.placed(child.child_id, turn.position)
+    return queue, turn
+
+
+def _resting_children(book: AlgorithmBook) -> Iterable[str]:
+    """The children a queue book keeps places for: each working limit child."""
+
+    for algorithm in book.working.values():
+        for child in algorithm.working_children:
+            if _queued_child(child):
+                yield child.child_id
 
 
 def _oms_id(order_id: str) -> OrderId:
@@ -757,6 +837,23 @@ def work(
         ExecutionPlanError: If the run does not route ``ALGORITHMIC``.
     """
 
+    book, state, _ = _work(book, state, event, rates, None)
+    return book, state
+
+
+def _work(
+    book: AlgorithmBook,
+    state: RunState,
+    event: MarketEvent,
+    rates: FxRates,
+    queue: QueueBook | None,
+) -> tuple[AlgorithmBook, RunState, QueueBook | None]:
+    """:func:`work`, under the queue book ``queue`` when one is given (ADR-0061).
+
+    The book that comes back keeps a place for each limit child still working,
+    and for nothing else, as a run's own book keeps only orders still working.
+    """
+
     pipeline = state.pipeline
     if pipeline.config.routing is not ExecutionRouting.ALGORITHMIC:
         raise ExecutionPlanError(
@@ -765,15 +862,17 @@ def work(
         )
     asset_id = _event_asset(event)
     if asset_id is None:
-        return book, state
+        return book, state, queue
     book, pipeline = _adopt(book, pipeline, asset_id, event.timestamp)
     for order_id, algorithm in tuple(book.working.items()):
         if algorithm.parent.asset_id != asset_id:
             continue
-        book, pipeline = _work_parent(
-            book, pipeline, order_id, event, rates, state.config.fill_policy
+        book, pipeline, queue = _work_parent(
+            book, pipeline, order_id, event, rates, state.config.fill_policy, queue
         )
-    return book, replace(state, pipeline=pipeline)
+    if queue is not None:
+        queue = queue.keeping(_resting_children(book))
+    return book, replace(state, pipeline=pipeline), queue
 
 
 def finish(book: AlgorithmBook, state: RunState) -> tuple[AlgorithmBook, RunState]:

@@ -20,9 +20,7 @@ from typing import Any
 import pytest
 
 from alphalab.backtesting import (
-    AlgorithmAssignment,
     BacktestEngine,
-    ExecutionPlan,
     MarketDataset,
     PausedReplay,
     PriceTimeQueue,
@@ -43,7 +41,6 @@ from alphalab.common.ids import id_scope
 from alphalab.common.order_terms import MARKET, OrderTerms, TimeInForce
 from alphalab.core.enums import OrderStatus, Side
 from alphalab.data.feed import TradeAggressor
-from alphalab.execution.algorithms import TWAP, Urgency
 from alphalab.execution.fill import FillStatus
 from alphalab.execution.policy import FillTiming, LiquidityCappedFill, StaticFill
 from alphalab.execution.queue import QueueObservation, QueuePosition
@@ -577,13 +574,9 @@ def test_a_paused_replay_is_held_to_its_queue_model() -> None:
 
 
 def test_a_queue_model_is_refused_where_nothing_is_simulated() -> None:
-    plan = ExecutionPlan(AlgorithmAssignment(TWAP(2, Urgency.neutral()), 600.0, D("1")))
-    with pytest.raises(QueueModelError, match="execution plan's children"):
-        BacktestEngine.run(
-            config(), dataset(DEPLETION), strategies(), context_factory, execution=plan, queue=QUEUE
-        )
     # A paper run simulates its fills, so a queue may govern them; a live run's
-    # orders are its venue's.
+    # orders are its venue's. Beside an execution plan a queue governs the plan's
+    # children (v4.3, ADR-0061): tests/integration/test_plans_with_queues.py.
     live = initialize(replace(config(), mode=ExecutionMode.LIVE), strategies())
     with pytest.raises(RuntimeValidationError, match="routes EXTERNAL"):
         RunEngine.advance(

@@ -128,7 +128,13 @@ from alphalab.backtesting.schedule import (
     ScheduledSplit,
     ScheduleValidationError,
 )
-from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, QueuedResult, ReplayResult
+from alphalab.backtesting.state import (
+    AlgorithmicQueuedResult,
+    AlgorithmicResult,
+    BacktestResult,
+    QueuedResult,
+    ReplayResult,
+)
 from alphalab.backtesting.views import (
     commission_paid,
     equity_values,
@@ -166,6 +172,7 @@ __all__ = [
     "RUN_SCHEDULE_DIGEST_SCHEME",
     "AlgorithmAssignment",
     "AlgorithmBook",
+    "AlgorithmicQueuedResult",
     "AlgorithmicResult",
     "BacktestEngine",
     "BacktestError",

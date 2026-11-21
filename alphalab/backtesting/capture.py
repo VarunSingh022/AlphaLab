@@ -116,7 +116,12 @@ from alphalab.backtesting.dataset import MarketDataset
 from alphalab.backtesting.engine import _drive
 from alphalab.backtesting.exceptions import BacktestError
 from alphalab.backtesting.schedule import EMPTY_SCHEDULE, RunSchedule
-from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, QueuedResult
+from alphalab.backtesting.state import (
+    AlgorithmicQueuedResult,
+    AlgorithmicResult,
+    BacktestResult,
+    QueuedResult,
+)
 from alphalab.common.append_log import AppendOnlyLog, _since
 from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
 from alphalab.execution.queue import QueueModel
@@ -532,6 +537,21 @@ def run_captured(
     execution: None = None,
     queue: QueueModel,
 ) -> Captured[QueuedResult]: ...
+
+
+@overload
+def run_captured(
+    config: RunConfig,
+    dataset: MarketDataset,
+    strategy_state: StrategyRuntimeState,
+    context_factory: ContextFactory,
+    observations: Iterable[ObservationDelivery[Any]] = (),
+    *,
+    capture: CaptureSpec,
+    schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: ExecutionPlan,
+    queue: QueueModel,
+) -> Captured[AlgorithmicQueuedResult]: ...
 
 
 @overload

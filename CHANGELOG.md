@@ -1084,6 +1084,27 @@ entry below says otherwise.
     hand-calculated fills. The independent ledger draws each pricing and checks
     that no fill comes before its order's latency has passed.
 
+* **An execution plan's children wait their turn in the queue**
+  [plan WS-11, GAP-44, ADR-0061]. `BacktestEngine.run`, `ReplayBacktest.run`,
+  `run_captured` and `alphalab.api.backtest` take an execution plan and a queue
+  model together, where they refused the pair. The result is an
+  `AlgorithmicQueuedResult`: an `AlgorithmicResult` that holds the queue book
+  too, its execution assumptions naming the model.
+  * **Which children.** The plan's limit children, which can rest. Each joins
+    its price level's queue from the event it was released at, and fills only
+    as far as the model says has reached the front, the fill policy deciding
+    within that. `ExecutionPipeline.work_child` takes the model's answer as
+    `queue_turn`. Market children never rest and are unchanged.
+  * **What the book keeps.** A place for each limit child still working: an
+    expired slice, or a filled or cancelled child, leaves it. A paused replay
+    keeps both books, in the fields its payload already had, and resumes to the
+    same result.
+  * **What does not change.** A queue model is still refused on a run that
+    routes to a venue. A run given only a plan, or only a queue model, keeps its
+    result type and identities.
+  * **The tests.** `tests/integration/test_plans_with_queues.py` holds
+    hand-calculated fills from the queue suite's records.
+
 ## Changed
 
 * **A release is developed under its own version** [plan WS-29]. The package

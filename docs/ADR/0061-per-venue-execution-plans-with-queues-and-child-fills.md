@@ -106,6 +106,51 @@ pipeline snapshot's one schema step, 8 to 9. They are written only when a run
 declares one of them, so a run declaring none writes version 8, byte for byte.
 A composed result's two books are captured by the payloads each already has.
 
+# Settled at implementation (2026-11-21)
+
+1. **Plans with queues.**
+   - **The refusal is lifted, and only it.** `queued_run` refuses a queue model
+     only on a run that routes `EXTERNAL`. Under a plan the queue book holds
+     the plan's children, never the run's own orders: those are the parents,
+     which the plan works and which never rest. `RunEngine.advance` still
+     refuses a queue book under `ALGORITHMIC` routing, so the drivers keep the
+     book beside the children's work.
+   - **Which children.** A limit child, which can rest. It joins its level from
+     the event it was released at, as a resting limit order joins at the event
+     it was placed on: after its taking turn under `SAME_EVENT`, when that
+     leaves it resting, and at once otherwise. A child released at an event
+     that shows no quote, a print, starts from an unknown queue, as an order
+     placed there does. Market children never rest and are not governed.
+   - **Each turn.** Before a resting child's turn the model advances its place
+     from what the event showed. The reading is the pipeline's own
+     (`_queue_observation`), one for children and orders.
+     `ExecutionPipeline.work_child(queue_turn=)` then fills nothing until the
+     model puts the child at the front, and no more than the model allows, the
+     fill policy deciding within that. A child's taking turn is not governed.
+   - **The book keeps only working children.** After each event's work the
+     queue book keeps a place for each limit child still working: an expired
+     slice, or a filled or cancelled child, leaves it. A paused replay keeps
+     the same, and so does the end of the data.
+   - **One result.** `AlgorithmicQueuedResult` is an `AlgorithmicResult` that
+     holds the queue book too, its execution assumptions naming the model, and
+     a `ReplayResult` reads either kind's queue. It is a new class rather than
+     a field, so every existing result keeps its shape.
+   - **Persistence.** A paused replay already carried each book in its own
+     optional field, so no schema moves: the payload holds both.
+   - **Tests.** `tests/integration/test_plans_with_queues.py` holds
+     hand-calculated fills from the queue suite's records:
+     - a one-slice TWAP's limit child fills 20, 50 and 30 as the queue clears,
+       where the plan alone fills 100 at the first print: the fills of the same
+       order resting on its own;
+     - a child short of the front keeps its place, 50 behind;
+     - a two-slice TWAP's expired child leaves the book, and the next, placed
+       at a print, starts from an unknown queue;
+     - market children, and the run's record, unchanged.
+
+     They also cover the result's books and assumptions, the refusal, the
+     replay equal to the backtest, and a replay paused at each boundary
+     resuming to the same books and result.
+
 # Compatibility
 
 - Additive: one configuration map and one router field with empty defaults, one
