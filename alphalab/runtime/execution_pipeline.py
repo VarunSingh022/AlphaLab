@@ -3113,7 +3113,7 @@ def _route_requests(
             dropped.append((request, unworkable))
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
-        venue = _venue_for(current, request, event, instant)
+        venue = _venue_for(current, request, event, instant) if current.config.venues else None
         if isinstance(venue, str):
             # No declared venue routes it: refused, never filled by a model
             # nobody chose (ADR-0061).
@@ -3133,7 +3133,10 @@ def _route_requests(
         current, order = _submit_and_accept_order(current, request, instant)
         if venue is not None:
             current, order = _record_venue(current, order, venue, instant)
-        if current.config.routing is ExecutionRouting.SIMULATED:
+        if (
+            current.config.routing is ExecutionRouting.SIMULATED
+            and current.config.latency_pricing is LatencyPricing.POST_LATENCY_EVENT
+        ):
             current, held = _await_latency(current, order, instant, event.timestamp)
             if held is not None:
                 # Kept from the market until its latency has passed: its first
@@ -5714,8 +5717,15 @@ def _instructions_requested(
     current, routed = _amends_requested(
         current, intents, timestamp, event=event, policy=policy, rates=rates, rest=rest
     )
-    current, packaged = _packages_requested(current, intents, timestamp, event=event, rest=rest)
-    return current, _for_orders(intents), routed.then(packaged)
+    for intent in intents:
+        if intent.kind is IntentKind.PACKAGE:
+            # Only a batch holding a package pays for the packages' intake.
+            current, packaged = _packages_requested(
+                current, intents, timestamp, event=event, rest=rest
+            )
+            routed = routed.then(packaged)
+            break
+    return current, _for_orders(intents), routed
 
 
 def _amends_requested(
@@ -7743,7 +7753,7 @@ def _work_order(
     terms = order.terms
     if order.expire_at is not None and timestamp >= order.expire_at:
         return _expire(state, order, timestamp), (), (), ()
-    if _rest_over(order, timestamp):
+    if state.config.remainder is not None and _rest_over(order, timestamp):
         # A remainder resting by seconds whose rest ended before this event:
         # withdrawn without a turn (ADR-0060).
         return _withdraw_partial_remainder(state, order, timestamp), (), (), ()

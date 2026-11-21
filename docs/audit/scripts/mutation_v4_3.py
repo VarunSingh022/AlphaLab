@@ -2295,7 +2295,7 @@ V43_M8: tuple[Any, ...] = (
         "XR04",
         "a seconds rest is not checked before the turn",
         _EXEC_PIPE,
-        "    if _rest_over(order, timestamp):\n",
+        "    if state.config.remainder is not None and _rest_over(order, timestamp):\n",
         "    if False:\n",
     ),
     Mutation(
@@ -2512,8 +2512,9 @@ V43_M8: tuple[Any, ...] = (
         "a package works only when a strategy wants the slice",
         _EXEC_RUN,
         (
-            "        if not wants_slices(pipeline.strategy) and not _packages_working(\n"
-            "            pipeline, _instant_assets(events, at)\n"
+            "        if not wants_slices(pipeline.strategy) and not (\n"
+            "            pipeline.oms.active_orders and _packages_working(pipeline, "
+            "_instant_assets(events, at))\n"
             "        ):\n"
         ),
         "        if not wants_slices(pipeline.strategy):\n",

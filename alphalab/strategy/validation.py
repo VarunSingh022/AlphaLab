@@ -72,7 +72,8 @@ def validate_intent(intent: Intent) -> None:
         _require_election(intent)
     if intent.kind is IntentKind.AMEND:
         _require_amend(intent)
-    _require_legs(intent)
+    if intent.legs or intent.kind is IntentKind.PACKAGE:
+        _require_legs(intent)
 
 
 def _require_legs(intent: Intent) -> None:

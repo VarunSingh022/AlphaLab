@@ -765,9 +765,10 @@ class RunEngine:
         if state.last_slice_at is not None and at <= state.last_slice_at:
             return state
         # A package works at a slice close whether or not a strategy wants the
-        # slice (ADR-0062); a run with neither closes nothing.
-        if not wants_slices(pipeline.strategy) and not _packages_working(
-            pipeline, _instant_assets(events, at)
+        # slice (ADR-0062); a run with neither closes nothing. With no order
+        # working at all, no package is: one test, which every run pays.
+        if not wants_slices(pipeline.strategy) and not (
+            pipeline.oms.active_orders and _packages_working(pipeline, _instant_assets(events, at))
         ):
             return state
         closed, _, _ = ExecutionPipeline.close_slice(
