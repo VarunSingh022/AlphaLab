@@ -466,7 +466,11 @@ def _interior_point(
             (w - alpha_p * a) * (v + alpha_d * b)
             for w, a, v, b in zip(point.w, dx, point.v, dv, strict=True)
         )
-        sigma = (affine / complementarity) ** 3 if complementarity > 0.0 else 0.0
+        # Mehrotra's centring, (mu_aff / mu) cubed -- by multiplication: ``**`` is the
+        # platform's pow, which is not correctly rounded everywhere, and one bit of
+        # it moves every later iterate (CI's Linux cells found it, v4.3).
+        ratio = affine / complementarity if complementarity > 0.0 else 0.0
+        sigma = ratio * ratio * ratio
         target = sigma * mu
         # Corrector: centred, with the predictor's second-order terms.
         r_xz = [target - x * z - a * b for x, z, a, b in zip(point.x, point.z, dx, dz, strict=True)]

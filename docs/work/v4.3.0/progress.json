@@ -4747,7 +4747,7 @@
         "sha": "a4acfa7",
         "workflow": "Continuous Integration",
         "run": 44976115371,
-        "result": "running when this was written: all six quality-gate cells in progress; read again at the next boundary"
+        "result": "failure: the three Linux cells failed one test, the linear program's cross-host bits pin (test_linear.py::test_the_same_program_gives_the_same_bits_on_every_host); the three macOS cells passed. Cause: the centring parameter was cubed by `**`, the platform's pow; fixed by multiplication in the next commit"
       },
       {
         "sha": "a4acfa7",
@@ -4759,6 +4759,24 @@
         "sha": "a4acfa7",
         "workflow": "Optional Distributions",
         "run": 44976115349,
+        "result": "success"
+      },
+      {
+        "sha": "3e01086",
+        "workflow": "Continuous Integration",
+        "run": 44977224854,
+        "result": "failure: the same Linux-only test as a4acfa7's (a register-only commit on the same code)"
+      },
+      {
+        "sha": "3e01086",
+        "workflow": "CodeQL",
+        "run": 44977224912,
+        "result": "success"
+      },
+      {
+        "sha": "3e01086",
+        "workflow": "Optional Distributions",
+        "run": 44977224874,
         "result": "success"
       }
     ],
@@ -5182,6 +5200,10 @@
     {
       "date": "2026-11-22",
       "entry": "M8 accepted by the owner: the first milestone of the programme to be formally accepted. The owner reviewed M8's implementation, local validation, hosted CI, CodeQL, Optional Distributions and all six checkpoint benchmark cells, and accepted them. M8 is Accepted, with every line of its evidence and every commit reference kept and the acceptance added as the last; its items in WS-10, WS-11 and WS-26 are Accepted, and so are WS-11 and WS-26, which M8 alone holds, while WS-10 goes on to M13. PR #22 stays a Draft, and merging, tagging and publishing remain the owner's separate decisions. a4acfa7 (the certified linear program, TD-71) passed the full gate (14,448 tests) and was pushed; CodeQL and Optional Distributions passed on it, and its six CI cells were running when this was written."
+    },
+    {
+      "date": "2026-11-22",
+      "entry": "Hosted CI on a4acfa7 and 3e01086 failed on the three Linux cells, one test each: the linear program's cross-host bits pin moved. The three macOS cells, CodeQL and Optional Distributions passed, and the local gate had passed on macOS. Cause: Mehrotra's centring parameter was cubed with `**`, which CPython computes with the platform's pow; pow is not correctly rounded everywhere, so its last bit can differ between glibc and macOS, the iterates follow it, and the pinned solution's bits moved. It is now cubed by multiplication, so the linear program again uses only correctly rounded operations, as ADR-0063 section 3 requires; the pin's value is the macOS one, which the fix leaves unchanged. WS-12's linear-program item stays Pushed until the fix passes hosted CI. The pin did what it is for: it is the only check that runs the same program on two libms."
     }
   ]
 }

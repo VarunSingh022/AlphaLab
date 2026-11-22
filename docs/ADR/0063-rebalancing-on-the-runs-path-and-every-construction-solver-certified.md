@@ -291,7 +291,11 @@ cardinality is an integer program and stays a boundary.
        equations are built from the rows' sparse terms and factored by
        `common.linalg.cholesky`, their diagonal lifted by `1e-12` of its
        largest entry so that dependent rows stay factorable, and each
-       direction is refined against the unlifted matrix;
+       direction is refined against the unlifted matrix. Mehrotra's centring,
+       a ratio cubed, is cubed by multiplication: Python's `**` is the
+       platform's `pow`, which is not correctly rounded everywhere. Its first
+       form used `**`, and hosted CI's Linux cells found the cross-host bits
+       pin moved by it;
      - the exact finish. The basis is the basic variables when they are
        independent and as many as the rows; otherwise -- a degenerate vertex,
        or an optimal face -- the first independent columns, the basic ones
