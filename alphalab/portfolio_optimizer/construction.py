@@ -93,7 +93,9 @@ lifting's variables are stated from.
 What construction does not solve, by design: **cardinality** (at most ``k``
 names) and **joint lot selection** are integer programs, and no integer
 solver is part of this library -- rounding is per asset, toward zero, and
-reported; a **quadratic objective under a scenario limit**, which neither
+reported, and since v4.3 :func:`construct_with_cardinality` relaxes a
+cardinality limit in two certified steps, the gap to the best stated
+(ADR-0063 section 5); a **quadratic objective under a scenario limit**, which neither
 method certifies; and **multi-period** construction (trading a path of books
 against a cost of getting there), a sequence of single-period problems the
 caller composes. Each is an explicit boundary, not a limitation discovered
@@ -187,6 +189,7 @@ from alphalab.portfolio_optimizer.quadratic import (
 from alphalab.portfolio_optimizer.risk_parity import solve_risk_budgets
 
 __all__ = [
+    "CARDINALITY_SCHEME",
     "CONSTRUCTION_PROBLEM_SCHEME",
     "CONSTRUCTION_RESULT_SCHEME",
     "EXPECTED_RETURNS_SCHEME",
@@ -195,6 +198,8 @@ __all__ = [
     "BoxUncertainty",
     "CDaRLimit",
     "CVaRLimit",
+    "CardinalityOutcome",
+    "CardinalityResult",
     "ConstraintSet",
     "ConstructionDiagnostics",
     "ConstructionObjective",
@@ -230,6 +235,7 @@ __all__ = [
     "TurnoverLimit",
     "WeightBounds",
     "construct",
+    "construct_with_cardinality",
     "weight_ranges",
 ]
 
@@ -240,6 +246,8 @@ CONSTRUCTION_RESULT_SCHEME: Final = "alphalab.construction_result.v1"
 EXPECTED_RETURNS_SCHEME: Final = "alphalab.expected_returns.v1"
 #: v4.3 (ADR-0063): a scenario set's identity.
 SCENARIO_SET_SCHEME: Final = "alphalab.scenario_set.v1"
+#: v4.3 (ADR-0063 section 5): a construction under a cardinality limit.
+CARDINALITY_SCHEME: Final = "alphalab.cardinality.v1"
 
 #: The smallest universe the factor-structured method solves (v3.12, ledger
 #: PRF-005). The structured method is the faster one from about fifty assets
@@ -2226,6 +2234,14 @@ class ConstructionDiagnostics:
             by its label: what construction checked against its bound, beside
             the lifting the method solved (v4.3). Empty without weights or
             limits.
+        objective_value: The objective's value at the weights, in its own
+            sense (v4.3): the variance minimum variance minimizes, the CVaR
+            minimum CVaR does; the utility mean-variance maximizes, less its
+            costs, and the robust objective's worst case of it; the ratio
+            maximum diversification maximizes; maximum return's return less
+            its costs; and an objective of the protocol's form, which is
+            minimized. ``None`` without weights, and for risk parity, which
+            solves for its budgets rather than optimizing a value.
     """
 
     method: str
@@ -2251,6 +2267,7 @@ class ConstructionDiagnostics:
     detail: str
     transaction_cost: float | None = None
     limit_values: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
+    objective_value: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -2614,6 +2631,9 @@ class _Outcome:
     budget_deviation: float | None = None
     effective_risk_aversion: float | None = None
     worst_case_return: float | None = None
+    #: The method's own certified objective, where only it knows the value: a
+    #: linear objective of the protocol's, whose lifting's variables it solved.
+    objective_value: float | None = None
 
 
 _STATUS: Final = {
@@ -2756,6 +2776,7 @@ def _result(
         effective_risk_aversion=outcome.effective_risk_aversion,
         detail=outcome.detail,
         limit_values=MappingProxyType(limit_values),
+        objective_value=_objective_value(problem, outcome, weights, variance, diversification),
     )
     if violation > problem.settings.feasibility_tolerance:
         # Every method certifies its own answer; this is the construction-level
@@ -2773,6 +2794,51 @@ def _result(
             ),
         )
     return ConstructionResult(problem.problem_id, ConstructionStatus.OPTIMAL, weights, diagnostics)
+
+
+def _objective_value(
+    problem: ConstructionProblem,
+    outcome: _Outcome,
+    weights: Mapping[str, float],
+    variance: float,
+    diversification: float | None,
+) -> float | None:
+    """The objective's value at ``weights``, in its own sense (v4.3). See the diagnostics."""
+
+    objective = problem.objective
+    universe = problem.universe
+    if isinstance(objective, MinimumVariance):
+        return variance
+    if isinstance(objective, MeanVariance | MaximumReturn):
+        gain = math.fsum(objective.expected_returns.values[a] * weights[a] for a in universe)
+        paid = 0.0 if objective.costs is None else objective.costs.cost(weights)
+        if isinstance(objective, MaximumReturn):
+            return gain - paid
+        return gain - 0.5 * objective.risk_aversion * variance - paid
+    if isinstance(objective, RobustMeanVariance):
+        worst = outcome.worst_case_return
+        return None if worst is None else worst - 0.5 * objective.risk_aversion * variance
+    if isinstance(objective, MaximumDiversification):
+        return diversification
+    if isinstance(objective, MinimumCVaR):
+        return objective.scenarios.cvar(weights, objective.level)
+    if isinstance(objective, RiskParity):
+        return None
+    if _is_linear(objective):
+        return outcome.objective_value
+    if isinstance(objective, QuadraticObjective):
+        form = objective.quadratic_form(problem)
+        return 0.5 * form.scale * variance + math.fsum(
+            form.linear[a] * weights[a] for a in universe
+        )
+    return None
+
+
+def _sense(objective: object) -> float:
+    """``1`` for an objective that is minimized, ``-1`` for one that is maximized."""
+
+    maximized = MeanVariance | RobustMeanVariance | MaximumDiversification | MaximumReturn
+    return -1.0 if isinstance(objective, maximized) else 1.0
 
 
 # --------------------------------------------------------------------------- #
@@ -3928,6 +3994,7 @@ def _linear(
             (),
             solution.gap,
             solution.detail,
+            objective_value=solution.objective,
         )
     conflict = (
         _linear_conflict(program, solution, bounds, reported)
@@ -3997,3 +4064,221 @@ def _linear_conflict(
         elif value < -threshold:
             labels.append(low)
     return tuple(dict.fromkeys(labels))
+
+
+# --------------------------------------------------------------------------- #
+# Cardinality, relaxed (v4.3, ADR-0063 section 5)
+# --------------------------------------------------------------------------- #
+
+
+class CardinalityOutcome(Enum):
+    """How a construction under a cardinality limit ended (v4.3, ADR-0063 section 5).
+
+    ``WITHIN``: the optimum without the limit already holds at most ``k``
+    names, so it is the limited problem's optimum, exactly. ``RESTRICTED``: it
+    held more, and the problem restricted to ``k`` names -- its largest, ties
+    broken by asset id, every other weight fixed at zero -- is certified: within
+    :attr:`CardinalityResult.gap` of the best portfolio that keeps the limit.
+    ``UNRESOLVED``: no certified portfolio keeps the limit. The problem without
+    it ended without one, the constraints hold more than ``k`` names away from
+    zero, or the restriction cannot meet them -- which says nothing about
+    another choice of names: exact cardinality is an integer program, and
+    construction does not decide one.
+    """
+
+    WITHIN = auto()
+    RESTRICTED = auto()
+    UNRESOLVED = auto()
+
+
+@dataclass(frozen=True, slots=True)
+class CardinalityResult:
+    """A construction held to at most :attr:`max_names` names, by two certified steps (v4.3).
+
+    Each step is a :func:`construct` of its own problem, and its result is
+    honest about that problem; this result says how the two answer the limited
+    one (ADR-0063 section 5).
+
+    Attributes:
+        max_names: ``k``, the most names the answer may hold.
+        relaxed: The problem without the limit, certified. Its optimum
+            bounds every portfolio that keeps the limit.
+        restricted: The problem restricted to :attr:`names`, every other
+            weight fixed at zero, certified; ``None`` when the relaxed optimum
+            already keeps the limit, or no restriction was solved.
+        names: The names the answer may hold, sorted.
+        outcome: How it ended.
+        gap: At most how much better, in the objective's units, the best
+            portfolio that keeps the limit can be than the answer: zero when
+            ``WITHIN``, the relaxed bound against the restricted optimum when
+            ``RESTRICTED``, and ``None`` otherwise or for an objective without
+            a value.
+        detail: A sentence saying why the outcome is what it is.
+    """
+
+    max_names: int
+    relaxed: ConstructionResult
+    restricted: ConstructionResult | None
+    names: tuple[str, ...]
+    outcome: CardinalityOutcome
+    gap: float | None
+    detail: str
+
+    @property
+    def weights(self) -> Mapping[str, float] | None:
+        """The answer's weights, or ``None`` when no certified portfolio keeps the limit."""
+
+        if self.outcome is CardinalityOutcome.WITHIN:
+            return self.relaxed.weights
+        if self.outcome is CardinalityOutcome.RESTRICTED and self.restricted is not None:
+            return self.restricted.weights
+        return None
+
+    @property
+    def bound(self) -> float | None:
+        """The relaxed optimum's value: no portfolio that keeps the limit does better."""
+
+        return self.relaxed.diagnostics.objective_value if self.relaxed.succeeded else None
+
+    @property
+    def problem_id(self) -> str:
+        """The limited problem's identity: the problem's, and the limit."""
+
+        return _digest(
+            [
+                CARDINALITY_SCHEME,
+                f"problem={self.relaxed.problem_id}",
+                f"max_names={_render(self.max_names)}",
+            ]
+        )
+
+    @property
+    def result_id(self) -> str:
+        """The identity of this outcome: both steps' results and how they answer the limit."""
+
+        return _digest(
+            [
+                CARDINALITY_SCHEME,
+                f"problem={self.problem_id}",
+                f"outcome={self.outcome.name}",
+                f"relaxed={self.relaxed.result_id}",
+                f"restricted={None if self.restricted is None else self.restricted.result_id}",
+                *(f"name={_render(name)}" for name in self.names),
+            ]
+        )
+
+
+def _held_away(bounds: WeightBounds, asset: str, tolerance: float) -> bool:
+    """Whether ``asset``'s bounds keep its weight beyond the tolerance from zero: a name held."""
+
+    lower, upper = bounds.for_asset(asset)
+    return (lower is not None and lower > tolerance) or (upper is not None and upper < -tolerance)
+
+
+def construct_with_cardinality(problem: ConstructionProblem, max_names: int) -> CardinalityResult:
+    """Construct holding at most ``max_names`` names, relaxed then restricted (v4.3, ADR-0063).
+
+    1. ``problem`` without the limit, by :func:`construct`. Its optimum bounds
+       every portfolio that keeps the limit. If it holds at most
+       ``max_names`` names, it is the answer, exactly.
+    2. Otherwise ``problem`` with every weight fixed at zero but the names
+       its range keeps away from zero, and then the relaxed optimum's largest
+       in magnitude, ties broken by asset id, up to ``max_names``. Its optimum
+       is the answer, within :attr:`CardinalityResult.gap` of the best.
+
+    A weight within the feasibility tolerance of zero holds no name. The gap
+    is stated, never claimed to be zero unless the first step keeps the limit.
+
+    Raises:
+        ConstructionInputError: If ``max_names`` is not a positive integer, or
+            the objective is risk parity, whose budgets are stated over the
+            whole universe; and whatever :func:`construct` refuses.
+    """
+
+    if isinstance(max_names, bool) or not isinstance(max_names, int) or max_names < 1:
+        raise ConstructionInputError(f"max_names must be a positive integer, got {max_names!r}.")
+    if isinstance(problem.objective, RiskParity):
+        raise ConstructionInputError(
+            "Risk parity states its budgets over the whole universe, so a cardinality limit would "
+            "change what is stated: state budgets over the names wanted instead."
+        )
+    relaxed = construct(problem)
+    if not relaxed.succeeded:
+        return CardinalityResult(
+            max_names,
+            relaxed,
+            None,
+            (),
+            CardinalityOutcome.UNRESOLVED,
+            None,
+            f"The problem without the limit ended {relaxed.status.name}: "
+            f"{relaxed.diagnostics.detail}",
+        )
+    tolerance = problem.settings.feasibility_tolerance
+    weights = relaxed.require_weights()
+    held = tuple(asset for asset in problem.universe if abs(weights[asset]) > tolerance)
+    if len(held) <= max_names:
+        return CardinalityResult(
+            max_names,
+            relaxed,
+            None,
+            held,
+            CardinalityOutcome.WITHIN,
+            0.0,
+            f"The optimum without the limit holds {len(held)} names, within {max_names}, so it is "
+            "the limited problem's optimum.",
+        )
+    bounds = problem.constraints.bounds
+    kept = [asset for asset in problem.universe if _held_away(bounds, asset, tolerance)]
+    if len(kept) > max_names:
+        return CardinalityResult(
+            max_names,
+            relaxed,
+            None,
+            tuple(kept),
+            CardinalityOutcome.UNRESOLVED,
+            None,
+            f"The weight bounds hold {kept} away from zero: {len(kept)} names, more than "
+            f"{max_names}, so no portfolio keeps the limit.",
+        )
+    ranked = sorted(
+        (asset for asset in problem.universe if asset not in kept),
+        key=lambda asset: (-abs(weights[asset]), asset),
+    )
+    names = tuple(sorted([*kept, *ranked[: max_names - len(kept)]]))
+    restricted_bounds = bounds
+    for asset in problem.universe:
+        if asset not in names:
+            restricted_bounds = restricted_bounds.with_asset(asset, 0.0, 0.0)
+    restricted = construct(
+        replace(problem, constraints=replace(problem.constraints, bounds=restricted_bounds))
+    )
+    if not restricted.succeeded:
+        return CardinalityResult(
+            max_names,
+            relaxed,
+            restricted,
+            names,
+            CardinalityOutcome.UNRESOLVED,
+            None,
+            f"The problem restricted to {list(names)} ended {restricted.status.name}; another "
+            "choice of names might keep the limit, and exact cardinality is an integer program, "
+            "which construction does not decide.",
+        )
+    value = restricted.diagnostics.objective_value
+    bound = relaxed.diagnostics.objective_value
+    gap = (
+        None
+        if value is None or bound is None
+        else max(0.0, _sense(problem.objective) * (value - bound))
+    )
+    return CardinalityResult(
+        max_names,
+        relaxed,
+        restricted,
+        names,
+        CardinalityOutcome.RESTRICTED,
+        gap,
+        f"The optimum without the limit holds {len(held)} names; restricted to {max_names}, it "
+        f"is within {gap!r} of the best portfolio that keeps the limit.",
+    )

@@ -1211,6 +1211,19 @@
       "compatibility": "Additive: eight exports (3,117). ConstraintSet gains limits and ConstructionDiagnostics limit_values, each defaulting to empty, and ConstructionObjective includes MinimumCVaR, all named in the CHANGELOG. No existing problem's identity moves.",
       "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 3); CHANGELOG; construction.py's docstrings; ARCHITECTURE's Custom Optimizers section and capability row.",
       "tests": "tests/unit/portfolio_optimizer/test_scenario_risk.py (83): the scenario set's order, identity and refusals; CVaR as the least of Rockafellar and Uryasev's function over every threshold in rational arithmetic; drawdown on a hand path; minimum CVaR, a CVaR limit and a maximum drawdown each against an exact program that shares nothing with the lifting (k-scenario sets, pairs of steps), the seeds reaching optima and infeasibility; a fractional share and conditional drawdowns against exact evaluation and a grid; limits combined, binding named, values reported; a researcher's limit, and one whose value disagrees with its rows caught; identity sorted, only when present, pinned; weight_ranges; every refusal."
+    },
+    {
+      "id": "TD-74",
+      "date": "2026-11-22",
+      "workstream": "WS-12",
+      "title": "The cardinality relaxation as a composition of two certified constructions, with the gap stated through each objective's value (ADR-0063 section 5, settled point 4)",
+      "problem": "ADR-0063 section 5 solves a cardinality limit in two certified steps and states both optima. The restricted step can be infeasible while another choice of names is not, and section 1 keeps construct's four statuses, none of which says that honestly. Stating both optima needs each objective's value, which ConstructionDiagnostics did not report.",
+      "alternatives": "(a) A ConstraintSet field construct resolves itself, reporting a failed restriction as INFEASIBLE (false) or NUMERICAL_FAILURE (false). (b) A fifth ConstructionStatus, against section 1. (c) A function composing two construct calls, each result honest about its own problem, and an outcome saying how they answer the limited one.",
+      "decision": "(c). construct_with_cardinality(problem, max_names) -> CardinalityResult(max_names, relaxed, restricted, names, outcome, gap, detail), with CardinalityOutcome WITHIN, RESTRICTED and UNRESOLVED, problem_id and result_id. A weight within the feasibility tolerance of zero holds no name; names whose bounds keep them from zero are always chosen, and more of them than the limit is UNRESOLVED. The restriction fixes every other weight at zero through its bounds. ConstructionDiagnostics.objective_value reports each objective's value in its own sense, and the gap is the relaxed against the restricted value. Risk parity, whose budgets cover the universe, is refused.",
+      "rationale": "Composition keeps construct the one authority (AC-15) and its statuses as section 1 holds them: each step is an ordinary certified construction, and nothing is claimed about the limited problem that its steps do not prove. The gap is a proven bound, stated, never claimed to be zero unless the relaxation already keeps the limit.",
+      "compatibility": "Additive: four exports (3,121) and ConstructionDiagnostics' objective_value, defaulting to None, named in the CHANGELOG. No identity moves.",
+      "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 4); CHANGELOG; construction.py's docstrings; ARCHITECTURE's capability row.",
+      "tests": "tests/unit/portfolio_optimizer/test_cardinality.py (27): brute force over every set of k of five names for minimum variance, mean-variance, maximum return with costs and minimum CVaR -- the bound never worse than the best, the answer never better, the gap covering them; all three outcomes; an optimum within the limit returned exactly; ties by asset id; a name the bounds keep, and too many such; a failed relaxation and an infeasible restriction claimed as nothing; objective values in each objective's sense; identity; refusals."
     }
   ],
   "plan_changes": [
@@ -2310,6 +2323,11 @@
         {
           "milestone": "M9",
           "item": "Scenario risk (TD-73, ADR-0063 settled point 3): ScenarioSet; MinimumCVaR; CVaRLimit and CDaRLimit over the linear program; limits as a protocol checked at their own value; ConstraintSet.limits and ConstructionDiagnostics.limit_values; weight_ranges; a limit under an objective that is not linear refused",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M9",
+          "item": "The cardinality relaxation (TD-74, ADR-0063 settled point 4): construct_with_cardinality, two certified constructions and a CardinalityOutcome, the gap to the best stated through ConstructionDiagnostics.objective_value, held to brute force over every subset",
           "status": "Local validation passed"
         }
       ],
@@ -3546,7 +3564,7 @@
   },
   "state": {
     "updated": "2026-11-22",
-    "remote_head": "e12877e",
+    "remote_head": "2c8236f",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4835,7 +4853,7 @@
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M9 (WS-12), in ADR-0063's order: the cardinality relaxation with both optima stated; the rebalancing package and RebalancingStrategy; then the rebalancing backtest with CVaR, the guide, the measurement at the budget's size, and M9's mutation series. Hosted CI for b59419a, e12877e and this commit is read once at the next boundary.",
+    "next": "M9 (WS-12), in ADR-0063's order: the rebalancing package and RebalancingStrategy (section 6); then the rebalancing backtest with CVaR (the exit gate), the construction-in-runs guide and example, the measurement at the budget's size, and M9's mutation series. Hosted CI for e12877e, 2c8236f and this commit is read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -5270,6 +5288,10 @@
     {
       "date": "2026-11-22",
       "entry": "b59419a (TD-72) and e12877e (the cross-host pin's data drawn exactly) passed the full gate (14,450 tests) and were pushed. Scenario risk validated locally (TD-73): a supplied ScenarioSet, MinimumCVaR, and CVaR and conditional-drawdown limits, each lifting held to an exact program that shares nothing with it, and limits as a protocol that states its value as well as its rows, so construction checks an answer against the limit itself. The drawdown limit is CDaRLimit: the manifest's shared-name check found alphalab.risk already exporting a DrawdownLimit. The first draft of its test put a conditional-drawdown bound below anything attainable, and the linear program was right to call it infeasible: the least conditional drawdown at level 0.75 is about 0.0216."
+    },
+    {
+      "date": "2026-11-22",
+      "entry": "2c8236f (scenario risk, TD-73) passed the full gate (14,533 tests) and was pushed; at that boundary e12877e's run had passed Linux 3.14 -- the first Linux cell to pass the cross-host pin since a4acfa7 -- and the three macOS cells, with Linux 3.12 and 3.13 still running. The cardinality relaxation validated locally (TD-74) as a composition of two certified constructions rather than a constraint, because a restriction that cannot meet the constraints proves nothing about other names and construct's four statuses have no honest word for it. Brute force over every subset holds the bound, the answer and the gap. Maximum return under uniform caps turned out to be a sparse vertex that either keeps the limit or cannot, so its case takes costs from a book, which spread it over four names."
     }
   ]
 }

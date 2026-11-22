@@ -1327,6 +1327,25 @@ entry below says otherwise.
     (ADR-0063 section 4).
   * **`weight_ranges`** gives each weight's range as the constraints imply
     it, from which a lifting states its own variables' ranges.
+* **A cardinality limit, relaxed, with the gap stated** [plan WS-12, ADR-0063
+  section 5]. `construct_with_cardinality(problem, max_names)` holds a
+  construction to at most `max_names` names in two certified steps.
+  * **Relaxed, then restricted.** First the problem without the limit: its
+    optimum bounds every portfolio that keeps the limit, and if it holds no
+    more names it is the answer, exactly. Otherwise the same problem with
+    every weight fixed at zero except the names its bounds keep away from
+    zero and the relaxed optimum's largest, ties broken by asset id.
+  * **A `CardinalityResult`** carries both constructions, each honest about
+    its own problem, the names, and a `CardinalityOutcome`: `WITHIN`,
+    `RESTRICTED` within a stated `gap` of the best, or `UNRESOLVED` when no
+    certified portfolio keeps the limit. A restriction that cannot meet the
+    constraints proves nothing about another choice of names, so it is never
+    called infeasible. Exact cardinality is an integer program and stays a
+    boundary.
+  * **`ConstructionDiagnostics.objective_value`** reports each objective's
+    value at its weights, in its own sense: minimized or maximized as the
+    objective states. It is `None` for risk parity, which solves for its
+    budgets and takes no cardinality limit.
 
 ## Changed
 

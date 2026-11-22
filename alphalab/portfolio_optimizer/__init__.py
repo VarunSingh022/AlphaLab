@@ -28,11 +28,14 @@ from alphalab.portfolio_optimizer.constraints import (
     apply_weight_constraints,
 )
 from alphalab.portfolio_optimizer.construction import (
+    CARDINALITY_SCHEME,
     CONSTRUCTION_PROBLEM_SCHEME,
     CONSTRUCTION_RESULT_SCHEME,
     EXPECTED_RETURNS_SCHEME,
     SCENARIO_SET_SCHEME,
     BoxUncertainty,
+    CardinalityOutcome,
+    CardinalityResult,
     CDaRLimit,
     ConstraintSet,
     ConstructionDiagnostics,
@@ -70,6 +73,7 @@ from alphalab.portfolio_optimizer.construction import (
     TurnoverLimit,
     WeightBounds,
     construct,
+    construct_with_cardinality,
     weight_ranges,
 )
 from alphalab.portfolio_optimizer.costs import CostModel, TransactionCostEstimate
@@ -127,6 +131,7 @@ from alphalab.portfolio_optimizer.weights import TargetWeights
 
 __all__ = [
     "BLACK_LITTERMAN_SCHEME",
+    "CARDINALITY_SCHEME",
     "CONSTRUCTION_PROBLEM_SCHEME",
     "CONSTRUCTION_RESULT_SCHEME",
     "EXPECTED_RETURNS_SCHEME",
@@ -139,6 +144,8 @@ __all__ = [
     "CDaRLimit",
     "CVaRLimit",
     "CapitalAllocation",
+    "CardinalityOutcome",
+    "CardinalityResult",
     "ConstraintSet",
     "ConstraintViolated",
     "ConstraintViolationError",
@@ -212,6 +219,7 @@ __all__ = [
     "check_schedule_rebalance",
     "check_threshold_rebalance",
     "construct",
+    "construct_with_cardinality",
     "expected_costs",
     "exposure_report",
     "optimize_equal_weight",

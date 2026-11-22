@@ -468,6 +468,43 @@ cardinality is an integer program and stays a boundary.
    - **An infeasible limit is proven in about thirty iterations** (TD-72).
      Before the stall rule, a CVaR limit no portfolio meets took 509.
 
+4. **Cardinality, relaxed.**
+   - **A composition, not a constraint.** `construct_with_cardinality(problem,
+     max_names)` makes section 5's two steps two `construct` calls, and returns
+     a `CardinalityResult`. A field of `ConstraintSet` would have had
+     `construct` report a restriction that cannot meet the constraints as
+     `INFEASIBLE`, which is false: another choice of names might meet them.
+     Section 1 keeps the four statuses. So each step's result is honest about
+     its own problem, and a `CardinalityOutcome` says how the two answer the
+     limited one:
+     - `WITHIN`: the relaxed optimum holds no more names, and is the limited
+       problem's optimum, exactly.
+     - `RESTRICTED`: the restricted optimum is within the stated `gap` of the
+       best that keeps the limit.
+     - `UNRESOLVED`: no certified portfolio keeps the limit, and none is
+       claimed.
+   - **Held, and kept.** A weight within the feasibility tolerance of zero
+     holds no name. Names whose weight bounds keep them away from zero are
+     always among those chosen; if they alone are more than `max_names`, no
+     portfolio keeps the limit, and the result says so.
+   - **The gap** is the relaxed optimum's value against the restricted
+     one's, in the objective's own sense. It rests on
+     `ConstructionDiagnostics.objective_value`, which every objective but
+     risk parity now reports at its weights. Risk parity is refused: its
+     budgets are stated over the whole universe.
+   - **Identity.** A limited problem is the problem's identity and the
+     limit's; its result covers both steps' results, the outcome and the
+     names.
+   - **Tests.** `tests/unit/portfolio_optimizer/test_cardinality.py` holds
+     every claim against brute force over five assets. The best portfolio
+     holding at most `k` names comes from solving every one of the `C(5, k)`
+     restrictions. The relaxed optimum is never worse than it, the answer
+     never better, and the gap always covers their distance, for minimum
+     variance, mean-variance, maximum return with costs, and minimum CVaR.
+     The cases reach all three outcomes. Ties go by asset id, a name its
+     bounds keep is kept, and each objective's value is checked in its own
+     sense.
+
 # Compatibility
 
 - Additive: a package, a solver module, objectives and constraints, and a
