@@ -78,6 +78,18 @@ lifting adds, as CVaR's does -- and is solved by the certified linear program
 constraints imply keeps bounded. A ``NONCONVEX`` objective is always refused,
 since no certified method minimizes one.
 
+Since v4.3 (ADR-0063 section 4) construction takes scenario risk. A
+:class:`ScenarioSet` -- supplied, never generated -- holds every asset's return
+in each scenario. :class:`MinimumCVaR` minimizes the CVaR of the loss over it
+(Rockafellar and Uryasev, 2000); :class:`CVaRLimit` bounds it, and
+:class:`CDaRLimit` the conditional drawdown of the cumulative sum of
+returns (Chekhlov, Uryasev and Zabarankin, 2005), each linear once lifted. A
+limit is a :class:`LinearLimit` of the protocol, as a researcher's may be, in
+:attr:`ConstraintSet.limits`, and is taken under a linear objective only.
+Construction checks an answer against each limit's own value, not only the
+lifting the method solved, and :func:`weight_ranges` gives the ranges a
+lifting's variables are stated from.
+
 What construction does not solve, by design: **cardinality** (at most ``k``
 names) and **joint lot selection** are integer programs, and no integer
 solver is part of this library -- rounding is per asset, toward zero, and
@@ -179,7 +191,10 @@ __all__ = [
     "CONSTRUCTION_RESULT_SCHEME",
     "EXPECTED_RETURNS_SCHEME",
     "FACTOR_STRUCTURED_MINIMUM_ASSETS",
+    "SCENARIO_SET_SCHEME",
     "BoxUncertainty",
+    "CDaRLimit",
+    "CVaRLimit",
     "ConstraintSet",
     "ConstructionDiagnostics",
     "ConstructionObjective",
@@ -192,14 +207,17 @@ __all__ = [
     "ExposureRange",
     "FactorBound",
     "GroupBound",
+    "Lifting",
     "LinearCosts",
     "LinearForm",
+    "LinearLimit",
     "LinearObjective",
     "LinearRow",
     "LinearVariable",
     "MaximumDiversification",
     "MaximumReturn",
     "MeanVariance",
+    "MinimumCVaR",
     "MinimumVariance",
     "NotionalLimits",
     "Objective",
@@ -207,10 +225,12 @@ __all__ = [
     "QuadraticObjective",
     "RiskParity",
     "RobustMeanVariance",
+    "ScenarioSet",
     "SolverSettings",
     "TurnoverLimit",
     "WeightBounds",
     "construct",
+    "weight_ranges",
 ]
 
 #: Version 2 (v3.11, ledger DET-006): money and risk budgets -- the ``Decimal``
@@ -218,6 +238,8 @@ __all__ = [
 CONSTRUCTION_PROBLEM_SCHEME: Final = "alphalab.construction_problem.v2"
 CONSTRUCTION_RESULT_SCHEME: Final = "alphalab.construction_result.v1"
 EXPECTED_RETURNS_SCHEME: Final = "alphalab.expected_returns.v1"
+#: v4.3 (ADR-0063): a scenario set's identity.
+SCENARIO_SET_SCHEME: Final = "alphalab.scenario_set.v1"
 
 #: The smallest universe the factor-structured method solves (v3.12, ledger
 #: PRF-005). The structured method is the faster one from about fifty assets
@@ -368,6 +390,205 @@ class ExpectedReturns:
                 *(f"{_render(asset)}={_render(value)}" for asset, value in self.values.items()),
             ]
         )
+
+
+def _level(value: object, what: str, *, inclusive: bool) -> float:
+    """A confidence level in ``[0, 1)``, or ``[0, 1]`` when ``inclusive``."""
+
+    level = _number(value, what)
+    if not 0.0 <= level <= 1.0 or (level == 1.0 and not inclusive):
+        bound = "[0, 1]" if inclusive else "[0, 1)"
+        raise ConstructionInputError(f"{what} is {level!r}; it must lie in {bound}.")
+    return level
+
+
+def _tail_mean(values: Sequence[float], level: float) -> float:
+    """The mean of the worst ``1 - level`` share of ``values``, fractions weighted.
+
+    The least value over ``z`` of ``z + sum_i max(0, v_i - z) / ((1 - level) n)``
+    (Rockafellar and Uryasev, 2000), in closed form: the largest
+    ``floor((1 - level) n)`` values in full and the next by the remaining
+    fraction, over ``(1 - level) n``.
+    """
+
+    share = (1.0 - level) * len(values)
+    ordered = sorted(values, reverse=True)
+    whole = min(math.floor(share), len(ordered))
+    part = share - whole
+    tail = ordered[:whole] + (
+        [part * ordered[whole]] if part > 0.0 and whole < len(ordered) else []
+    )
+    return math.fsum(tail) / share
+
+
+def _cumulative(rows: Sequence[Sequence[float]]) -> list[tuple[float, ...]]:
+    """Each step's cumulative return per asset: the running sum of the steps so far."""
+
+    running = [0.0] * (len(rows[0]) if rows else 0)
+    path: list[tuple[float, ...]] = []
+    for row in rows:
+        running = [total + value for total, value in zip(running, row, strict=True)]
+        path.append(tuple(running))
+    return path
+
+
+@dataclass(frozen=True, slots=True)
+class ScenarioSet:
+    """Scenarios of every asset's return, supplied and never generated (v4.3, ADR-0063).
+
+    Historical, simulated or stressed, the scenarios are the researcher's. Each
+    holds a return for every asset, per :attr:`period` in :attr:`currency`, as
+    expected returns do, so they enter a construction only beside a covariance
+    in the same units. They keep the order given: a drawdown reads them as a
+    path, one step each; CVaR reads them as a sample, and has the same value in
+    any order, though the identity does not.
+
+    Attributes:
+        assets: The assets, sorted; each scenario's returns follow this order.
+        returns: One tuple per scenario, every asset's return in it: finite.
+        currency: The currency the returns are measured in.
+        period: The period each return spans.
+        source: Where the scenarios came from, in words.
+    """
+
+    assets: tuple[str, ...]
+    returns: tuple[tuple[float, ...], ...]
+    currency: str
+    period: str
+    source: str
+    _identity: str = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        assets = tuple(_text(asset, "scenario asset") for asset in self.assets)
+        if not assets:
+            raise ConstructionInputError("A scenario set over no asset describes nothing.")
+        if len(set(assets)) != len(assets):
+            raise ConstructionInputError("A scenario set names an asset twice.")
+        rows = tuple(self.returns)
+        if not rows:
+            raise ConstructionInputError("A scenario set with no scenario describes nothing.")
+        order = sorted(range(len(assets)), key=assets.__getitem__)
+        canonical: list[tuple[float, ...]] = []
+        for number, row in enumerate(rows):
+            values = tuple(row)
+            if len(values) != len(assets):
+                raise ConstructionInputError(
+                    f"Scenario {number} holds {len(values)} returns for {len(assets)} assets."
+                )
+            canonical.append(
+                tuple(
+                    _number(values[j], f"scenario {number}'s return of {assets[j]!r}")
+                    for j in order
+                )
+            )
+        sorted_assets = tuple(assets[j] for j in order)
+        _text(self.currency, "ScenarioSet.currency")
+        _text(self.period, "ScenarioSet.period")
+        _text(self.source, "ScenarioSet.source")
+        object.__setattr__(self, "assets", sorted_assets)
+        object.__setattr__(self, "returns", tuple(canonical))
+        object.__setattr__(
+            self,
+            "_identity",
+            _digest(
+                [
+                    SCENARIO_SET_SCHEME,
+                    f"currency={_render(self.currency)}",
+                    f"period={_render(self.period)}",
+                    f"source={_render(self.source)}",
+                    "assets=" + ",".join(_render(asset) for asset in sorted_assets),
+                    *(",".join(_render(value) for value in row) for row in canonical),
+                ]
+            ),
+        )
+
+    @classmethod
+    def of(
+        cls,
+        scenarios: Sequence[Mapping[str, float]],
+        *,
+        currency: str,
+        period: str,
+        source: str,
+    ) -> ScenarioSet:
+        """From one mapping per scenario, each holding a return for the same assets."""
+
+        rows = list(scenarios)
+        if not rows:
+            raise ConstructionInputError("A scenario set with no scenario describes nothing.")
+        assets = tuple(sorted(rows[0]))
+        for number, row in enumerate(rows):
+            if set(row) != set(assets):
+                raise ConstructionInputError(
+                    f"Scenario {number} names {sorted(row)}, not the first scenario's "
+                    f"{list(assets)}: every scenario holds a return for every asset."
+                )
+        return cls(
+            assets,
+            tuple(tuple(row[asset] for asset in assets) for row in rows),
+            currency,
+            period,
+            source,
+        )
+
+    @property
+    def scenarios_id(self) -> str:
+        """The derived identity of these scenarios, in their order."""
+
+        return self._identity
+
+    @property
+    def count(self) -> int:
+        """How many scenarios there are."""
+
+        return len(self.returns)
+
+    def _weights(self, weights: Mapping[str, float]) -> list[float]:
+        if set(weights) != set(self.assets):
+            raise ConstructionInputError(
+                "Weights for a scenario set must cover exactly its assets: missing "
+                f"{sorted(set(self.assets) - set(weights))}, outside "
+                f"{sorted(set(weights) - set(self.assets))}."
+            )
+        return [_number(weights[asset], f"the weight of {asset!r}") for asset in self.assets]
+
+    def losses(self, weights: Mapping[str, float]) -> tuple[float, ...]:
+        """Each scenario's loss, ``-r_s' w``, for weights over exactly these assets."""
+
+        vector = self._weights(weights)
+        return tuple(
+            -math.fsum(r * w for r, w in zip(row, vector, strict=True)) for row in self.returns
+        )
+
+    def cvar(self, weights: Mapping[str, float], level: float) -> float:
+        """The CVaR of the loss at ``level`` in ``[0, 1)``: the worst ``1 - level`` share's mean.
+
+        Rockafellar and Uryasev's (2000) definition over these scenarios, each
+        weighted equally. Zero is the mean loss; a level above ``1 - 1 / S`` is
+        the largest.
+        """
+
+        return _tail_mean(self.losses(weights), _level(level, "CVaR level", inclusive=False))
+
+    def cdar(self, weights: Mapping[str, float], level: float) -> float:
+        """The conditional drawdown at ``level`` of the cumulative sum of returns.
+
+        Chekhlov, Uryasev and Zabarankin (2005), over these scenarios read as a
+        path: ``c_t`` the sum of the portfolio's returns to step ``t``, ``c_0 =
+        0``, and the drawdown ``d_t = max(c_0, ..., c_t) - c_t``. At ``level``
+        in ``[0, 1)`` it is the worst ``1 - level`` share's mean; at one, the
+        maximum drawdown. Summed, not compounded.
+        """
+
+        level = _level(level, "CDaR level", inclusive=True)
+        vector = self._weights(weights)
+        peak = 0.0
+        drawdowns: list[float] = []
+        for cumulative in _cumulative(self.returns):
+            value = math.fsum(r * w for r, w in zip(cumulative, vector, strict=True))
+            peak = max(peak, value)
+            drawdowns.append(peak - value)
+        return max(drawdowns) if level == 1.0 else _tail_mean(drawdowns, level)
 
 
 # --------------------------------------------------------------------------- #
@@ -748,6 +969,10 @@ class ConstraintSet:
         notional_limits: Per-asset money caps, or ``None``.
         max_volatility: A risk budget on the whole portfolio: ex-ante
             ``sqrt(w' C w) <= this``, per the covariance's period, or ``None``.
+        limits: Limits of the protocol, each linear once lifted -- a CVaR or a
+            drawdown limit over scenarios, or a researcher's -- taken under a
+            linear objective only (v4.3, ADR-0063). In any order: they enter the
+            identity sorted, and only when there is one.
     """
 
     net_exposure: ExposureRange
@@ -759,6 +984,7 @@ class ConstraintSet:
     turnover: TurnoverLimit | None = None
     notional_limits: NotionalLimits | None = None
     max_volatility: float | None = None
+    limits: tuple[LinearLimit, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("max_abs_weight", "max_gross_exposure", "max_volatility"):
@@ -783,6 +1009,30 @@ class ConstraintSet:
                     f"Factor {bound.factor!r} is constrained under two different factor models. "
                     "A factor's identity is its model's; name them apart."
                 )
+        limits = tuple(self.limits)
+        for limit in limits:
+            if not isinstance(limit, LinearLimit):
+                raise ConstructionInputError(
+                    f"{limit!r} is not a limit: a limit states its convexity, label, bound, "
+                    "rendering, lifting and value (ADR-0063)."
+                )
+            _text(limit.label, "a limit's label")
+            if limit.convexity is not Convexity.LINEAR:
+                raise ConstructionInputError(
+                    f"The limit {limit.label!r} is {limit.convexity!r}: a limit is taken only when "
+                    "it is LINEAR (ADR-0063)."
+                )
+            _number(limit.limit, f"the bound of the limit {limit.label!r}")
+        keyed = sorted(
+            ((tuple(_limit_lines(limit)), limit) for limit in limits), key=lambda pair: pair[0]
+        )
+        if len({key for key, _ in keyed}) != len(keyed):
+            raise ConstructionInputError("The same limit is listed twice.")
+        if len({limit.label for _, limit in keyed}) != len(keyed):
+            raise ConstructionInputError(
+                "Two limits share a label, so a result could not tell them apart."
+            )
+        object.__setattr__(self, "limits", tuple(limit for _, limit in keyed))
 
     def rendering(self) -> list[str]:
         """The canonical lines this constraint set enters an identity as."""
@@ -816,6 +1066,9 @@ class ConstraintSet:
                 f"notional[{_render(asset)}]={canonical_text(amount)}"
                 for asset, amount in self.notional_limits.maximum_notional.items()
             )
+        # v4.3 (ADR-0063): only when there is one, so every other set's lines are as they were.
+        for limit in self.limits:
+            lines.extend(_limit_lines(limit))
         return lines
 
 
@@ -1022,29 +1275,40 @@ class LinearForm:
             for asset, value in self.costs.items()
         }
         object.__setattr__(self, "costs", MappingProxyType(dict(sorted(costs.items()))))
-        variables = tuple(self.variables)
-        rows = tuple(self.rows)
-        for variable in variables:
-            if not isinstance(variable, LinearVariable):
-                raise ConstructionInputError(f"{variable!r} is not a LinearVariable.")
-        for row in rows:
-            if not isinstance(row, LinearRow):
-                raise ConstructionInputError(f"{row!r} is not a LinearRow.")
-        names = [variable.name for variable in variables]
-        if len(set(names)) != len(names):
-            raise ConstructionInputError("A LinearForm names the same variable twice.")
-        labels = [row.label for row in rows]
-        if len(set(labels)) != len(labels):
-            raise ConstructionInputError("A LinearForm labels two rows alike.")
-        for row in rows:
-            unknown = sorted(set(row.variables) - set(names))
-            if unknown:
-                raise ConstructionInputError(
-                    f"LinearRow {row.label!r} names variables the form does not introduce: "
-                    f"{unknown}."
-                )
+        variables, rows = _lifting_parts(self.variables, self.rows, "A LinearForm", "form")
         object.__setattr__(self, "variables", variables)
         object.__setattr__(self, "rows", rows)
+
+
+def _lifting_parts(
+    variables: Iterable[object], rows: Iterable[object], what: str, noun: str
+) -> tuple[tuple[LinearVariable, ...], tuple[LinearRow, ...]]:
+    """Variables named once, rows labelled once, and each row over variables among them."""
+
+    checked: list[LinearVariable] = []
+    for variable in variables:
+        if not isinstance(variable, LinearVariable):
+            raise ConstructionInputError(f"{variable!r} is not a LinearVariable.")
+        checked.append(variable)
+    lines: list[LinearRow] = []
+    for row in rows:
+        if not isinstance(row, LinearRow):
+            raise ConstructionInputError(f"{row!r} is not a LinearRow.")
+        lines.append(row)
+    names = [variable.name for variable in checked]
+    if len(set(names)) != len(names):
+        raise ConstructionInputError(f"{what} names the same variable twice.")
+    labels = [row.label for row in lines]
+    if len(set(labels)) != len(labels):
+        raise ConstructionInputError(f"{what} labels two rows alike.")
+    known = set(names)
+    for row in lines:
+        unknown = sorted(set(row.variables) - known)
+        if unknown:
+            raise ConstructionInputError(
+                f"LinearRow {row.label!r} names variables the {noun} does not introduce: {unknown}."
+            )
+    return tuple(checked), tuple(lines)
 
 
 @runtime_checkable
@@ -1053,6 +1317,80 @@ class LinearObjective(Objective, Protocol):
 
     def linear_form(self, problem: ConstructionProblem) -> LinearForm:
         """The objective over ``problem``: a cost on each weight, and any lifting."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class Lifting:
+    """The variables and rows that state a limit to the linear program (v4.3, ADR-0063).
+
+    A :class:`LinearForm` without costs: a limit constrains and never prices, so
+    each of its variables costs zero. Each variable states the finite range the
+    limit implies for it; :func:`weight_ranges` gives the weights' ranges such
+    a range follows from.
+
+    Attributes:
+        variables: The variables it introduces, each named once and costing zero.
+        rows: Its rows, each labelled once, over the weights and its variables.
+    """
+
+    variables: tuple[LinearVariable, ...] = ()
+    rows: tuple[LinearRow, ...] = ()
+
+    def __post_init__(self) -> None:
+        variables, rows = _lifting_parts(self.variables, self.rows, "A Lifting", "lifting")
+        priced = [variable.name for variable in variables if variable.cost != 0.0]
+        if priced:
+            raise ConstructionInputError(
+                f"A limit's variables cost nothing, and {priced} are priced: a cost belongs to "
+                "the objective."
+            )
+        if not rows:
+            raise ConstructionInputError("A Lifting with no row limits nothing.")
+        object.__setattr__(self, "variables", variables)
+        object.__setattr__(self, "rows", rows)
+
+
+@runtime_checkable
+class LinearLimit(Protocol):
+    """A constraint of the protocol: ``value(weights) <= limit``, linear once lifted (v4.3).
+
+    ADR-0063 section 2: a constraint states its class and its rows. A limit
+    states its class -- ``LINEAR``, the only one a limit takes -- the label a
+    result names it by, its bound, its identity lines, the :class:`Lifting` that
+    states it to the linear program, and its value at any weights. Construction
+    checks an answer against :meth:`value` as well as the lifting, and reports
+    it in :attr:`ConstructionDiagnostics.limit_values`. A limit is taken only
+    under a linear objective: a quadratic objective under a scenario limit is
+    refused (ADR-0063 section 4). Outside the package's own limits, the identity
+    lines follow the class's qualified name and the convexity.
+    """
+
+    @property
+    def convexity(self) -> Convexity:
+        """The limit's class: ``LINEAR``."""
+        ...
+
+    @property
+    def label(self) -> str:
+        """How a result names the limit, among its binding constraints and conflicts."""
+        ...
+
+    @property
+    def limit(self) -> float:
+        """The bound: the limit holds when :meth:`value` is at most this."""
+        ...
+
+    def rendering(self) -> list[str]:
+        """The limit's identity lines: every parameter that decides it."""
+        ...
+
+    def lifting(self, problem: ConstructionProblem) -> Lifting:
+        """The variables and rows that hold :meth:`value` within :attr:`limit` over ``problem``."""
+        ...
+
+    def value(self, problem: ConstructionProblem, weights: Mapping[str, float]) -> float:
+        """The limited quantity at ``weights``: what must not exceed :attr:`limit`."""
         ...
 
 
@@ -1384,6 +1722,347 @@ class MaximumReturn:
         )
 
 
+# --------------------------------------------------------------------------- #
+# Scenario risk (v4.3, ADR-0063 section 4)
+# --------------------------------------------------------------------------- #
+
+
+def _scenario_returns(
+    problem: ConstructionProblem, scenarios: object, what: str
+) -> tuple[tuple[float, ...], ...]:
+    """The scenarios' returns, each over the universe in its order, or a refusal."""
+
+    if not isinstance(scenarios, ScenarioSet):
+        raise ConstructionInputError(f"{what} needs a ScenarioSet, got {scenarios!r}.")
+    covariance = problem.covariance
+    if scenarios.currency != covariance.currency or scenarios.period != covariance.period:
+        raise ConstructionInputError(
+            f"{what}'s scenarios are per {scenarios.period!r} in {scenarios.currency!r} and the "
+            f"covariance is per {covariance.period!r} in {covariance.currency!r}. They are refused "
+            "as a pair rather than rescaled or converted."
+        )
+    if scenarios.assets != problem.universe:
+        held, universe = set(scenarios.assets), set(problem.universe)
+        raise ConstructionInputError(
+            f"{what}'s scenarios must cover exactly the universe: missing "
+            f"{sorted(universe - held)}, outside {sorted(held - universe)}. A missing return is "
+            "not zero."
+        )
+    return scenarios.returns
+
+
+def _reach(
+    problem: ConstructionProblem, rows: Sequence[Sequence[float]]
+) -> tuple[list[float], list[float]]:
+    """The least and the greatest each row's ``r' w`` reaches over the weights' ranges."""
+
+    ranges = weight_ranges(problem)
+    lows = [ranges[asset][0] for asset in problem.universe]
+    highs = [ranges[asset][1] for asset in problem.universe]
+    least = [
+        math.fsum(min(r * low, r * high) for r, low, high in zip(row, lows, highs, strict=True))
+        for row in rows
+    ]
+    most = [
+        math.fsum(max(r * low, r * high) for r, low, high in zip(row, lows, highs, strict=True))
+        for row in rows
+    ]
+    return least, most
+
+
+def _cvar_parts(
+    problem: ConstructionProblem, scenarios: ScenarioSet, level: float, priced: bool, what: str
+) -> tuple[list[LinearVariable], list[LinearRow], float]:
+    """CVaR lifted (Rockafellar and Uryasev, 2000): ``alpha`` and one excess per scenario.
+
+    ``excess_s >= -r_s' w - alpha`` and ``excess_s >= 0``, so ``alpha + share *
+    sum excess_s``, ``share = 1 / ((1 - level) S)``, is at least the CVaR, and
+    equals it at the least ``alpha`` and excesses. The ranges follow from the
+    weights': ``alpha`` within the losses' reach, each excess up to its loss's
+    greatest less ``alpha``'s least. ``priced`` gives the objective's costs --
+    ``alpha`` one, each excess ``share`` -- and a limit's lifting none.
+    """
+
+    rows = _scenario_returns(problem, scenarios, what)
+    gain_least, gain_most = _reach(problem, rows)
+    loss_most = [-value for value in gain_least]
+    floor = min(-value for value in gain_most)
+    ceiling = max(loss_most)
+    share = 1.0 / ((1.0 - level) * len(rows))
+    variables = [LinearVariable("alpha", floor, ceiling, 1.0 if priced else 0.0)]
+    variables.extend(
+        LinearVariable(f"excess[{s}]", 0.0, max(most - floor, 0.0), share if priced else 0.0)
+        for s, most in enumerate(loss_most)
+    )
+    lifted = [
+        LinearRow(
+            f"excess[{s}]",
+            dict(zip(problem.universe, row, strict=True)),
+            {"alpha": 1.0, f"excess[{s}]": 1.0},
+            0.0,
+            None,
+        )
+        for s, row in enumerate(rows)
+    ]
+    return variables, lifted, share
+
+
+@dataclass(frozen=True, slots=True)
+class MinimumCVaR:
+    """Minimize the CVaR of the portfolio's loss over stated scenarios (v4.3, ADR-0063).
+
+    .. code-block:: text
+
+        CVaR(w) = min over alpha of  alpha + sum_s max(0, -r_s' w - alpha) / ((1 - level) S)
+
+    Rockafellar and Uryasev (2000): the mean loss of the worst ``1 - level``
+    share of the scenarios, a fraction weighted. Linear once lifted by
+    ``alpha`` and one excess per scenario, so solved by the certified linear
+    program; each lifted variable's range follows from the weights'
+    (:func:`weight_ranges`), so every weight needs a finite one.
+    :meth:`ScenarioSet.cvar` evaluates it at any weights.
+
+    Attributes:
+        scenarios: The scenarios, in the covariance's currency and period, over
+            exactly the universe.
+        level: In ``[0, 1)``. Zero is the mean loss. Required: no level is
+            assumed (AC-12).
+    """
+
+    scenarios: ScenarioSet
+    level: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scenarios, ScenarioSet):
+            raise ConstructionInputError(
+                f"scenarios must be a ScenarioSet, got {self.scenarios!r}."
+            )
+        object.__setattr__(self, "level", _level(self.level, "MinimumCVaR level", inclusive=False))
+
+    @property
+    def convexity(self) -> Convexity:
+        return Convexity.LINEAR
+
+    def rendering(self) -> list[str]:
+        return [
+            "objective=minimum_cvar",
+            f"scenarios={self.scenarios.scenarios_id}",
+            f"level={_render(self.level)}",
+        ]
+
+    def linear_form(self, problem: ConstructionProblem) -> LinearForm:
+        """No cost on the weights; ``alpha`` and the excesses carry the objective."""
+
+        variables, rows, _ = _cvar_parts(problem, self.scenarios, self.level, True, "MinimumCVaR")
+        return LinearForm(dict.fromkeys(problem.universe, 0.0), tuple(variables), tuple(rows))
+
+
+@dataclass(frozen=True, slots=True)
+class CVaRLimit:
+    """The CVaR of the portfolio's loss over stated scenarios, at most ``limit`` (v4.3).
+
+    The CVaR as :class:`MinimumCVaR` defines it, at a stated ``level``; the
+    lifting's rows, and ``alpha + sum excess_s / ((1 - level) S) <= limit``
+    (ADR-0063 section 4). Taken under a linear objective only.
+
+    Attributes:
+        scenarios: The scenarios, in the covariance's units, over exactly the universe.
+        level: In ``[0, 1)``.
+        limit: The largest CVaR allowed, in return units: finite.
+    """
+
+    scenarios: ScenarioSet
+    level: float
+    limit: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scenarios, ScenarioSet):
+            raise ConstructionInputError(
+                f"scenarios must be a ScenarioSet, got {self.scenarios!r}."
+            )
+        object.__setattr__(self, "level", _level(self.level, "CVaRLimit level", inclusive=False))
+        object.__setattr__(self, "limit", _number(self.limit, "CVaRLimit limit"))
+
+    @property
+    def convexity(self) -> Convexity:
+        return Convexity.LINEAR
+
+    @property
+    def label(self) -> str:
+        return (
+            f"CVaR at {self.level!r} over scenarios {self.scenarios.scenarios_id[:12]} "
+            f"<= {self.limit!r}"
+        )
+
+    def rendering(self) -> list[str]:
+        return [
+            "limit=cvar",
+            f"limit.scenarios={self.scenarios.scenarios_id}",
+            f"limit.level={_render(self.level)}",
+            f"limit.bound={_render(self.limit)}",
+        ]
+
+    def lifting(self, problem: ConstructionProblem) -> Lifting:
+        variables, rows, share = _cvar_parts(
+            problem, self.scenarios, self.level, False, "CVaRLimit"
+        )
+        rows.append(
+            LinearRow(
+                "cvar",
+                {},
+                {"alpha": 1.0, **{f"excess[{s}]": share for s in range(self.scenarios.count)}},
+                None,
+                self.limit,
+            )
+        )
+        return Lifting(tuple(variables), tuple(rows))
+
+    def value(self, problem: ConstructionProblem, weights: Mapping[str, float]) -> float:
+        return self.scenarios.cvar(weights, self.level)
+
+
+@dataclass(frozen=True, slots=True)
+class CDaRLimit:
+    """The conditional drawdown of the cumulative sum of returns, at most ``limit`` (v4.3).
+
+    Chekhlov, Uryasev and Zabarankin (2005), over the scenarios read as a path
+    (:meth:`ScenarioSet.cdar`): ``c_t`` the sum of the portfolio's returns
+    to step ``t``, ``c_0 = 0``, the drawdown ``d_t = max(c_0, ..., c_t) - c_t``.
+    At ``level`` in ``[0, 1)`` the mean of the worst ``1 - level`` share of the
+    drawdowns is bounded; at one, the maximum drawdown. Lifted by one running
+    peak and, below level one, an excess per step (ADR-0063 section 4). Summed,
+    not compounded: compounding is not linear in the weights.
+
+    Attributes:
+        scenarios: The path, in the covariance's units, over exactly the universe.
+        level: In ``[0, 1]``.
+        limit: The largest conditional drawdown allowed: finite, and not below
+            zero, since a drawdown never is.
+    """
+
+    scenarios: ScenarioSet
+    level: float
+    limit: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scenarios, ScenarioSet):
+            raise ConstructionInputError(
+                f"scenarios must be a ScenarioSet, got {self.scenarios!r}."
+            )
+        object.__setattr__(self, "level", _level(self.level, "CDaRLimit level", inclusive=True))
+        limit = _number(self.limit, "CDaRLimit limit")
+        if limit < 0.0:
+            raise ConstructionInputError(
+                f"CDaRLimit limit is {limit!r}; a drawdown is never negative, so no "
+                "portfolio could meet it."
+            )
+        object.__setattr__(self, "limit", limit)
+
+    @property
+    def convexity(self) -> Convexity:
+        return Convexity.LINEAR
+
+    @property
+    def label(self) -> str:
+        return (
+            f"CDaR at {self.level!r} over scenarios {self.scenarios.scenarios_id[:12]} "
+            f"<= {self.limit!r}"
+        )
+
+    def rendering(self) -> list[str]:
+        return [
+            "limit=cdar",
+            f"limit.scenarios={self.scenarios.scenarios_id}",
+            f"limit.level={_render(self.level)}",
+            f"limit.bound={_render(self.limit)}",
+        ]
+
+    def lifting(self, problem: ConstructionProblem) -> Lifting:
+        """``peak_t >= c_t``, ``peak_t >= peak_{t-1}``, ``peak_t >= 0``; then the bound.
+
+        At level one, ``peak_t - c_t <= limit`` at every step. Below it, ``zeta``
+        and ``excess_t >= peak_t - c_t - zeta``, ``excess_t >= 0``, and ``zeta +
+        sum excess_t / ((1 - level) T) <= limit``. A peak may stand above the
+        running maximum, which only overstates a drawdown, so the rows hold
+        exactly when the drawdown limit does. Each peak's range runs up to the
+        most any cumulative sum to then reaches; ``zeta`` and the excesses up to
+        the greatest drawdown the weights' ranges allow.
+        """
+
+        rows = _scenario_returns(problem, self.scenarios, "CDaRLimit")
+        path = _cumulative(rows)
+        least, most = _reach(problem, path)
+        peaks: list[float] = []
+        ceiling = 0.0
+        for value in most:
+            ceiling = max(ceiling, value)
+            peaks.append(ceiling)
+        reach = max(peak - low for peak, low in zip(peaks, least, strict=True))
+        universe = problem.universe
+        variables = [LinearVariable(f"peak[{t}]", 0.0, peak, 0.0) for t, peak in enumerate(peaks)]
+        top = self.limit if self.level == 1.0 else None
+        lifted = [
+            LinearRow(
+                f"above[{t}]",
+                {asset: -value for asset, value in zip(universe, cumulative, strict=True)},
+                {f"peak[{t}]": 1.0},
+                0.0,
+                top,
+            )
+            for t, cumulative in enumerate(path)
+        ]
+        lifted.extend(
+            LinearRow(f"rising[{t}]", {}, {f"peak[{t}]": 1.0, f"peak[{t - 1}]": -1.0}, 0.0, None)
+            for t in range(1, len(path))
+        )
+        if self.level < 1.0:
+            share = 1.0 / ((1.0 - self.level) * len(path))
+            variables.append(LinearVariable("zeta", 0.0, reach, 0.0))
+            variables.extend(
+                LinearVariable(f"excess[{t}]", 0.0, reach, 0.0) for t in range(len(path))
+            )
+            lifted.extend(
+                LinearRow(
+                    f"excess[{t}]",
+                    dict(zip(universe, cumulative, strict=True)),
+                    {f"excess[{t}]": 1.0, f"peak[{t}]": -1.0, "zeta": 1.0},
+                    0.0,
+                    None,
+                )
+                for t, cumulative in enumerate(path)
+            )
+            lifted.append(
+                LinearRow(
+                    "cdar",
+                    {},
+                    {"zeta": 1.0, **{f"excess[{t}]": share for t in range(len(path))}},
+                    None,
+                    self.limit,
+                )
+            )
+        return Lifting(tuple(variables), tuple(lifted))
+
+    def value(self, problem: ConstructionProblem, weights: Mapping[str, float]) -> float:
+        return self.scenarios.cdar(weights, self.level)
+
+
+#: The package's own limits, identified by their rendering alone.
+_SHIPPED_LIMITS: Final = (CVaRLimit, CDaRLimit)
+
+
+def _limit_lines(limit: LinearLimit) -> list[str]:
+    """A limit's identity lines, after its class and kind when it is not the package's."""
+
+    if isinstance(limit, _SHIPPED_LIMITS):
+        return limit.rendering()
+    kind = type(limit)
+    return [
+        f"limit.class={kind.__module__}.{kind.__qualname__}",
+        f"limit.convexity={limit.convexity.value}",
+        *limit.rendering(),
+    ]
+
+
 #: The objectives the package ships. A problem takes any :class:`Objective` (v4.3).
 type ConstructionObjective = (
     MinimumVariance
@@ -1392,6 +2071,7 @@ type ConstructionObjective = (
     | RiskParity
     | RobustMeanVariance
     | MaximumReturn
+    | MinimumCVaR
 )
 
 #: The package's own objectives, each solved by a method of its own and identified
@@ -1403,6 +2083,7 @@ _SHIPPED: Final = (
     RiskParity,
     RobustMeanVariance,
     MaximumReturn,
+    MinimumCVaR,
 )
 
 
@@ -1541,6 +2222,10 @@ class ConstructionDiagnostics:
         transaction_cost: ``sum_i rates_i * |w_i - current_i|`` when the
             objective charged :class:`LinearCosts`, or ``None`` (v3.11;
             :class:`MaximumReturn` charges them since v4.3).
+        limit_values: Each limit's :meth:`LinearLimit.value` at the weights,
+            by its label: what construction checked against its bound, beside
+            the lifting the method solved (v4.3). Empty without weights or
+            limits.
     """
 
     method: str
@@ -1565,6 +2250,7 @@ class ConstructionDiagnostics:
     effective_risk_aversion: float | None
     detail: str
     transaction_cost: float | None = None
+    limit_values: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
 
 
 @dataclass(frozen=True, slots=True)
@@ -2005,6 +2691,15 @@ def _result(
     volatility = 0.0 if risk is None else risk.volatility
     if constraints.max_volatility is not None:
         violation = max(violation, max(0.0, volatility - constraints.max_volatility))
+    # v4.3 (ADR-0063): each limit is checked at its own value, not only through its lifting.
+    limit_values: dict[str, float] = {}
+    binding = outcome.binding
+    for limit in constraints.limits:
+        value = _number(limit.value(problem, weights), f"the value of the limit {limit.label!r}")
+        limit_values[limit.label] = value
+        violation = max(violation, value - limit.limit)
+        if limit.limit - value <= problem.settings.feasibility_tolerance:
+            binding = (*binding, limit.label)
 
     factor_exposures: dict[str, float] = {}
     for bound in constraints.factors:
@@ -2030,7 +2725,7 @@ def _result(
     diagnostics = ConstructionDiagnostics(
         method=method,
         iterations=outcome.iterations,
-        binding=outcome.binding,
+        binding=binding,
         conflict=(),
         max_violation=violation,
         stationarity=outcome.stationarity,
@@ -2060,6 +2755,7 @@ def _result(
         budget_deviation=outcome.budget_deviation,
         effective_risk_aversion=outcome.effective_risk_aversion,
         detail=outcome.detail,
+        limit_values=MappingProxyType(limit_values),
     )
     if violation > problem.settings.feasibility_tolerance:
         # Every method certifies its own answer; this is the construction-level
@@ -2787,6 +3483,12 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
             f"A volatility cap under {type(problem.objective).__name__} has no certified method: "
             "the cap is quadratic, and the linear program takes linear rows only (ADR-0063)."
         )
+    if problem.constraints.limits and not linear:
+        raise ConstructionInputError(
+            f"A limit under {type(problem.objective).__name__} has no certified method: only a "
+            "linear objective takes one. The dense quadratic method needs strict convexity in "
+            "every variable, and a lifting's variables have none (ADR-0063 section 4)."
+        )
 
     # A structure under a method that reads the dense values -- risk parity, a
     # universe too small for the structured method, a structure that cannot
@@ -2860,6 +3562,8 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
         outcome = _risk_parity(problem, compiled, objective)
     elif isinstance(objective, MaximumReturn):
         outcome = _maximum_return(problem, compiled, objective)
+    elif isinstance(objective, MinimumCVaR):
+        outcome = _linear(problem, compiled, objective.linear_form(problem), None, method)
     else:
         assert admitted is not None  # every objective not the package's was admitted above
         outcome = admitted(problem, compiled)
@@ -2963,6 +3667,31 @@ def _maximum_return(
     return _linear(problem, compiled, objective.linear_form(problem), costs, "MaximumReturn")
 
 
+def weight_ranges(problem: ConstructionProblem) -> Mapping[str, tuple[float, float]]:
+    """Each weight's range, as the constraints on it alone imply it (v4.3, ADR-0063).
+
+    A weight bound, a concentration or notional limit, a one-asset group, and
+    the range ``c_k - L <= w_k <= c_k + L`` that a gross-exposure or turnover
+    limit implies: the ranges the linear program holds every weight to. A
+    lifting states its own variables' ranges from them -- a scenario's loss lies
+    between the least and the most ``-r' w`` reaches over them, say. A range
+    whose lower end is above its upper means the constraints cannot hold.
+
+    Raises:
+        ConstructionInputError: If the problem names assets outside its
+            universe, or leaves a weight without a finite range.
+    """
+
+    _require_universe(problem)
+    box = _box(problem, _compile(problem), type(problem.objective).__name__)
+    return MappingProxyType(
+        {
+            asset: (box.lower[index], box.upper[index])
+            for index, asset in enumerate(problem.universe)
+        }
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _Box:
     """Each weight's range as the constraints on it alone imply it, and what states each side."""
@@ -3030,9 +3759,9 @@ def _box(problem: ConstructionProblem, compiled: _Compiled, name: str) -> _Box:
     ]
     if loose:
         raise ConstructionInputError(
-            f"{name} is linear, so only the constraints bound its optimum, and they leave "
-            f"{loose} without a finite range. Bound every weight -- WeightBounds, a concentration "
-            "or notional limit, or a gross-exposure or turnover limit (ADR-0063)."
+            f"The constraints leave {loose} without a finite range, and only they bound "
+            f"{name}'s linear program. Bound every weight -- WeightBounds, a concentration or "
+            "notional limit, or a gross-exposure or turnover limit (ADR-0063)."
         )
     return _Box(
         tuple(low for low in lower if low is not None),
@@ -3097,9 +3826,11 @@ def _linear(
     lower = list(box.lower)
     upper = list(box.upper)
     objective = [form.costs[asset] for asset in universe]
-    # What states each variable's lower and upper bound, for naming a conflict.
+    # What states each variable's lower and upper bound, and each row, for naming a
+    # conflict: a limit's rows and variables are named by the limit.
     bounds = list(zip(box.lower_label, box.upper_label, strict=True))
     rows = list(box.rows)
+    reported = [constraint.label for constraint in rows]
 
     def variable(low: float, high: float, cost: float, labels: tuple[str, str]) -> int:
         lower.append(low)
@@ -3107,6 +3838,10 @@ def _linear(
         objective.append(cost)
         bounds.append(labels)
         return len(lower) - 1
+
+    def add(built: Sequence[LinearConstraint], report: str | None = None) -> None:
+        rows.extend(built)
+        reported.extend(constraint.label if report is None else report for constraint in built)
 
     named = {
         item.name: variable(
@@ -3125,21 +3860,44 @@ def _linear(
             [(position[asset], value) for asset, value in row.weights.items()]
             + [(named[item], value) for item, value in row.variables.items()]
         )
-        rows.extend(_interval(f"objective[{row.label}]", terms, row.lower, row.upper))
+        add(_interval(f"objective[{row.label}]", terms, row.lower, row.upper))
+    for limit in problem.constraints.limits:
+        lifting = limit.lifting(problem)
+        if not isinstance(lifting, Lifting):
+            raise ConstructionInputError(
+                f"The limit {limit.label!r} gave {lifting!r} as its lifting, not a Lifting."
+            )
+        for row in lifting.rows:
+            outside = sorted(set(row.weights) - set(universe))
+            if outside:
+                raise ConstructionInputError(
+                    f"The limit {limit.label!r}'s row {row.label!r} weights assets outside the "
+                    f"universe: {outside}."
+                )
+        local = {
+            item.name: variable(item.lower, item.upper, 0.0, (limit.label, limit.label))
+            for item in lifting.variables
+        }
+        for row in lifting.rows:
+            terms = sorted(
+                [(position[asset], value) for asset, value in row.weights.items()]
+                + [(local[item], value) for item, value in row.variables.items()]
+            )
+            add(_interval(f"{limit.label}: {row.label}", terms, row.lower, row.upper), limit.label)
     for family in compiled.absolute:
         split: list[int] = []
         for index, center in zip(family.indices, family.centers, strict=True):
             plus = variable(0.0, family.limit, 0.0, (family.label, family.label))
             minus = variable(0.0, family.limit, 0.0, (family.label, family.label))
-            rows.append(
-                LinearConstraint(
-                    family.label, ((index, 1.0), (plus, -1.0), (minus, 1.0)), center, True
-                )
+            add(
+                [
+                    LinearConstraint(
+                        family.label, ((index, 1.0), (plus, -1.0), (minus, 1.0)), center, True
+                    )
+                ]
             )
             split.extend((plus, minus))
-        rows.append(
-            LinearConstraint(family.label, tuple((k, -1.0) for k in split), -family.limit, False)
-        )
+        add([LinearConstraint(family.label, tuple((k, -1.0) for k in split), -family.limit, False)])
     if costs is not None:
         for index, asset in enumerate(universe):
             rate = costs.rates[asset]
@@ -3150,9 +3908,7 @@ def _linear(
             # The most each side of the trade can be, from the weight's own range.
             plus = variable(0.0, max(box.upper[index] - center, 0.0), rate, (label, label))
             minus = variable(0.0, max(center - box.lower[index], 0.0), rate, (label, label))
-            rows.append(
-                LinearConstraint(label, ((index, 1.0), (plus, -1.0), (minus, 1.0)), center, True)
-            )
+            add([LinearConstraint(label, ((index, 1.0), (plus, -1.0), (minus, 1.0)), center, True)])
 
     program = LinearProgram(tuple(objective), tuple(rows), tuple(lower), tuple(upper))
     settings = problem.settings
@@ -3174,7 +3930,7 @@ def _linear(
             solution.detail,
         )
     conflict = (
-        _linear_conflict(program, solution, bounds)
+        _linear_conflict(program, solution, bounds, reported)
         if solution.status is SolveStatus.INFEASIBLE
         else ()
     )
@@ -3211,7 +3967,10 @@ def _linear_binding(
 
 
 def _linear_conflict(
-    program: LinearProgram, solution: LinearSolution, bounds: Sequence[tuple[str, str]]
+    program: LinearProgram,
+    solution: LinearSolution,
+    bounds: Sequence[tuple[str, str]],
+    reported: Sequence[str],
 ) -> tuple[str, ...]:
     """What a Farkas certificate rests on: the rows it weights, and the bounds it reaches.
 
@@ -3225,9 +3984,7 @@ def _linear_conflict(
     # Relative to the certificate's largest weight, as the solver names its rows.
     threshold = 1e-6 * max((abs(value) for value in weights), default=0.0)
     labels = [
-        constraint.label
-        for constraint, value in zip(program.constraints, weights, strict=True)
-        if abs(value) > threshold
+        label for label, value in zip(reported, weights, strict=True) if abs(value) > threshold
     ]
     reach = [0.0] * len(program.costs)
     for constraint, value in zip(program.constraints, weights, strict=True):

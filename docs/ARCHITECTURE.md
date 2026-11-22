@@ -547,7 +547,7 @@ schema is unchanged.
 | **Execution-path delivery of external information** | **Implemented (v3.12).** An observation is delivered at the instant it became knowable to the strategies subscribed to `observations` or `observations:<subject>` that define `on_observation`: `ExecutionPipeline.process_observation`, `RunEngine.deliver_observation` (an idempotent cursor) and `BacktestEngine.run(observations=)`, which merges them with the records; an order an observation causes rests to the next market event (OFE-009, ADR-0047). ADR-0042 had deferred it; this row said so until v3.13. Since the v4.1.1 candidate every timed input -- observations, rates, funding, cash flows, per-unit distributions, funding rates, splits, timers, contract settlements -- is a `RunSchedule` (`alphalab.backtesting.schedule`) that `BacktestEngine.run`, `ReplayBacktest.run` and the facade apply through one `ScheduleCursor`; a paused replay's payload records the schedule's digest (replay schema 2); `LiveSession.deliver_observation` delivers and routes (OFE-027, FUT-003, FUT-004, ADR-0051) |
 | Vendor alternative-data, event or fundamentals feeds | **None.** AlphaLab ships the point-in-time contract and ingests rows a caller supplies, with their bytes; it fetches nothing |
 | **The risk model** | **Implemented (v3.8).** `alphalab.analytics.risk_model` — `CovarianceMatrix` with currency, period, source, observations and a derived identity; definiteness measured by a rank-revealing Cholesky; ridge and diagonal shrinkage as recorded derivations; `FactorLoadings` and `Classification` that refuse holes. v3.3's decomposition calls the same arithmetic, unchanged bit for bit |
-| **Constrained portfolio construction** | **Implemented (v3.8).** `alphalab.portfolio_optimizer.construct` — minimum variance, mean-variance, maximum diversification, risk parity (equal or stated budgets) and robust mean-variance under bounds, concentration, gross, group, factor, turnover, notional and volatility constraints; one dual active-set solver certifying optimality and naming conflicts; `black_litterman` for a posterior. The v1 closed forms are unchanged. Since v3.12 a factor-model covariance over a large universe is solved by an O(n k²) interior point certified by the same criteria, the dense solver deciding whatever it does not certify (PRF-005). Since v4.3 the objectives are open -- an `Objective` declares its convexity -- and linear ones, `MaximumReturn` among them, are solved by a certified linear program (ADR-0063) |
+| **Constrained portfolio construction** | **Implemented (v3.8).** `alphalab.portfolio_optimizer.construct` — minimum variance, mean-variance, maximum diversification, risk parity (equal or stated budgets) and robust mean-variance under bounds, concentration, gross, group, factor, turnover, notional and volatility constraints; one dual active-set solver certifying optimality and naming conflicts; `black_litterman` for a posterior. The v1 closed forms are unchanged. Since v3.12 a factor-model covariance over a large universe is solved by an O(n k²) interior point certified by the same criteria, the dense solver deciding whatever it does not certify (PRF-005). Since v4.3 the objectives are open -- an `Objective` declares its convexity -- and linear ones, `MaximumReturn` and `MinimumCVaR` among them, are solved by a certified linear program, under CVaR and drawdown limits over supplied scenarios when stated (ADR-0063) |
 | **Risk budgets** | **Implemented (v3.8).** `alphalab.analytics.risk_budget` — Euler contributions of exposure lines grouped by asset, strategy, sector, country and currency, each summing to the portfolio's volatility; limits judged under a stated tolerance, reported and never enforced |
 | **Multi-strategy books** | **Implemented (v3.8).** `alphalab.portfolio.multi_strategy` — sleeves built from each strategy's own `PortfolioState`, holdings aggregated with every strategy's `StrategyContribution`, valued in one reporting currency with every conversion recorded. The accounting engine remains the one book of record |
 | **Cross-strategy risk** | **Implemented (v3.8).** `alphalab.analytics.cross_strategy` — return correlation with its basis, exposure overlap, factor crowding within the portfolio, common exposures, capital concentration and shared capital pools |
@@ -4415,10 +4415,14 @@ venue fill returns through the same function a simulated fill takes.
 A construction method is an **objective**, not a plug-in solver: `construct`
 accepts the package's `MinimumVariance`, `MeanVariance`,
 `MaximumDiversification`, `RiskParity`, `RobustMeanVariance` and, since v4.3,
-`MaximumReturn`, each a frozen value that enters the problem's identity. Since
-v4.3 (ADR-0063) it also accepts a researcher's objective through the
-`Objective` protocol: it declares its `Convexity` and renders its identity, and
-`construct` sends it to the certified method its class admits.
+`MaximumReturn` and `MinimumCVaR`, each a frozen value that enters the
+problem's identity. Since v4.3 (ADR-0063) it also accepts a researcher's
+objective through the `Objective` protocol: it declares its `Convexity` and
+renders its identity, and `construct` sends it to the certified method its
+class admits. A constraint set takes limits of the `LinearLimit` protocol --
+`CVaRLimit` and `CDaRLimit` over a `ScenarioSet`, or a researcher's -- under a
+linear objective, each checked at its own value as well as through its
+lifting.
 
 ```
 ConstructionProblem(covariance, objective, constraints, settings)

@@ -1301,6 +1301,32 @@ entry below says otherwise.
   * **Identity.** A linear objective's problem names its method,
     `solver=linear`. Over a factor structure the structure is never written
     out. No existing problem's identity moves.
+* **Scenario risk, certified** [plan WS-12, ADR-0063 section 4, GAP-37].
+  Construction minimizes and bounds tail risk over scenarios the researcher
+  supplies, through the linear program.
+  * **`ScenarioSet`** holds every asset's return in each scenario, in a
+    currency and period, kept in the order given and identified by its
+    values. Nothing generates one. `ScenarioSet.cvar` and `ScenarioSet.cdar`
+    evaluate CVaR and the conditional drawdown at any weights.
+  * **`MinimumCVaR`** minimizes the CVaR of the loss at a stated level
+    (Rockafellar and Uryasev, 2000). `ConstructionObjective` includes it.
+  * **`CVaRLimit` and `CDaRLimit`** bound the CVaR and the conditional
+    drawdown of the cumulative sum of returns (Chekhlov, Uryasev and
+    Zabarankin, 2005). At level one, `CDaRLimit` bounds the maximum drawdown.
+    A sum is linear in the weights and compounding is not, so a compounded
+    drawdown is not offered.
+  * **A limit of the protocol.** `ConstraintSet` gains `limits`. A
+    `LinearLimit` -- the package's or a researcher's -- states its class,
+    label, bound, identity lines, a `Lifting` for the linear program, and its
+    value at any weights. Construction checks an answer against each limit's
+    value as well as the lifting it solved, and reports the values in
+    `ConstructionDiagnostics.limit_values`. Limits enter a problem's identity
+    sorted, and only when there is one, so no existing identity moves.
+  * **What stays refused.** A limit under an objective that is not linear: a
+    quadratic objective under a scenario limit has no certified method
+    (ADR-0063 section 4).
+  * **`weight_ranges`** gives each weight's range as the constraints imply
+    it, from which a lifting states its own variables' ranges.
 
 ## Changed
 

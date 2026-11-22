@@ -411,6 +411,63 @@ cardinality is an integer program and stays a boundary.
      section 7 provides. A measurement at the budget's own size is taken
      before M9 closes.
 
+3. **Scenario risk.**
+   - **Where it lives.** In `alphalab.portfolio_optimizer.construction`,
+     exported from the package: `ScenarioSet`, `MinimumCVaR`, `CVaRLimit`,
+     `CDaRLimit`, the `LinearLimit` protocol with its `Lifting`, and
+     `weight_ranges`. `ConstraintSet.limits` holds the limits.
+   - **A scenario set**, as section 4 decides, is supplied and never
+     generated. Its assets are sorted and its scenarios keep the order given.
+     A drawdown reads them as a path; CVaR reads them as a sample, whose
+     value is the same in any order, though the identity is not. Its units
+     are checked against the covariance's, and its identity is derived from
+     its values.
+   - **CVaR** is lifted as section 4 states: `alpha` and one excess per
+     scenario. The ranges come from `weight_ranges`: `alpha` lies within the
+     losses' reach over the weights' ranges, and each excess runs up to its
+     loss's greatest less `alpha`'s least. Its value is the closed form: the
+     worst `floor((1 - level) S)` losses in full and the next by the remaining
+     fraction, over `(1 - level) S`. The tests confirm it is the least of
+     Rockafellar and Uryasev's function by trying every loss as the threshold
+     in rational arithmetic.
+   - **Drawdown** is lifted by a running peak per step: `peak_t >= c_t`,
+     `peak_t >= peak_{t-1}`, and `peak_t >= 0`, since `c_0 = 0`. Below level
+     one there are `zeta` and an excess per step; at level one, `peak_t - c_t
+     <= limit` at every step. A peak may stand above the running maximum,
+     which only overstates a drawdown, so the rows hold exactly when the limit
+     does. **The class is `CDaRLimit`,** conditional drawdown at risk, beside
+     `CVaRLimit`: `alphalab.risk` already exports a `DrawdownLimit`, a run's
+     risk limit, and the public API keeps one object per name.
+   - **The limit protocol.** Section 2 says a constraint states its class and
+     its rows. A `LinearLimit` states its convexity (`LINEAR` only), label,
+     bound, identity lines, `Lifting` and value at any weights.
+     - Construction checks an answer against each limit's value, not only the
+       lifting it solved. A researcher's limit whose value disagrees with its
+       rows is caught as `NUMERICAL_FAILURE`, never trusted.
+     - The values are reported in `ConstructionDiagnostics.limit_values`, and
+       a limit within the tolerance of its bound is named as binding.
+     - The package's limits are identified by their rendering; another's by
+       its class, its convexity and then its rendering. Limits are sorted by
+       those lines, so listing order does not matter. Duplicates and shared
+       labels are refused.
+   - **Refused:** a limit under any objective that is not linear (section
+     4); a limit that is not `LINEAR`; a lifting whose variables cost
+     anything, or that has no row.
+   - **Tests.** `tests/unit/portfolio_optimizer/test_scenario_risk.py` holds
+     each lifting to an exact program that shares nothing with it:
+     - a CVaR limit at `k` whole scenarios as a row per set of `k` scenarios;
+     - the maximum drawdown as a row per pair of steps;
+     - minimum CVaR as the least threshold over those rows.
+
+     The seeds reach optima and infeasibility for both limits. At a level
+     with a fractional share, and for a conditional drawdown below level one,
+     the answer is held to exact evaluation and to a grid of portfolios, none
+     of which does better. A researcher's limit agrees with its exact program,
+     and one whose value disagrees with its rows is caught. Identity,
+     diagnostics, `weight_ranges` and every refusal are covered too.
+   - **An infeasible limit is proven in about thirty iterations** (TD-72).
+     Before the stall rule, a CVaR limit no portfolio meets took 509.
+
 # Compatibility
 
 - Additive: a package, a solver module, objectives and constraints, and a

@@ -1198,6 +1198,19 @@
       "compatibility": "No answer changes: every feasible program's iterates, iterations and bits are as before (the cross-host pin, the generated programs and the budget ladder's iteration counts all unchanged). Infeasible ones end sooner, with the same status and certificate.",
       "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 2); CHANGELOG; alphalab/portfolio_optimizer/linear.py's docstring.",
       "tests": "tests/unit/portfolio_optimizer/test_linear.py: an infeasible program proven in under 60 iterations of 200; a feasible program stalled by a one-iteration window resuming to the same bits with more iterations; every earlier test unchanged."
+    },
+    {
+      "id": "TD-73",
+      "date": "2026-11-22",
+      "workstream": "WS-12",
+      "title": "Scenario risk on the linear program: ScenarioSet, MinimumCVaR, CVaRLimit and CDaRLimit, and limits as a protocol that states its value as well as its rows (ADR-0063 settled point 3, GAP-37)",
+      "problem": "ADR-0063 section 4 lifts CVaR and drawdown onto the linear program: a supplied scenario set, a minimum-CVaR objective, and CVaR and drawdown limits, with a quadratic objective under a scenario limit refused. Section 2 says a constraint states its class and its rows, so a limit needs a form a researcher's can take too, and ConstraintSet must hold limits without moving any existing problem's identity. A lifting's variables need finite ranges, which only the weights' ranges imply.",
+      "alternatives": "(a) Limits as fixed fields of ConstraintSet (a CVaR limit, a drawdown limit): closed, as the objectives were. (b) A protocol whose limits state only their rows: the answer is then checked against the lifting alone, so a wrong lifting passes. (c) A protocol whose limits state their rows and their value at any weights: construction checks the answer against the value, independently of the lifting. For the drawdown's name: DrawdownLimit, which alphalab.risk already exports for a run's risk limit, or CDaRLimit, the standard name, beside CVaRLimit.",
+      "decision": "(c), and CDaRLimit. ScenarioSet (assets sorted, scenarios in their order, units and identity, cvar and cdar at any weights). MinimumCVaR (LINEAR, in the shipped set and ConstructionObjective). CVaRLimit and CDaRLimit (level one the maximum drawdown; a negative bound refused). LinearLimit (convexity, label, limit, rendering, lifting, value) and Lifting (a LinearForm without costs: its variables cost zero, and it has a row). ConstraintSet.limits, sorted by their identity lines, duplicates and shared labels refused, rendered only when present. The linear method takes each limit's lifting, a conflict naming the limit for any of its rows or variables; _result checks each limit's value against its bound, reports it in ConstructionDiagnostics.limit_values, and names a limit within tolerance as binding. weight_ranges exposes the implied ranges a lifting states its variables' from. A limit under an objective that is not linear is refused before anything is solved.",
+      "rationale": "Checking each limit at its own value keeps the certification contract honest for a researcher's limit: the method certifies the lifting, and construction certifies that the lifting meant the limit. A wrong lifting is caught as NUMERICAL_FAILURE, never returned. Rendering limits only when present keeps every existing identity, and sorting them makes listing order irrelevant, as for groups and factors. CDaRLimit keeps one object per public name.",
+      "compatibility": "Additive: eight exports (3,117). ConstraintSet gains limits and ConstructionDiagnostics limit_values, each defaulting to empty, and ConstructionObjective includes MinimumCVaR, all named in the CHANGELOG. No existing problem's identity moves.",
+      "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 3); CHANGELOG; construction.py's docstrings; ARCHITECTURE's Custom Optimizers section and capability row.",
+      "tests": "tests/unit/portfolio_optimizer/test_scenario_risk.py (83): the scenario set's order, identity and refusals; CVaR as the least of Rockafellar and Uryasev's function over every threshold in rational arithmetic; drawdown on a hand path; minimum CVaR, a CVaR limit and a maximum drawdown each against an exact program that shares nothing with the lifting (k-scenario sets, pairs of steps), the seeds reaching optima and infeasibility; a fractional share and conditional drawdowns against exact evaluation and a grid; limits combined, binding named, values reported; a researcher's limit, and one whose value disagrees with its rows caught; identity sorted, only when present, pinned; weight_ranges; every refusal."
     }
   ],
   "plan_changes": [
@@ -2293,6 +2306,11 @@
           "milestone": "M9",
           "item": "The linear program proves infeasibility once its residual stalls, and resumes a feasible program it stopped (TD-72, ADR-0063 settled point 2): infeasible programs in 26 to 34 iterations instead of 130 to 500, every feasible answer unchanged to the bit",
           "status": "Local validation passed"
+        },
+        {
+          "milestone": "M9",
+          "item": "Scenario risk (TD-73, ADR-0063 settled point 3): ScenarioSet; MinimumCVaR; CVaRLimit and CDaRLimit over the linear program; limits as a protocol checked at their own value; ConstraintSet.limits and ConstructionDiagnostics.limit_values; weight_ranges; a limit under an objective that is not linear refused",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -3118,7 +3136,7 @@
       "problem": "Closed construction objectives; one solver",
       "severity": "M/P2",
       "status": "Open",
-      "status_note": "Open: reopened by ADR-0063 (D-V3, 2026-11-22). The objective protocol (TD-70) and the certified linear program (TD-71) are implemented: an objective states its class, a researcher's quadratic objective is solved by the certified quadratic methods and a linear one by the certified linear program. Closes when M9's scenario risk is lifted onto it and the milestone passes.",
+      "status_note": "Open: reopened by ADR-0063 (D-V3, 2026-11-22). Implemented: the objective protocol (TD-70), the certified linear program (TD-71, TD-72) and scenario risk on it (TD-73) -- minimum CVaR, CVaR and conditional-drawdown limits, and limits as a protocol. Closes when M9 passes.",
       "workstreams": [
         "WS-12"
       ],
@@ -3528,7 +3546,7 @@
   },
   "state": {
     "updated": "2026-11-22",
-    "remote_head": "8013353",
+    "remote_head": "e12877e",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4817,7 +4835,7 @@
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M9 (WS-12), in ADR-0063's order: scenario risk lifted onto the linear program -- a scenario set, minimum CVaR, a CVaR limit and a drawdown limit -- and the cardinality relaxation; the rebalancing package; then the rebalancing backtest with CVaR, the guide, the measurement at the budget's size, and M9's mutation series. a4acfa7's CI and this commit's are read once at the next boundary.",
+    "next": "M9 (WS-12), in ADR-0063's order: the cardinality relaxation with both optima stated; the rebalancing package and RebalancingStrategy; then the rebalancing backtest with CVaR, the guide, the measurement at the budget's size, and M9's mutation series. Hosted CI for b59419a, e12877e and this commit is read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -5248,6 +5266,10 @@
     {
       "date": "2026-11-22",
       "entry": "Correction to the entry before last: pow was not the cause of the Linux cells' failure. 8013353's CI failed the same test with the same Linux digest, so removing pow moved nothing there. The cause was the test's data: the pinned CVaR program's scenarios were drawn with random.gauss, which calls libm's log and cos, whose last bits differ between glibc and macOS, so the two hosts solved two different programs and the pin, being of bits, told them apart. The solver was never at fault; its operations are + - x /, sqrt and fsum, all correctly rounded. The scenarios are now drawn with random() and arithmetic, exact on every host, and the pin is recomputed. Cubing by multiplication stays, since pow is not correctly rounded everywhere. ADR-0063's settled point and a4acfa7's CI entry say so. b59419a (TD-72, the stall) passed the full gate (14,450 tests)."
+    },
+    {
+      "date": "2026-11-22",
+      "entry": "b59419a (TD-72) and e12877e (the cross-host pin's data drawn exactly) passed the full gate (14,450 tests) and were pushed. Scenario risk validated locally (TD-73): a supplied ScenarioSet, MinimumCVaR, and CVaR and conditional-drawdown limits, each lifting held to an exact program that shares nothing with it, and limits as a protocol that states its value as well as its rows, so construction checks an answer against the limit itself. The drawdown limit is CDaRLimit: the manifest's shared-name check found alphalab.risk already exporting a DrawdownLimit. The first draft of its test put a conditional-drawdown bound below anything attainable, and the linear program was right to call it infeasible: the least conditional drawdown at level 0.75 is about 0.0216."
     }
   ]
 }
