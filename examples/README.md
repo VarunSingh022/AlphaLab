@@ -100,6 +100,7 @@ API.
 | 80 | `80_a_ledgered_sweep.py` | **A ledgered sweep** (v4.3): the research assistant's candidates run as trials in spawned workers that refuse the network, every trial counted with its failures, a resume that runs nothing, one record reproduced in a fresh interpreter, the tracker citing the experiment, and the lockbox read once |
 | 81 | `81_search_train_and_trade_a_model.py` | **Search, train and trade a model by its artifact** (v4.3, S-07): triple-barrier meta-labels beside point-in-time features, successive halving over purged cross-validated backtests with every configuration a counted trial, the lockbox read once, and the chosen model filed by its bytes, traded by its artifact id and restored byte for byte -- another artifact being another run's inputs |
 | 82 | `82_research_execution_across_venues.py` | **Research execution across venues** (v4.3, S-09): queued TWAP children at two declared venues and routed between them by each venue's own costs, commissions attributed per venue and implementation shortfall measured; latency-priced fills; a two-venue run reconciled venue by venue (GR-4) |
+| 83 | `83_rebalance_a_factor_neutral_book.py` | **Rebalance a factor-neutral book for ten years** (v4.3, S-01's construction, M9's exit gate): a construction rule backtested as a strategy -- the most expected return a value-neutral, sector-capped book holds within a CVaR limit, rebalanced monthly to lot-rounded targets, run as an experiment of two limits, every rebalance certified or recorded as refused and reconciled to the book |
 
 ## Reading order
 

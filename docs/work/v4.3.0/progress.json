@@ -1250,6 +1250,19 @@
       "compatibility": "No public name, identity or persisted byte moves. Every earlier test and pin is unchanged: the answers they pin are exact vertex solves, so the changed iterates reach the same bits. The infeasible neighbour program takes 39 iterations, against 41 before.",
       "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 2); linear.py's module docstring and _REGULARIZATION's note; CHANGELOG's linear-program entry.",
       "tests": "tests/unit/portfolio_optimizer/test_captured_programs.py (4) holds the two programs example 83's tight trial met at its 105th and 107th rebalances, exactly, each rebuilt to its stated problem identity. The 105th is certified OPTIMAL. Its weights are held without the solver to the invested fraction, the caps, the sector caps, zero value exposure and a CVaR computed by sorting the losses, and its net return is at least the least-CVaR portfolio's. The 107th is INFEASIBLE by the margin by which its least CVaR, solved separately, misses the limit. The 105th fails under the earlier factor; the cardinality and linear tests' infeasible programs caught the unfloored scaling's overflow."
+    },
+    {
+      "id": "TD-77",
+      "date": "2026-11-22",
+      "workstream": "WS-12",
+      "title": "M9's exit gate as example 83: S-01's construction for ten years, as an experiment of two CVaR limits, its definition where its identity is stable (WS-12's E2E)",
+      "problem": "WS-12's end to end is S-01's construction: a monthly factor-neutral, sector-capped, CVaR-limited rebalance in a 10-year backtest, as an experiment. M9's exit gate is a rebalancing backtest with CVaR, certified. The linear program's cost grows with the cube of the scenario count: at 12 assets with every S-01 constraint, 0.1 s for 52 scenarios and 3.0 s for 252. A ten-year monthly backtest is 114 constructions a trial. An experiment's identity names its configuration type by module, and a script's module is __main__.",
+      "alternatives": "Data: weekly quotes, cheaper but further from how a book is marked and filled, or daily quotes. Scenarios: a year of daily returns, 252 at about 3 s a construction and some 6 minutes a trial, or the last quarter's 63 at about 0.15 s. The experiment: one trial, or two CVaR limits whose difference the test can attribute. The definition: in the script, whose identity differs between a run and an import, or in a module of its own, as example 80's is.",
+      "decision": "Daily weekday quotes, 2015 to 2024, for eight equities in four sectors, drawn with random() and arithmetic alone. Scenarios are the last 63 daily returns at level 0.9. There are two CVaR limits, 1.2% and 2%. The strategy sells first and keeps 5% in cash. The model, the strategy, the run and the experiment are defined in examples/_rebalanced_book.py; the script prints and checks. Each run takes about 42 seconds.",
+      "rationale": "The quarter's scenarios keep each tail at 6.3 scenarios and the run within a minute, so the gate can hold it on every host. Two limits make the limit's effect testable: the trials trade alike until the tight limit binds. A module of its own gives the experiment one identity, so the record can be pinned across hosts and reruns.",
+      "compatibility": "Additive: an example, its definition module, a test and a guide. The installed smoke test runs the example against each artifact.",
+      "record": "examples/83_rebalance_a_factor_neutral_book.py and examples/_rebalanced_book.py; docs/REBALANCING.md; CHANGELOG; examples/README.md and docs/EXAMPLES.md; docs/README.md.",
+      "tests": "tests/integration/test_rebalancing_end_to_end.py (13). Both trials are completed and counted, and the experiment's record is pinned. Each trial has 114 rebalances, each at its month's first weekday in New York. Every rebalance is certified but the tight trial's 2024-05-01, which is proven infeasible and trades nothing. Six sampled answers, the formerly jammed 105th included, are re-solved to the same result identity. Each is held without the solver to every constraint, its CVaR computed by sorting, and its targets lie within one share of its weights. The trials part first where the tight limit binds, at 0.012. At every rebalance the book is the last certified targets, and the account holds it."
     }
   ],
   "plan_changes": [
@@ -2365,6 +2378,11 @@
         {
           "milestone": "M9",
           "item": "The linear program's normal equations scaled to a unit diagonal before their lift (TD-76, ADR-0063 settled point 2): a feasible CVaR program example 83 met, which jammed at NUMERICAL_FAILURE, certified; an infeasible one proven by its own margin; a direction past the floating-point range handed to Phase I",
+          "status": "Local validation passed"
+        },
+        {
+          "milestone": "M9",
+          "item": "S-01's construction end to end, M9's exit gate (TD-77): examples/83, a factor-neutral, sector-capped, CVaR-limited book rebalanced monthly for ten years as an experiment of two limits, every rebalance certified or proven infeasible and reconciled, its record pinned; the construction-in-runs guide, docs/REBALANCING.md",
           "status": "Local validation passed"
         }
       ],
@@ -4944,7 +4962,7 @@
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M9 (WS-12), after the rebalancing package (TD-75): the exit gate, S-01's construction as an experiment -- a monthly factor-neutral, sector-capped, CVaR-limited rebalance in a 10-year backtest -- and S-10's piece, a rebalancing strategy in a multi-strategy book; the guide and example; the measurement at the budget's size, run alone; then M9's mutation series and close. Hosted CI for this commit is read once at the next boundary.",
+    "next": "M9 (WS-12), after the exit gate's example (TD-77): the measurement at the budget's size, 1,000 assets with CVaR over 2,520 scenarios, run alone; then M9's mutation series (the linear program, construction's scenario risk and cardinality, rebalancing), AC-11 and AC-12 verified, the close's scope check and its record. Hosted CI for ef37b6d and the next push is read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -5391,6 +5409,10 @@
     {
       "date": "2026-11-22",
       "entry": "ef37b6d (the rebalancing package, TD-75) passed the full gate (14,630 tests) and was pushed. Example 83, S-01's construction run for ten years as an experiment, found a defect in the linear program (TD-76). One of its 228 constructions was feasible, yet returned NUMERICAL_FAILURE whatever the budget. Traced: the normal matrix's lift, set by its largest entry, swamped the scenario-excess rows near the optimum, so each direction missed the primal equations, and the miss jammed the iterate against its bounds. Jacobi's scaling certified it. Run unfloored, it let an infeasible program's multipliers overflow before the stall rule fired, which the cardinality tests caught. Floored at 1e-12 of the largest entry, with a guard on non-finite directions, it passes every earlier test with every pin unchanged. The program and its infeasible neighbour are held as captured."
+    },
+    {
+      "date": "2026-11-22",
+      "entry": "M9's exit gate validated locally as example 83 (TD-77): S-01's construction, eight equities rebalanced monthly for ten years to the most expected return a value-neutral, sector-capped book holds within a CVaR limit, as an experiment of two limits. Each trial's 114 rebalances are certified, but for the tight trial's 2024-05-01 program, which is proven infeasible. The experiment is defined in a module of its own because its identity names its configuration type by module: run as a script it had been another experiment than the one its test imported. The construction-in-runs guide is written; its full-size figure waits for the measurement."
     }
   ]
 }

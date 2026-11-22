@@ -1394,6 +1394,37 @@ entry below says otherwise.
     intents carry. A run's rebalances reconcile to its fills.
   * **Its memory is declared state** (`REBALANCING_STATE_VERSION`). A paused
     run resumes to the same fills and records.
+* **`examples/83_rebalance_a_factor_neutral_book.py`** [plan S-01's
+  construction, WS-12's end to end and M9's exit gate, ADR-0063]. A
+  construction rule backtested for ten years, as an experiment.
+  * **The rule.** Eight equities in four sectors, quoted every weekday from 2015
+    to 2024. At the first slice of each month in New York the model states the
+    most expected return a book holds with no exposure to a declared value
+    factor, no sector above 35% and the CVaR of its daily loss over its last
+    63 returns within a limit. Costs are charged from the strategy's book.
+  * **As an experiment.** Two CVaR limits, each a trial in the ledger. The
+    experiment is defined in `examples/_rebalanced_book.py`, so its identity is
+    the same wherever it runs.
+  * **Certified answers only.** Each trial rebalances 114 times. The tight
+    limit's program of 2024-05-01 cannot be met, is proven infeasible and
+    trades nothing; every other rebalance is certified.
+  * **The tests.** `tests/integration/test_rebalancing_end_to_end.py` checks:
+    * the experiment's record against a pin;
+    * the dates of the rebalances;
+    * sampled answers, against every constraint without the solver;
+    * that the trials part only where the tight limit binds;
+    * every rebalance, reconciled to the strategy's book and the account.
+
+    The example also joins the installed smoke test.
+* **The construction-in-runs guide** [plan WS-12]. `docs/REBALANCING.md` sets
+  out what a rebalancing strategy asks of a model and when it rebalances. It
+  covers:
+  * the capital its weights are fractions of, and why its book is its own;
+  * how its targets are sent, and what rounding to lots leaves;
+  * a cardinality limit;
+  * what each rebalance records, and how a paused run resumes;
+  * S-01's construction end to end;
+  * what construction costs, measured, and what is not here.
 
 ## Changed
 

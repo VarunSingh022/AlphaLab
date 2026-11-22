@@ -54,11 +54,12 @@ EXAMPLES = (
     "80_a_ledgered_sweep.py",
     "81_search_train_and_trade_a_model.py",
     "82_research_execution_across_venues.py",
+    "83_rebalance_a_factor_neutral_book.py",
 )
 
 
 def _numbered(names: tuple[str, ...]) -> str:
-    """The examples' numbers as runs, ``11 and 70 to 82``, so the summary follows the list."""
+    """The examples' numbers as runs, ``11 and 70 to 83``, so the summary follows the list."""
 
     runs: list[list[int]] = []
     for number in (int(name.split("_", 1)[0]) for name in names):
