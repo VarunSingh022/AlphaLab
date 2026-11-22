@@ -1270,11 +1270,35 @@ entry below says otherwise.
     It is solved by the certified quadratic methods, the factor-structured one
     included, and is identified by its class, its kind and its rendering.
   * **What no certified method takes is refused,** naming why: a non-convex
-    objective, a convex one with no method of its own, a quadratic one without
-    its form or under a volatility cap, and, until the linear program lands, a
-    linear one.
-  * `ConstructionProblem`'s objective is annotated `Objective`; the package's
-    union of its own objectives, `ConstructionObjective`, is unchanged.
+    objective, a convex one with no method of its own, a linear or quadratic
+    one without its form, and a quadratic one under a volatility cap.
+  * `ConstructionProblem`'s objective is annotated `Objective`;
+    `ConstructionObjective` stays the union of the package's own objectives.
+* **The certified linear program** [plan WS-12, ADR-0063, GAP-37]. Construction
+  gains its third certified method, and linear objectives with it.
+  * **`alphalab.portfolio_optimizer.linear`.** `solve_linear_program` minimizes
+    a `LinearProgram` -- costs, rows and a finite range for every variable, so
+    it is never unbounded -- by Mehrotra's predictor-corrector interior point
+    and an exact finish at a vertex. It returns a `LinearSolution` only with a
+    `LinearCertificate` it has checked: a point within the feasibility
+    tolerance whose objective is within the convergence tolerance of a proven
+    bound, or for `INFEASIBLE` a Farkas certificate. Otherwise the status says
+    why, with no point. It uses only IEEE-754 correctly rounded operations, so
+    a program gives the same bits on every host.
+  * **A linear objective** is a `LinearObjective`. It states a `LinearForm`: a
+    cost on each weight, and any `LinearVariable`s and `LinearRow`s its lifting
+    adds -- CVaR's threshold and one excess per scenario, say -- each with the
+    finite range it implies. `MaximumReturn` is the package's own, and takes
+    `LinearCosts` as `MeanVariance` does; `ConstructionObjective` includes it.
+  * **Bounded by the constraints, or refused.** Each weight needs a finite
+    range the constraints imply: its bounds, a concentration or notional
+    limit, or the range a gross-exposure or turnover limit implies. A weight
+    left without one is refused, as is a volatility cap, which is quadratic.
+    Ranges that cross are `INFEASIBLE` before anything is solved, and an
+    infeasible program names the rows and ranges its certificate rests on.
+  * **Identity.** A linear objective's problem names its method,
+    `solver=linear`. Over a factor structure the structure is never written
+    out. No existing problem's identity moves.
 
 ## Changed
 

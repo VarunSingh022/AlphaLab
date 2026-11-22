@@ -2054,12 +2054,15 @@ can tell them apart afterwards.
 `AvailabilityNotDeclared` when it supports none, which is honest and makes the
 data unusable for research until somebody establishes when it was knowable.
 
-**Adding a construction method.** Add an objective type to
-`portfolio_optimizer.construction` with a `rendering` that enters the problem's
-identity, solve it through `quadratic.solve_quadratic_program` if it is a
-quadratic program, and check it against the exact-rational reference in
-`tests/unit/portfolio_optimizer/qp_reference.py`. Do not add a second solver or a
-fallback: an answer the certificate cannot verify is not an answer.
+**Adding a construction method.** State an objective through the `Objective`
+protocol of `portfolio_optimizer.construction` (ADR-0063): its `Convexity`, a
+`rendering` that enters the problem's identity, and a `QuadraticForm` for the
+certified quadratic methods or a `LinearForm` for the certified linear
+program. Check it against the exact-rational references in
+`tests/unit/portfolio_optimizer/qp_reference.py` and `lp_reference.py`. Every
+method behind `construct` is certified: do not add one whose answer it cannot
+certify, or a fallback -- an answer the certificate cannot verify is not an
+answer.
 
 **Adding a capital rule or dimension.** A rule is a frozen value the plan's
 identity renders; allocate in the account's currency, convert only plan-wide

@@ -23,6 +23,7 @@ objective, a :class:`ConstraintSet` and :class:`SolverSettings` -- and returns a
 :class:`RiskParity`          the long-only portfolio whose risk shares are stated budgets
 :class:`RobustMeanVariance`  maximize the *worst case* of the mean-variance objective over
                              a stated uncertainty set for ``mu``
+:class:`MaximumReturn`       maximize ``mu' w``, by the certified linear program (v4.3)
 ============================ ==============================================================
 
 Black-Litterman is a *model* that produces expected returns, not an objective:
@@ -65,21 +66,26 @@ does not certify. Its diagnostics are computed through the factors.
 
 Since v4.3 (ADR-0063) the objectives are open. An :class:`Objective` states
 its :class:`Convexity` and its rendering, and :func:`construct` sends it to the
-method its class admits, or refuses it before anything is solved. The five
-objectives above declare theirs and keep their methods and identities. A
-researcher's ``CONVEX_QUADRATIC`` objective states a :class:`QuadraticForm`, a
+method its class admits, or refuses it before anything is solved. The
+package's objectives declare theirs, and the five before v4.3 keep their
+methods and identities.
+A researcher's ``CONVEX_QUADRATIC`` objective states a :class:`QuadraticForm`, a
 positive multiple of the problem's covariance and a linear term, and is solved
-by the certified quadratic methods. A ``NONCONVEX`` objective is always
-refused, since no certified method minimizes one.
+by the certified quadratic methods. A ``LINEAR`` objective states a
+:class:`LinearForm` -- a cost on each weight, and any variables and rows its
+lifting adds, as CVaR's does -- and is solved by the certified linear program
+(:mod:`~alphalab.portfolio_optimizer.linear`), which every weight's range the
+constraints imply keeps bounded. A ``NONCONVEX`` objective is always refused,
+since no certified method minimizes one.
 
 What construction does not solve, by design: **cardinality** (at most ``k``
 names) and **joint lot selection** are integer programs, and no integer
 solver is part of this library -- rounding is per asset, toward zero, and
-reported; **CVaR, drawdown and other scenario objectives** need a linear
-program over scenarios, which this quadratic solver is not; and
-**multi-period** construction (trading a path of books against a cost of
-getting there) is a sequence of single-period problems the caller composes.
-Each is an explicit boundary, not a limitation discovered later.
+reported; a **quadratic objective under a scenario limit**, which neither
+method certifies; and **multi-period** construction (trading a path of books
+against a cost of getting there), a sequence of single-period problems the
+caller composes. Each is an explicit boundary, not a limitation discovered
+later.
 
 Units, stated once
 ------------------
@@ -131,6 +137,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_EVEN, Context, Decimal
 from enum import Enum, auto
+from functools import partial
 from types import MappingProxyType
 from typing import Final, Protocol, runtime_checkable
 
@@ -150,6 +157,11 @@ from alphalab.portfolio_optimizer.factor_quadratic import (
     FactorCurvature,
     FactorQuadraticProgram,
     solve_factor_quadratic_program,
+)
+from alphalab.portfolio_optimizer.linear import (
+    LinearProgram,
+    LinearSolution,
+    solve_linear_program,
 )
 from alphalab.portfolio_optimizer.quadratic import (
     AbsoluteSumLimit,
@@ -181,7 +193,12 @@ __all__ = [
     "FactorBound",
     "GroupBound",
     "LinearCosts",
+    "LinearForm",
+    "LinearObjective",
+    "LinearRow",
+    "LinearVariable",
     "MaximumDiversification",
+    "MaximumReturn",
     "MeanVariance",
     "MinimumVariance",
     "NotionalLimits",
@@ -272,12 +289,14 @@ class SolverSettings:
         convergence_tolerance: What "converged" means for the method: the
             relative KKT stationarity residual of a quadratic program, the
             largest risk-budget deviation of risk parity, the relative change of
-            the robustness weight, the relative gap to a volatility cap. In
-            ``(0, 1)``.
+            the robustness weight, the relative gap to a volatility cap, the
+            relative gap between a linear program's objective and its proven
+            bound. In ``(0, 1)``.
         max_iterations: The step budget: add-or-drop steps of the quadratic
             solver, sweeps of risk parity, outer iterations of the robust and
-            volatility-cap searches. Exhausting it is ``ITERATION_LIMIT``, never
-            a best-effort answer.
+            volatility-cap searches, interior-point iterations of the linear
+            program. Exhausting it is ``ITERATION_LIMIT``, never a best-effort
+            answer.
     """
 
     feasibility_tolerance: float
@@ -611,13 +630,14 @@ class LinearCosts:
     """What trading away from a stated book costs, charged in the objective (OFE-002).
 
     ``sum_i rates_i * |w_i - current_i|`` is subtracted from the mean-variance
-    objective: each unit of weight traded in asset ``i`` costs ``rates_i`` of
-    return, in the covariance's currency and period -- so a one-way cost of ten
-    basis points of notional, expected to be paid once over a holding period of
-    a year while returns are daily, is ``0.001 / 252``: amortizing it is the
-    caller's statement, not an assumption made here. The optimum trades an
-    asset only where the improvement pays its cost, and leaves it exactly where
-    it is otherwise -- a no-trade region a penalty-free optimum does not have.
+    objective -- or, since v4.3, the maximum-return one: each unit of weight
+    traded in asset ``i`` costs ``rates_i`` of return, in the covariance's
+    currency and period -- so a one-way cost of ten basis points of notional,
+    expected to be paid once over a holding period of a year while returns are
+    daily, is ``0.001 / 252``: amortizing it is the caller's statement, not an
+    assumption made here. The optimum trades an asset only where the
+    improvement pays its cost, and leaves it exactly where it is otherwise -- a
+    no-trade region a penalty-free optimum does not have.
 
     Attributes:
         current: The weights held now, for **exactly** the construction
@@ -887,6 +907,155 @@ class QuadraticObjective(Objective, Protocol):
         ...
 
 
+def _coefficients(terms: object, what: str) -> MappingProxyType[str, float]:
+    """Name -> finite coefficient, sorted, each zero left out: it adds nothing to a sum."""
+
+    if not isinstance(terms, Mapping):
+        raise ConstructionInputError(f"{what} must map each name to a number, got {terms!r}.")
+    values = {
+        _text(name, f"a name in {what}"): _number(value, f"{what}[{name!r}]")
+        for name, value in terms.items()
+    }
+    return MappingProxyType({name: value for name, value in sorted(values.items()) if value})
+
+
+@dataclass(frozen=True, slots=True)
+class LinearVariable:
+    """A variable a linear objective introduces beside the weights (v4.3, ADR-0063).
+
+    A lifting's variable -- CVaR's threshold, an excess loss per scenario --
+    with the finite range the objective implies for it, never one construction
+    supplies (AC-12), and its cost.
+
+    Attributes:
+        name: The variable's name, unique within its :class:`LinearForm`.
+        lower: Its least value: finite.
+        upper: Its greatest: finite, and not below ``lower``.
+        cost: Its coefficient in the objective: finite.
+    """
+
+    name: str
+    lower: float
+    upper: float
+    cost: float
+
+    def __post_init__(self) -> None:
+        name = _text(self.name, "LinearVariable name")
+        lower = _number(self.lower, f"LinearVariable {name!r} lower")
+        upper = _number(self.upper, f"LinearVariable {name!r} upper")
+        _range(lower, upper, f"LinearVariable {name!r}")
+        object.__setattr__(self, "lower", lower)
+        object.__setattr__(self, "upper", upper)
+        object.__setattr__(self, "cost", _number(self.cost, f"LinearVariable {name!r} cost"))
+
+
+@dataclass(frozen=True, slots=True)
+class LinearRow:
+    """``lower <= sum_a weights_a w_a + sum_v variables_v x_v <= upper`` (v4.3, ADR-0063).
+
+    A row of a linear objective's lifting, over the weights and the variables
+    its :class:`LinearForm` introduces: sparse, so an asset or variable it does
+    not list has no coefficient in it.
+
+    Attributes:
+        label: The row's name, unique within its form; a result names the row
+            by it, as ``objective[label]``.
+        weights: Asset -> coefficient, for assets of the universe.
+        variables: Variable name -> coefficient, for the form's variables.
+        lower: The least value of the sum, or ``None`` for none.
+        upper: The greatest, or ``None``. At least one side is stated.
+    """
+
+    label: str
+    weights: Mapping[str, float]
+    variables: Mapping[str, float]
+    lower: float | None
+    upper: float | None
+
+    def __post_init__(self) -> None:
+        label = _text(self.label, "LinearRow label")
+        weights = _coefficients(self.weights, f"LinearRow {label!r} weights")
+        variables = _coefficients(self.variables, f"LinearRow {label!r} variables")
+        if not weights and not variables:
+            raise ConstructionInputError(f"LinearRow {label!r} has no non-zero coefficient.")
+        lower = _optional(self.lower, f"LinearRow {label!r} lower")
+        upper = _optional(self.upper, f"LinearRow {label!r} upper")
+        if lower is None and upper is None:
+            raise ConstructionInputError(
+                f"LinearRow {label!r} bounds neither side, so it is no row."
+            )
+        _range(lower, upper, f"LinearRow {label!r}")
+        object.__setattr__(self, "weights", weights)
+        object.__setattr__(self, "variables", variables)
+        object.__setattr__(self, "lower", lower)
+        object.__setattr__(self, "upper", upper)
+
+
+@dataclass(frozen=True, slots=True)
+class LinearForm:
+    """A linear objective as the certified linear program solves it (v4.3, ADR-0063).
+
+    .. code-block:: text
+
+        minimize  sum_a costs_a w_a  +  sum_v cost_v x_v
+
+    over the problem's constraints, the form's variables ``x`` within their
+    ranges, and its rows. A form with no variable and no row is a cost on each
+    weight; a lifting -- CVaR's (Rockafellar and Uryasev, 2000), say -- adds the
+    variables and the rows that tie them to the weights.
+
+    Attributes:
+        costs: The coefficient of each weight, for exactly the universe.
+        variables: The variables it introduces, each named once.
+        rows: Its rows, each labelled once, over the weights and its variables.
+    """
+
+    costs: Mapping[str, float]
+    variables: tuple[LinearVariable, ...] = ()
+    rows: tuple[LinearRow, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.costs, Mapping):
+            raise ConstructionInputError("LinearForm costs must map each asset to a number.")
+        costs = {
+            _text(asset, "LinearForm asset"): _number(value, f"LinearForm costs[{asset!r}]")
+            for asset, value in self.costs.items()
+        }
+        object.__setattr__(self, "costs", MappingProxyType(dict(sorted(costs.items()))))
+        variables = tuple(self.variables)
+        rows = tuple(self.rows)
+        for variable in variables:
+            if not isinstance(variable, LinearVariable):
+                raise ConstructionInputError(f"{variable!r} is not a LinearVariable.")
+        for row in rows:
+            if not isinstance(row, LinearRow):
+                raise ConstructionInputError(f"{row!r} is not a LinearRow.")
+        names = [variable.name for variable in variables]
+        if len(set(names)) != len(names):
+            raise ConstructionInputError("A LinearForm names the same variable twice.")
+        labels = [row.label for row in rows]
+        if len(set(labels)) != len(labels):
+            raise ConstructionInputError("A LinearForm labels two rows alike.")
+        for row in rows:
+            unknown = sorted(set(row.variables) - set(names))
+            if unknown:
+                raise ConstructionInputError(
+                    f"LinearRow {row.label!r} names variables the form does not introduce: "
+                    f"{unknown}."
+                )
+        object.__setattr__(self, "variables", variables)
+        object.__setattr__(self, "rows", rows)
+
+
+@runtime_checkable
+class LinearObjective(Objective, Protocol):
+    """A ``LINEAR`` objective of the protocol, stating its form (v4.3)."""
+
+    def linear_form(self, problem: ConstructionProblem) -> LinearForm:
+        """The objective over ``problem``: a cost on each weight, and any lifting."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class MinimumVariance:
     """Minimize ``w' C w``. No expected return is read."""
@@ -909,9 +1078,10 @@ class MeanVariance:
             return and variance, and there is no neutral value for it.
         costs: What trading away from the current book costs, subtracted from
             the objective (:class:`LinearCosts`, v3.11), or ``None`` for a
-            construction that trades for free, as every one did before. Only a
-            mean-variance objective takes costs: they are in return units, and
-            no other objective here has a scale they could be traded against.
+            construction that trades for free, as every one did before. Only an
+            objective in return units takes costs -- this one, and since v4.3
+            :class:`MaximumReturn` -- since no other objective here has a scale
+            they could be traded against.
     """
 
     expected_returns: ExpectedReturns
@@ -1166,9 +1336,62 @@ class RobustMeanVariance:
         ]
 
 
+@dataclass(frozen=True, slots=True)
+class MaximumReturn:
+    """Maximize ``mu' w`` -- less linear costs, when given (v4.3, ADR-0063).
+
+    Linear, so solved by the certified linear program, and bounded only by the
+    constraints: each weight needs a finite range they imply (see
+    :func:`construct`). Its optimum need not be unique -- two assets with one
+    expected return, say -- and the answer is then the optimal vertex the
+    method's finish reads from its iterate, the same on every host: one optimum
+    of several, certified as optimal, not as the only one.
+
+    Attributes:
+        expected_returns: ``mu``, in the covariance's currency and period.
+        costs: What trading away from the current book costs, subtracted from
+            the objective as :class:`MeanVariance` subtracts it, or ``None``.
+    """
+
+    expected_returns: ExpectedReturns
+    costs: LinearCosts | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.expected_returns, ExpectedReturns):
+            raise ConstructionInputError(
+                f"expected_returns must be ExpectedReturns, got {self.expected_returns!r}."
+            )
+        if self.costs is not None and not isinstance(self.costs, LinearCosts):
+            raise ConstructionInputError(f"costs must be LinearCosts, got {self.costs!r}.")
+
+    @property
+    def convexity(self) -> Convexity:
+        return Convexity.LINEAR
+
+    def rendering(self) -> list[str]:
+        return [
+            "objective=maximum_return",
+            f"expected_returns={self.expected_returns.returns_id}",
+            *(() if self.costs is None else self.costs.rendering()),
+        ]
+
+    def linear_form(self, problem: ConstructionProblem) -> LinearForm:
+        """A cost of ``-mu_a`` on each weight; the trading costs are lifted by construction."""
+
+        returns = _returns_vector(problem, self.expected_returns)
+        return LinearForm(
+            {asset: -value for asset, value in zip(problem.universe, returns, strict=True)}
+        )
+
+
 #: The objectives the package ships. A problem takes any :class:`Objective` (v4.3).
 type ConstructionObjective = (
-    MinimumVariance | MeanVariance | MaximumDiversification | RiskParity | RobustMeanVariance
+    MinimumVariance
+    | MeanVariance
+    | MaximumDiversification
+    | RiskParity
+    | RobustMeanVariance
+    | MaximumReturn
 )
 
 #: The package's own objectives, each solved by a method of its own and identified
@@ -1179,6 +1402,7 @@ _SHIPPED: Final = (
     MaximumDiversification,
     RiskParity,
     RobustMeanVariance,
+    MaximumReturn,
 )
 
 
@@ -1246,6 +1470,8 @@ class ConstructionProblem:
                 # Present only when the structured method applies, so every other
                 # problem keeps the identity it had.
                 *(["solver=factor-structured"] if _factor_structured(self) else []),
+                # v4.3 (ADR-0063): a linear objective is solved by the linear program.
+                *(["solver=linear"] if _is_linear(self.objective) else []),
             ]
         )
 
@@ -1279,14 +1505,16 @@ class ConstructionDiagnostics:
     Attributes:
         method: The objective's name.
         iterations: Solver steps taken -- quadratic add-or-drop steps, risk
-            parity sweeps, and the outer iterations of a robust or
-            volatility-capped search, summed.
+            parity sweeps, the outer iterations of a robust or
+            volatility-capped search, and the linear program's interior-point
+            iterations, summed.
         binding: Labels of the constraints active at the solution.
         conflict: For ``INFEASIBLE``: the constraints that jointly cannot hold.
         max_violation: The largest constraint residual of the reported (or
             last) point, in each constraint's own units.
         stationarity: The method's convergence measure at the end (see
-            :class:`SolverSettings`).
+            :class:`SolverSettings`); for the linear program, the relative gap
+            of an optimal answer, and infinity otherwise.
         covariance_pivot_ratio: Smallest over largest Cholesky pivot of the
             covariance: how close it is to singular.
         variance: ``w' C w``, or ``None`` without weights.
@@ -1311,7 +1539,8 @@ class ConstructionDiagnostics:
             found (the cap's multiplier, re-expressed); otherwise ``None``.
         detail: A sentence saying why the status is what it is.
         transaction_cost: ``sum_i rates_i * |w_i - current_i|`` when the
-            objective charged :class:`LinearCosts`, or ``None`` (v3.11).
+            objective charged :class:`LinearCosts`, or ``None`` (v3.11;
+            :class:`MaximumReturn` charges them since v4.3).
     """
 
     method: str
@@ -1568,21 +1797,40 @@ def _matrix(problem: ConstructionProblem) -> CovarianceMatrix:
     return covariance.matrix() if isinstance(covariance, FactorStructure) else covariance
 
 
-def _factor_structured(problem: ConstructionProblem) -> bool:
-    """Whether the factor-structured method solves ``problem``'s programs (ledger PRF-005).
+def _is_linear(objective: object) -> bool:
+    """Whether ``objective`` declares itself ``LINEAR``: the linear program solves it (v4.3)."""
+
+    return getattr(objective, "convexity", None) is Convexity.LINEAR
+
+
+def _through_factors(problem: ConstructionProblem) -> bool:
+    """Whether ``problem``'s risk is read through its factor structure (ledger PRF-005).
 
     When the covariance is or carries a factor structure, the structure
-    establishes positive definiteness by itself, the universe has at least
-    :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS` assets, and the objective is solved
-    by quadratic programs -- risk parity is not.
+    establishes positive definiteness by itself, and the universe has at least
+    :data:`FACTOR_STRUCTURED_MINIMUM_ASSETS` assets.
     """
 
     factors = _structure(problem)
     return (
         factors is not None
-        and not isinstance(problem.objective, RiskParity)
         and len(problem.covariance.assets) >= FACTOR_STRUCTURED_MINIMUM_ASSETS
         and factors.definiteness() is not None
+    )
+
+
+def _factor_structured(problem: ConstructionProblem) -> bool:
+    """Whether the factor-structured method solves ``problem``'s programs (ledger PRF-005).
+
+    When its risk is read through the factor structure and the objective is
+    solved by quadratic programs -- risk parity is not, nor since v4.3 is a
+    linear objective.
+    """
+
+    return (
+        not isinstance(problem.objective, RiskParity)
+        and not _is_linear(problem.objective)
+        and _through_factors(problem)
     )
 
 
@@ -1715,7 +1963,9 @@ def _result(
     universe = problem.universe
     constraints = problem.constraints
     objective_costs = (
-        problem.objective.costs if isinstance(problem.objective, MeanVariance) else None
+        problem.objective.costs
+        if isinstance(problem.objective, MeanVariance | MaximumReturn)
+        else None
     )
     checker = _Constraints(compiled.linear, compiled.absolute)
     if outcome.weights is None or outcome.status is not ConstructionStatus.OPTIMAL:
@@ -2514,30 +2764,44 @@ def _risk_parity(
 def construct(problem: ConstructionProblem) -> ConstructionResult:
     """Solve a construction problem and certify the answer. See the module docstring.
 
+    A linear objective's weights must each have a finite range the
+    constraints imply -- a weight bound, a concentration or notional limit, or
+    the range ``c_k - L <= w_k <= c_k + L`` a gross-exposure or turnover limit
+    implies -- since nothing else bounds its optimum (ADR-0063).
+
     Raises:
         ConstructionInputError: If the problem is malformed: a covariance that
             is not positive definite, inputs that do not cover exactly the
             universe or disagree with the covariance's currency or period, a
             constraint the objective cannot express, or since v4.3 an objective
-            of the protocol whose class no certified method takes (ADR-0063).
+            of the protocol whose class no certified method takes, a linear
+            objective with a weight no constraint bounds or under a volatility
+            cap (ADR-0063).
     """
 
     # An objective of the protocol is admitted, or refused, before anything is solved.
     admitted = None if isinstance(problem.objective, _SHIPPED) else _admitted(problem)
+    linear = _is_linear(problem.objective)
+    if linear and problem.constraints.max_volatility is not None:
+        raise ConstructionInputError(
+            f"A volatility cap under {type(problem.objective).__name__} has no certified method: "
+            "the cap is quadratic, and the linear program takes linear rows only (ADR-0063)."
+        )
 
     # A structure under a method that reads the dense values -- risk parity, a
     # universe too small for the structured method, a structure that cannot
     # establish definiteness by itself -- is written out once, here, and the
     # problem solved over the matrix it implies. Its result is the problem's
     # as stated: its identity, and diagnostics through the factors (PRF-013).
+    # A linear objective reads no curvature, so its structure is kept whenever
+    # the structured method would have read it (v4.3).
     stated = problem
-    if isinstance(problem.covariance, FactorStructure) and not _factor_structured(problem):
+    through = _through_factors(problem) if linear else _factor_structured(problem)
+    if isinstance(problem.covariance, FactorStructure) and not through:
         problem = replace(problem, covariance=problem.covariance.matrix())
     covariance = problem.covariance
     factors = _structure(problem)
-    structured = (
-        factors.definiteness() if factors is not None and _factor_structured(problem) else None
-    )
+    structured = factors.definiteness() if factors is not None and through else None
     if structured is not None:
         # Established from the factor structure in O(n k^2): every specific
         # variance positive and the factor covariance positive semidefinite.
@@ -2555,7 +2819,7 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
     method = type(objective).__name__
 
     expected: ExpectedReturns | None = None
-    if isinstance(objective, MeanVariance | RobustMeanVariance):
+    if isinstance(objective, MeanVariance | RobustMeanVariance | MaximumReturn):
         expected = objective.expected_returns
 
     if compiled.unmet:
@@ -2594,21 +2858,24 @@ def construct(problem: ConstructionProblem) -> ConstructionResult:
         outcome = _maximum_diversification(problem, compiled)
     elif isinstance(objective, RiskParity):
         outcome = _risk_parity(problem, compiled, objective)
+    elif isinstance(objective, MaximumReturn):
+        outcome = _maximum_return(problem, compiled, objective)
     else:
         assert admitted is not None  # every objective not the package's was admitted above
-        outcome = _protocol_quadratic(problem, compiled, admitted)
+        outcome = admitted(problem, compiled)
     return _result(stated, method, outcome, compiled, evidence.pivot_ratio, expected)
 
 
-def _admitted(problem: ConstructionProblem) -> QuadraticObjective:
-    """An objective of the protocol that a certified method solves, or a refusal (ADR-0063).
+def _admitted(problem: ConstructionProblem) -> Callable[[ConstructionProblem, _Compiled], _Outcome]:
+    """The certified method that solves an objective of the protocol, or a refusal (ADR-0063).
 
     Raises:
         ConstructionInputError: If the objective states no class or rendering, or a
-            class no certified method takes: ``NONCONVEX`` always; ``CONVEX``,
-            which only the package's own objectives have methods for; and
-            ``LINEAR``, which no method here solves. Also a ``CONVEX_QUADRATIC``
-            one that states no form, or one under a volatility cap.
+            class no certified method takes: ``NONCONVEX`` always, and ``CONVEX``,
+            which only the package's own objectives have methods for. Also a
+            ``LINEAR`` one that states no linear form, a ``CONVEX_QUADRATIC`` one
+            that states no quadratic form, or a quadratic one under a volatility
+            cap.
     """
 
     objective = problem.objective
@@ -2631,9 +2898,9 @@ def _admitted(problem: ConstructionProblem) -> QuadraticObjective:
             "it as CONVEX_QUADRATIC with its QuadraticForm."
         )
     if kind is Convexity.LINEAR:
-        raise ConstructionInputError(
-            f"{name} is LINEAR, and construction has no certified method for a linear objective."
-        )
+        if not isinstance(objective, LinearObjective):
+            raise ConstructionInputError(f"{name} is LINEAR but states no linear_form.")
+        return partial(_protocol_linear, objective=objective)
     if not isinstance(objective, QuadraticObjective):
         raise ConstructionInputError(f"{name} is CONVEX_QUADRATIC but states no quadratic_form.")
     if problem.constraints.max_volatility is not None:
@@ -2641,7 +2908,7 @@ def _admitted(problem: ConstructionProblem) -> QuadraticObjective:
             f"A volatility cap under {name} has no certified method: only the package's "
             "minimum-variance and mean-variance objectives take one."
         )
-    return objective
+    return partial(_protocol_quadratic, objective=objective)
 
 
 def _protocol_quadratic(
@@ -2663,3 +2930,313 @@ def _protocol_quadratic(
             f"{sorted(set(form.linear) - set(universe))}."
         )
     return _qp(problem, compiled, form.scale, [form.linear[asset] for asset in universe], 0)
+
+
+# --------------------------------------------------------------------------- #
+# The linear method (v4.3, ADR-0063)
+# --------------------------------------------------------------------------- #
+
+
+def _protocol_linear(
+    problem: ConstructionProblem, compiled: _Compiled, objective: LinearObjective
+) -> _Outcome:
+    """A ``LINEAR`` objective of the protocol, by the certified linear program."""
+
+    form = objective.linear_form(problem)
+    name = type(objective).__name__
+    if not isinstance(form, LinearForm):
+        raise ConstructionInputError(f"{name}.linear_form returned {form!r}, not a LinearForm.")
+    return _linear(problem, compiled, form, None, name)
+
+
+def _maximum_return(
+    problem: ConstructionProblem, compiled: _Compiled, objective: MaximumReturn
+) -> _Outcome:
+    costs = objective.costs
+    if costs is not None and set(costs.current) != set(problem.universe):
+        universe = set(problem.universe)
+        raise ConstructionInputError(
+            "LinearCosts must cover exactly the universe, zeros included: missing "
+            f"{sorted(universe - set(costs.current))}, outside "
+            f"{sorted(set(costs.current) - universe)}."
+        )
+    return _linear(problem, compiled, objective.linear_form(problem), costs, "MaximumReturn")
+
+
+@dataclass(frozen=True, slots=True)
+class _Box:
+    """Each weight's range as the constraints on it alone imply it, and what states each side."""
+
+    lower: tuple[float, ...]
+    upper: tuple[float, ...]
+    lower_label: tuple[str, ...]
+    upper_label: tuple[str, ...]
+    #: The compiled constraints that are not one weight's range: the program's rows.
+    rows: tuple[LinearConstraint, ...]
+
+
+def _box(problem: ConstructionProblem, compiled: _Compiled, name: str) -> _Box:
+    """Fold each constraint on one weight into its range; derive ranges from absolute sums.
+
+    A constraint on one weight with coefficient one -- a weight bound, a
+    concentration or notional limit, a one-asset group -- is that weight's
+    range, so it leaves the rows. An absolute-sum limit ``sum |w_k - c_k| <= L``
+    implies ``c_k - L <= w_k <= c_k + L``. Each side keeps the label of the
+    constraint that states it, the first stated one on a tie: every range is
+    one the problem implies, none is supplied (AC-12).
+
+    Raises:
+        ConstructionInputError: If a weight is left without a finite range: the
+            linear objective's optimum would not be bounded by the problem.
+    """
+
+    universe = problem.universe
+    size = len(universe)
+    lower: list[float | None] = [None] * size
+    upper: list[float | None] = [None] * size
+    lower_label = [""] * size
+    upper_label = [""] * size
+    rows: list[LinearConstraint] = []
+
+    def tighten(index: int, low: float | None, high: float | None, label: str) -> None:
+        current_low, current_high = lower[index], upper[index]
+        if low is not None and (current_low is None or low > current_low):
+            lower[index], lower_label[index] = low, label
+        if high is not None and (current_high is None or high < current_high):
+            upper[index], upper_label[index] = high, label
+
+    for constraint in compiled.linear:
+        if len(constraint.terms) != 1 or abs(constraint.terms[0][1]) != 1.0:
+            rows.append(constraint)
+            continue
+        index, sign = constraint.terms[0]
+        # sign * w >= bound: a lower bound, or an upper one of -bound (written so
+        # that a zero bound stays +0.0).
+        value = constraint.bound if sign > 0.0 else 0.0 - constraint.bound
+        if constraint.equality:
+            tighten(index, value, value, constraint.label)
+        elif sign > 0.0:
+            tighten(index, value, None, constraint.label)
+        else:
+            tighten(index, None, value, constraint.label)
+    for family in compiled.absolute:
+        for index, center in zip(family.indices, family.centers, strict=True):
+            tighten(index, center - family.limit, center + family.limit, family.label)
+
+    loose = [
+        asset
+        for asset, low, high in zip(universe, lower, upper, strict=True)
+        if low is None or high is None
+    ]
+    if loose:
+        raise ConstructionInputError(
+            f"{name} is linear, so only the constraints bound its optimum, and they leave "
+            f"{loose} without a finite range. Bound every weight -- WeightBounds, a concentration "
+            "or notional limit, or a gross-exposure or turnover limit (ADR-0063)."
+        )
+    return _Box(
+        tuple(low for low in lower if low is not None),
+        tuple(high for high in upper if high is not None),
+        tuple(lower_label),
+        tuple(upper_label),
+        tuple(rows),
+    )
+
+
+def _linear(
+    problem: ConstructionProblem,
+    compiled: _Compiled,
+    form: LinearForm,
+    costs: LinearCosts | None,
+    name: str,
+) -> _Outcome:
+    """A linear objective over the problem's constraints, by the certified linear program.
+
+    The variables are the weights, then the form's, then two per absolute-sum
+    term and per costed asset: ``w_k - c_k = p_k - q_k``, with ``p, q >= 0``. A
+    limit bounds ``sum (p_k + q_k)``, which is at least ``sum |w_k - c_k|`` and
+    equal to it for the least split, so the limit holds exactly as stated; a
+    cost charges ``rate_k (p_k + q_k)``, which the optimum makes the least split.
+    """
+
+    universe = problem.universe
+    size = len(universe)
+    if set(form.costs) != set(universe):
+        raise ConstructionInputError(
+            f"{name}'s LinearForm must cost exactly the universe: missing "
+            f"{sorted(set(universe) - set(form.costs))}, outside "
+            f"{sorted(set(form.costs) - set(universe))}."
+        )
+    for row in form.rows:
+        outside = sorted(set(row.weights) - set(universe))
+        if outside:
+            raise ConstructionInputError(
+                f"{name}'s LinearRow {row.label!r} weights assets outside the universe: {outside}."
+            )
+    box = _box(problem, compiled, name)
+    crossed = [index for index in range(size) if box.lower[index] > box.upper[index]]
+    if crossed:
+        return _Outcome(
+            ConstructionStatus.INFEASIBLE,
+            None,
+            0,
+            (),
+            tuple(
+                dict.fromkeys(
+                    label
+                    for index in crossed
+                    for label in (box.lower_label[index], box.upper_label[index])
+                )
+            ),
+            math.inf,
+            "A weight's range is empty: the constraints named bound it from both sides, and "
+            "they cross.",
+        )
+
+    position = {asset: index for index, asset in enumerate(universe)}
+    lower = list(box.lower)
+    upper = list(box.upper)
+    objective = [form.costs[asset] for asset in universe]
+    # What states each variable's lower and upper bound, for naming a conflict.
+    bounds = list(zip(box.lower_label, box.upper_label, strict=True))
+    rows = list(box.rows)
+
+    def variable(low: float, high: float, cost: float, labels: tuple[str, str]) -> int:
+        lower.append(low)
+        upper.append(high)
+        objective.append(cost)
+        bounds.append(labels)
+        return len(lower) - 1
+
+    named = {
+        item.name: variable(
+            item.lower,
+            item.upper,
+            item.cost,
+            (
+                f"objective[{item.name}] >= {item.lower!r}",
+                f"objective[{item.name}] <= {item.upper!r}",
+            ),
+        )
+        for item in form.variables
+    }
+    for row in form.rows:
+        terms = sorted(
+            [(position[asset], value) for asset, value in row.weights.items()]
+            + [(named[item], value) for item, value in row.variables.items()]
+        )
+        rows.extend(_interval(f"objective[{row.label}]", terms, row.lower, row.upper))
+    for family in compiled.absolute:
+        split: list[int] = []
+        for index, center in zip(family.indices, family.centers, strict=True):
+            plus = variable(0.0, family.limit, 0.0, (family.label, family.label))
+            minus = variable(0.0, family.limit, 0.0, (family.label, family.label))
+            rows.append(
+                LinearConstraint(
+                    family.label, ((index, 1.0), (plus, -1.0), (minus, 1.0)), center, True
+                )
+            )
+            split.extend((plus, minus))
+        rows.append(
+            LinearConstraint(family.label, tuple((k, -1.0) for k in split), -family.limit, False)
+        )
+    if costs is not None:
+        for index, asset in enumerate(universe):
+            rate = costs.rates[asset]
+            if rate == 0.0:
+                continue
+            center = costs.current[asset]
+            label = f"costs[{asset}]"
+            # The most each side of the trade can be, from the weight's own range.
+            plus = variable(0.0, max(box.upper[index] - center, 0.0), rate, (label, label))
+            minus = variable(0.0, max(center - box.lower[index], 0.0), rate, (label, label))
+            rows.append(
+                LinearConstraint(label, ((index, 1.0), (plus, -1.0), (minus, 1.0)), center, True)
+            )
+
+    program = LinearProgram(tuple(objective), tuple(rows), tuple(lower), tuple(upper))
+    settings = problem.settings
+    solution = solve_linear_program(
+        program,
+        feasibility_tolerance=settings.feasibility_tolerance,
+        convergence_tolerance=settings.convergence_tolerance,
+        max_iterations=settings.max_iterations,
+    )
+    if solution.status is SolveStatus.OPTIMAL and solution.x is not None:
+        weights = solution.x[:size]
+        return _Outcome(
+            ConstructionStatus.OPTIMAL,
+            weights,
+            solution.iterations,
+            _linear_binding(problem, compiled, weights),
+            (),
+            solution.gap,
+            solution.detail,
+        )
+    conflict = (
+        _linear_conflict(program, solution, bounds)
+        if solution.status is SolveStatus.INFEASIBLE
+        else ()
+    )
+    return _Outcome(
+        _STATUS[solution.status],
+        None,
+        solution.iterations,
+        (),
+        conflict,
+        math.inf,
+        solution.detail,
+    )
+
+
+def _linear_binding(
+    problem: ConstructionProblem, compiled: _Compiled, weights: Sequence[float]
+) -> tuple[str, ...]:
+    """The constraints active at a linear answer: each equality, and each one met to tolerance."""
+
+    tolerance = problem.settings.feasibility_tolerance
+    active: list[str] = []
+    for constraint in compiled.linear:
+        slack = math.fsum(a * weights[k] for k, a in constraint.terms) - constraint.bound
+        if constraint.equality or slack <= tolerance:
+            active.append(constraint.label)
+    for family in compiled.absolute:
+        used = math.fsum(
+            abs(weights[k] - center)
+            for k, center in zip(family.indices, family.centers, strict=True)
+        )
+        if family.limit - used <= tolerance:
+            active.append(family.label)
+    return tuple(dict.fromkeys(active))
+
+
+def _linear_conflict(
+    program: LinearProgram, solution: LinearSolution, bounds: Sequence[tuple[str, str]]
+) -> tuple[str, ...]:
+    """What a Farkas certificate rests on: the rows it weights, and the bounds it reaches.
+
+    For multipliers ``y``, the certificate compares the rows' bounds with the
+    most ``y' A x`` reaches over the variables' ranges: each variable at its
+    upper bound where ``(A' y)_j`` is positive, at its lower where negative.
+    Those bounds are part of the conflict as much as the rows are.
+    """
+
+    weights = solution.multipliers
+    # Relative to the certificate's largest weight, as the solver names its rows.
+    threshold = 1e-6 * max((abs(value) for value in weights), default=0.0)
+    labels = [
+        constraint.label
+        for constraint, value in zip(program.constraints, weights, strict=True)
+        if abs(value) > threshold
+    ]
+    reach = [0.0] * len(program.costs)
+    for constraint, value in zip(program.constraints, weights, strict=True):
+        if value != 0.0:
+            for k, a in constraint.terms:
+                reach[k] += value * a
+    for (low, high), value in zip(bounds, reach, strict=True):
+        if value > threshold:
+            labels.append(high)
+        elif value < -threshold:
+            labels.append(low)
+    return tuple(dict.fromkeys(labels))

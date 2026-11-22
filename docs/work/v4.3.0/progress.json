@@ -1172,6 +1172,19 @@
       "compatibility": "Additive: four exports. ConstructionProblem's objective annotation is widened, named in the CHANGELOG. Every shipped problem keeps its identity, pinned in the tests as the tree before the protocol computed them.",
       "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 1); CHANGELOG; alphalab/portfolio_optimizer/construction.py's docstring.",
       "tests": "tests/unit/portfolio_optimizer/test_objective_protocol.py (21): the shipped classes and their pinned problem identities; a tracking error at its feasible benchmark and at the exact rational optimum under a cap; the dense and factor-structured methods agreeing at 120 assets; identity by class and kind; every refusal; QuadraticForm's scale and coverage."
+    },
+    {
+      "id": "TD-71",
+      "date": "2026-11-22",
+      "workstream": "WS-12",
+      "title": "The certified linear program and linear objectives: Mehrotra's interior point with an exact finish, certified by a bound that holds for any multipliers; LinearForm and MaximumReturn; every weight in a range the constraints imply (ADR-0063 settled point 2, GAP-37)",
+      "problem": "ADR-0063 section 3 puts a certified linear program behind construct, so that CVaR, linearised drawdown and linear objectives are solved under the quadratic methods' contract: weights only with a certificate the method checked, otherwise a status. Implementation had to settle a certificate that a degenerate or face-optimal program still meets, what a linear objective states, how absolute-sum limits and trading costs enter a linear program, and what keeps every program bounded.",
+      "alternatives": "Method: (a) a simplex in floating point, exact at a vertex but exposed to degenerate cycling and with no polynomial bound; (b) Mehrotra's interior point with an exact finish, as the factor-structured method finishes; (c) the interior iterate alone, certified within the tolerances, which leaves no exact zeros, so a rebalance would hold dust. Certificate: (i) the vertex's own multipliers only -- a degenerate vertex's basis need not be dual feasible though the vertex is optimal; (ii) any multipliers, since b'y + sum_j min(d_j l_j, d_j u_j) bounds every feasible objective for every y. Absolute values: (1) t_k >= |w_k - c_k| by two rows each; (2) the split w_k - c_k = p_k - q_k, one row each.",
+      "decision": "(b), (ii) and (2). alphalab.portfolio_optimizer.linear: LinearProgram (costs, LinearConstraint rows, a finite range for every variable, so never unbounded), solve_linear_program, LinearSolution (multipliers by row position, since labels repeat) and LinearCertificate (VERTEX, INTERIOR, FARKAS). The bounded standard form; a fixed variable leaves the system; a row of fixed variables holds or is its own Farkas certificate; a program left with no row is solved exactly. Mehrotra's predictor-corrector from the box's centre on the normal equations, the diagonal lifted by 1e-12 of its largest entry and each direction refined against the unlifted matrix. The finish takes the basic variables when independent and as many as the rows, else the first independent columns, basic ones first; a crossing moves to its bound and the basis is chosen again, three times at most. The vertex is checked with its own multipliers, then the iterate's, then the iterate itself. Feasibility is judged in each row's own units, as construction judges it, and INFEASIBLE needs a verified Phase I Farkas certificate whose margin exceeds the tolerance times its total weight, so no point within the tolerance exists. In construction, LinearObjective states a LinearForm: costs over exactly the universe, LinearVariables with the finite ranges they imply, and LinearRows. MaximumReturn is the package's, and takes LinearCosts. A coefficient-one constraint on one weight is its range, and an absolute-sum limit implies c_k - L <= w_k <= c_k + L. A weight left without a finite range is refused, and crossed ranges are INFEASIBLE before any solve. Limits and costs are lifted by the split. A conflict names the rows and the ranges the Farkas certificate rests on. A volatility cap under a linear objective is refused. solver=linear enters the identity, and a structure is never written out for a linear objective.",
+      "rationale": "One contract for every method: an answer only with a certificate the method checked, here a bound proven by weak duality, which trusts nothing in the iterate. The finish makes a rebalance's zeros exact, and checking the vertex with the iterate's multipliers certifies the degenerate vertices that CVaR and cost liftings produce. Requiring each weight's range keeps every program bounded, so the four statuses suffice, and the ranges come only from the constraints (AC-12). The split takes one row per term rather than two, and is exact for a limit because the least split's sum is the absolute sum.",
+      "compatibility": "Additive: a solver module, and five package exports (LinearForm, LinearObjective, LinearRow, LinearVariable, MaximumReturn). ConstructionObjective includes MaximumReturn, named in the CHANGELOG. No existing problem's identity moves, since the method line appears only for a linear objective. v3.13's mutation Y50, anchored on construct's last branch, follows that branch's new form.",
+      "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 2, and its known limitation); CHANGELOG; the linear module's and construction's docstrings; ARCHITECTURE's Custom Optimizers section and capability row; nowandfuture's 'Adding a construction method'.",
+      "tests": "tests/unit/portfolio_optimizer/test_linear.py (81): 60 generated programs against an exhaustive exact vertex enumeration (tests/unit/portfolio_optimizer/lp_reference.py, sharing no code with the solver; ADR-0063 section 3 named an exact simplex, and enumeration proves the same over a bounded box more simply), reaching both outcomes and both certificates, every Farkas certificate verified in rational arithmetic; a degenerate vertex and an optimal edge finished exactly at a vertex; dependent rows certified at the interior; a Farkas certificate naming its row; shifted and fixed bounds; the tolerance in each row's own units, within and beyond it; no row; rows of fixed variables; CVaR at level 0.9; the bits pinned; refusals. tests/unit/portfolio_optimizer/test_linear_objectives.py (68): MaximumReturn against the exact optimum of the same problem stated independently -- absolute sums as polytopes, costs one orthant at a time -- over 40 seeds reaching caps, a gross limit, turnover, costs and infeasibility; a researcher's CVaR through the protocol against the exact k-worst-scenario program; binding named; a trade that does not pay left undone; crossed ranges and Farkas conflicts named; the identity pinned; a structure never written out; refusals."
     }
   ],
   "plan_changes": [
@@ -2250,11 +2263,16 @@
         {
           "milestone": "M9",
           "item": "ADR-0063 accepted (TD-69, D-V3): every construction solver certified -- the objective protocol, a certified linear program, scenario risk lifted to linear, a cardinality relaxation with both optima stated -- and the rebalancing package, which states targets and never orders",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M9",
           "item": "The objective protocol (TD-70, ADR-0063 settled point 1): Convexity, Objective, QuadraticObjective and QuadraticForm; the shipped five declare their classes and keep their identities; a researcher's quadratic objective solved by the certified methods; what no certified method takes refused before solving",
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M9",
+          "item": "The certified linear program (TD-71, ADR-0063 settled point 2): alphalab.portfolio_optimizer.linear, Mehrotra's interior point and an exact finish, certified by a weak-duality bound or a Farkas certificate and held to an exact vertex enumeration; linear objectives through the protocol's LinearForm and the shipped MaximumReturn, every weight in a range the constraints imply, absolute-sum limits and costs lifted exactly",
           "status": "Local validation passed"
         }
       ],
@@ -2322,7 +2340,13 @@
         "M11"
       ],
       "status": "Not started",
-      "items": [],
+      "items": [
+        {
+          "milestone": "M11",
+          "item": "WS-12's budget (moved here from WS-12 by TD-71): construction at 1,000 assets with CVaR over 2,520 scenarios within 60 seconds: measured on the pure-Python linear program at 10 to 320 assets (271 s at 320 x 806, about eight times an iteration's time per doubling), about two and a half to three hours extrapolated to the budget's size, so not met in pure Python. ADR-0063 section 7 gives it to the compute backend's cross-check (ADR-0057, WS-15) at M11; a measurement at the budget's own size is taken before M9 closes",
+          "status": "Not started"
+        }
+      ],
       "evidence": []
     },
     {
@@ -3075,7 +3099,7 @@
       "problem": "Closed construction objectives; one solver",
       "severity": "M/P2",
       "status": "Open",
-      "status_note": "Open: reopened by ADR-0063 (D-V3, 2026-11-22). The objective protocol is implemented (TD-70): an objective states its class, and a researcher's quadratic objective is solved by the certified methods. Closes with the certified linear program.",
+      "status_note": "Open: reopened by ADR-0063 (D-V3, 2026-11-22). The objective protocol (TD-70) and the certified linear program (TD-71) are implemented: an objective states its class, a researcher's quadratic objective is solved by the certified quadratic methods and a linear one by the certified linear program. Closes when M9's scenario risk is lifted onto it and the milestone passes.",
       "workstreams": [
         "WS-12"
       ],
@@ -3485,7 +3509,7 @@
   },
   "state": {
     "updated": "2026-11-22",
-    "remote_head": "ad7d049",
+    "remote_head": "6a3945c",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4681,10 +4705,46 @@
         "workflow": "Benchmarks",
         "run": 44933670178,
         "result": "success: M8's checkpoint, all six cells -- Linux CPython 3.12, 3.13 and 3.14 (authoritative) and macOS 3.12, 3.13 and 3.14 (diagnostic)"
+      },
+      {
+        "sha": "ad7d049",
+        "workflow": "Continuous Integration",
+        "run": 44938117086,
+        "result": "success: all six quality-gate cells"
+      },
+      {
+        "sha": "ad7d049",
+        "workflow": "CodeQL",
+        "run": 44938116965,
+        "result": "success"
+      },
+      {
+        "sha": "ad7d049",
+        "workflow": "Optional Distributions",
+        "run": 44938117020,
+        "result": "success"
+      },
+      {
+        "sha": "6a3945c",
+        "workflow": "Continuous Integration",
+        "run": 44939927224,
+        "result": "success: all six quality-gate cells"
+      },
+      {
+        "sha": "6a3945c",
+        "workflow": "CodeQL",
+        "run": 44939927086,
+        "result": "success"
+      },
+      {
+        "sha": "6a3945c",
+        "workflow": "Optional Distributions",
+        "run": 44939927211,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M9 (WS-12), in ADR-0063's order: the certified linear program, checked against an exact rational reference, and its budget measured; scenario risk and the cardinality relaxation; the rebalancing package; then the rebalancing backtest with CVaR and the guide. ad7d049's CI is read once at the next boundary.",
+    "next": "M9 (WS-12), in ADR-0063's order: scenario risk lifted onto the linear program -- a scenario set, minimum CVaR, a CVaR limit and a drawdown limit -- and the cardinality relaxation; the rebalancing package; then the rebalancing backtest with CVaR, the guide, the measurement at the budget's size, and M9's mutation series. This commit's CI is read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -5095,6 +5155,10 @@
     {
       "date": "2026-11-22",
       "entry": "ad7d049 (ADR-0063) passed the full gate (14,278 tests) and was pushed. The gate ran only after a rebuild: macOS's periodic cleaning had deleted the scratch gate.sh and the venv's packages mid-session; gate.sh was restored byte for byte from the session transcript, the venv rebuilt from the dev extra on CPython 3.12.4, and the rebuilt toolchain checked clean on the checkout first. M8's checkpoint benchmarks finished on all six cells. The objective protocol validated locally (TD-70): an objective states its class, the five shipped ones keep their identities (pinned as the tree before computed them), and a researcher's quadratic objective -- a positive multiple of the problem's covariance and a linear term -- is solved by the certified methods, the factor-structured one included; what no certified method takes is refused before anything is solved. v3.13's mutation Y50 anchored on construct's last branch, which is the protocol's now, so it is re-targeted to the same defect and still caught by the PRF-013 test that a structure solved densely answers as the problem stated."
+    },
+    {
+      "date": "2026-11-22",
+      "entry": "6a3945c (the objective protocol) passed the full gate (14,299 tests) and was pushed; ad7d049 and 6a3945c each passed hosted CI on all six cells, CodeQL and Optional Distributions, Release Preflight skipped by design. The certified linear program validated locally (TD-71): Mehrotra's interior point with an exact finish, certified by a weak-duality bound that holds for any multipliers or by a Farkas certificate, and held to an exhaustive exact vertex enumeration; linear objectives through the protocol, with MaximumReturn the package's own. Each weight's range comes from the constraints, and absolute-sum limits and costs are lifted exactly. Writing it found three things the first draft missed: a program with no row, a row whose variables are all fixed, and degenerate vertices, which fell back to the interior iterate's dust until the finish chose independent columns and checked the vertex with the iterate's multipliers. A review before the push found the certificate judging feasibility relative to the rows' largest bound, where construction judges it in each row's own units, so a point between the two would have passed the solver and then failed construction's check; both now use the row's units, and infeasibility needs a margin above the tolerance times the certificate's weight, which proves that no point within the tolerance exists. ARCHITECTURE's Custom Optimizers section and nowandfuture's construction rule still said 'one solver, no protocol'; both now state the open objectives and every method certified. The budget was measured, not assumed: 271 s at 320 assets over 806 scenarios, cubic per iteration, so 60 s at 1,000 x 2,520 is not met in pure Python and is held open for M11's backend, as ADR-0063 section 7 provides."
     }
   ]
 }

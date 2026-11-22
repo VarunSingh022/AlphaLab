@@ -831,19 +831,20 @@ RETARGETED: dict[str, Any] = {
         'curl -fsSLO "${RELEASE}/SHA256SUMS-4.2.1"\n',
         'curl -fsSLO \\ \n  "${RELEASE}/SHA256SUMS-4.2.1"\n',
     ),
-    # M9 (ADR-0063): construct's last branch is the objective protocol's now, so
-    # the final result is anchored on that line.
+    # M9 (ADR-0063): construct's last branch is the objective protocol's now --
+    # the method an objective of the protocol was admitted to -- so the final
+    # result is anchored on that line.
     "Y50": Mutation(
         "Y50",
         "a structure solved densely answers as the matrix's problem (PRF-013)",
         "alphalab/portfolio_optimizer/construction.py",
         (
-            "        outcome = _protocol_quadratic(problem, compiled, admitted)\n"
+            "        outcome = admitted(problem, compiled)\n"
             "    return _result(stated, method, outcome, compiled, "
             "evidence.pivot_ratio, expected)\n"
         ),
         (
-            "        outcome = _protocol_quadratic(problem, compiled, admitted)\n"
+            "        outcome = admitted(problem, compiled)\n"
             "    return _result(problem, method, outcome, compiled, "
             "evidence.pivot_ratio, expected)\n"
         ),

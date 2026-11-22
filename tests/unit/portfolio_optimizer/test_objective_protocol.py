@@ -16,8 +16,10 @@ certified, so an objective says what it is:
 * **Its identity** names its class and kind before its rendering, so two
   objectives that render alike are two problems.
 * **What no certified method takes is refused** before anything is solved:
-  a non-convex objective, a convex one without a method of its own, a linear
-  one, a quadratic one without its form or under a volatility cap.
+  a non-convex objective, a convex one without a method of its own, a linear or
+  quadratic one without its form, a quadratic one under a volatility cap. A
+  linear one with its form is solved by the linear program
+  (``test_linear_objectives.py``).
 """
 
 from __future__ import annotations
@@ -268,11 +270,11 @@ class Declared:
     [
         (Declared(Convexity.NONCONVEX), "NONCONVEX: no certified method"),
         (Declared(Convexity.CONVEX), "only the package's own convex objectives"),
-        (Declared(Convexity.LINEAR), "no certified method for a linear objective"),
+        (Declared(Convexity.LINEAR), "LINEAR but states no linear_form"),
         (Declared(Convexity.CONVEX_QUADRATIC), "states no quadratic_form"),
         (object(), "is not a construction objective"),
     ],
-    ids=["nonconvex", "convex", "linear", "no-form", "not-an-objective"],
+    ids=["nonconvex", "convex", "linear-no-form", "no-form", "not-an-objective"],
 )
 def test_what_no_certified_method_takes_is_refused_before_solving(
     objective: object, reason: str

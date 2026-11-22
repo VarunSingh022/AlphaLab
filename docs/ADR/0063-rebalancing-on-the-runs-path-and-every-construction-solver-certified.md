@@ -273,6 +273,126 @@ cardinality is an integer program and stays a boundary.
        variance at 120 assets, identified apart;
      - identity by class and kind, and every refusal.
 
+2. **The certified linear program.**
+   - **Where it lives.** `alphalab.portfolio_optimizer.linear`, beside the
+     quadratic module: `LinearProgram` -- costs, rows as the quadratic
+     module's `LinearConstraint`, and a finite range for every variable, so no
+     program is unbounded -- `solve_linear_program`, `LinearSolution` and
+     `LinearCertificate`. It imports `common` and its own package only, so the
+     package's edges are unchanged. A solution's multipliers are by row
+     position, since one constraint's label may name several rows.
+   - **The method, as section 3 decides it, with what implementation
+     settled:**
+     - the bounded standard form. A fixed variable leaves the system. A row
+       left with no variable holds or fails by its bound alone, and one that
+       fails is its own Farkas certificate. A program left with no row is
+       solved exactly, each variable at the bound its cost prefers;
+     - Mehrotra's predictor-corrector from the box's centre. The normal
+       equations are built from the rows' sparse terms and factored by
+       `common.linalg.cholesky`, their diagonal lifted by `1e-12` of its
+       largest entry so that dependent rows stay factorable, and each
+       direction is refined against the unlifted matrix;
+     - the exact finish. The basis is the basic variables when they are
+       independent and as many as the rows; otherwise -- a degenerate vertex,
+       or an optimal face -- the first independent columns, the basic ones
+       first. A basic variable outside its range moves to the bound it
+       crossed, and the basis is chosen again, three times at most;
+     - **the certificate is a bound that holds for any multipliers.** For
+       multipliers `y`, with `d = c - A'y`, every feasible objective is at
+       least `b'y + sum_j min(d_j l_j, d_j u_j)`. A point is `OPTIMAL` when no
+       row misses its bound by more than the feasibility tolerance -- in the
+       row's own units, as construction's tolerance is -- and its objective is
+       within the convergence tolerance of that bound. The vertex is checked
+       with its own multipliers, then with the iterate's -- at a degenerate
+       vertex the basis's multipliers may not prove what the iterate's do --
+       and only then the iterate itself;
+     - `INFEASIBLE` only by a Phase I Farkas certificate, verified over the
+       box, whose margin exceeds the tolerance times its total weight: any
+       point within the tolerance of every row would leave less, so none is.
+       Otherwise `ITERATION_LIMIT` or `NUMERICAL_FAILURE`.
+   - **Linear objectives in construction.** A `LinearObjective` states a
+     `LinearForm`: a cost on each weight, over exactly the universe, and any
+     `LinearVariable`s and `LinearRow`s its lifting adds. Each variable states
+     the finite range it implies; none is supplied (AC-12). `MaximumReturn`
+     is the package's own linear objective, and takes `LinearCosts` as
+     mean-variance does.
+     - **Every weight in a range the constraints imply.** A constraint on one
+       weight with coefficient one -- a bound, a concentration or notional
+       limit, a one-asset group -- is that weight's range. An absolute-sum
+       limit `sum |w_k - c_k| <= L` implies `c_k - L <= w_k <= c_k + L`. A
+       weight left without a finite range is refused before solving. Ranges
+       that cross are `INFEASIBLE` before any solve, naming both sides.
+     - **Limits and costs lifted by a split**, `w_k - c_k = p_k - q_k` with
+       `p, q >= 0`: one row per term, where `t_k >= |w_k - c_k|` takes two. A
+       limit bounds `sum (p_k + q_k)`. That sum is at least `sum |w_k - c_k|`
+       and equals it for the least split, so the limit holds exactly as
+       stated. A cost charges `rate_k (p_k + q_k)`, which the optimum makes
+       the least split.
+     - **A conflict names** the rows the Farkas certificate weights, and the
+       ranges it reaches: each variable's upper bound where `(A'y)_j` is
+       positive, its lower where negative.
+     - **What stays refused.** A volatility cap under a linear objective: the
+       cap is quadratic. And a weight that no constraint bounds, as above.
+     - **Identity and the risk model.** `solver=linear` names the method in
+       the problem's identity, so no existing identity moves. The linear
+       program reads no curvature. A structure is never written out for it;
+       its definiteness is read from the structure wherever the structured
+       method would read it.
+     - **An optimum need not be unique**, as under two assets with one
+       expected return. The answer is the vertex the finish reads, the same
+       on every host. It is certified optimal, not certified unique.
+   - **The reference is an exact vertex enumeration, not a simplex.** Section
+     3 names an exact simplex. Enumerating every vertex in rational
+     arithmetic is simpler and shares nothing with the solver. Over a bounded
+     box it proves an optimum by the least objective of all the vertices, and
+     infeasibility by there being no feasible vertex. Every Farkas certificate
+     the solver returns is verified exactly as well.
+   - **Tests.**
+     - `tests/unit/portfolio_optimizer/test_linear.py`: 60 generated programs
+       against an exhaustive exact vertex enumeration
+       (`tests/unit/portfolio_optimizer/lp_reference.py`, which shares no code
+       with the solver), reaching both outcomes and both certificates, each
+       Farkas certificate verified in rational arithmetic. Hand
+       cases cover a degenerate vertex and an optimal edge, each finished
+       exactly at a vertex; dependent rows, certified at the interior; a Farkas
+       certificate naming its row; shifted and fixed bounds; no row; rows of
+       fixed variables. Also CVaR at level 0.9, the bits pinned, and the
+       refusals.
+     - `tests/unit/portfolio_optimizer/test_linear_objectives.py`:
+       `MaximumReturn` against the exact optimum of the same problem stated
+       independently -- an absolute sum as its polytope, costs one orthant at
+       a time -- over 40 seeds reaching caps, a gross limit, turnover, costs
+       and infeasibility. A researcher's CVaR, lifted through the protocol, is
+       held to the exact minimum of the largest mean loss over every `k`
+       worst scenarios, a different program. Also binding constraints named,
+       a trade that does not pay its cost left undone, crossed ranges and
+       Farkas conflicts named, the identity pinned, a structure never written
+       out, and the refusals.
+   - **Performance, measured (section 7).** Construction by the linear
+     program over a CVaR lifting, `n` assets and `round(2.52 n)` scenarios
+     -- the budget's proportion -- long only, on CPython 3.12.4 on an arm64
+     laptop on battery, with no other job of the programme running:
+
+     | Assets | Scenarios | Iterations | Seconds |
+     | ---: | ---: | ---: | ---: |
+     | 10 | 25 | 11 | 0.017 |
+     | 20 | 50 | 13 | 0.073 |
+     | 40 | 101 | 14 | 0.428 |
+     | 80 | 202 | 16 | 3.04 |
+     | 160 | 403 | 17 | 22.7 |
+     | 320 | 806 | 25 | 271 |
+
+     The interior point is 99% of the time. Each doubling of the size
+     multiplies an iteration's time by about eight, as forming and factoring
+     the normal equations grow with the cube of the size, and the iterations
+     grow slowly. At 1,000 assets and 2,520 scenarios that is about 320
+     seconds an iteration, two and a half to three hours in all, extrapolated
+     from these points. **WS-12's budget of 60 seconds is not
+     met in pure Python.** It stays open in the register until M11, where
+     the compute backend's cross-check meets it (ADR-0057, WS-15), as
+     section 7 provides. A measurement at the budget's own size is taken
+     before M9 closes.
+
 # Compatibility
 
 - Additive: a package, a solver module, objectives and constraints, and a
@@ -288,6 +408,11 @@ cardinality is an integer program and stays a boundary.
 
 None is accepted at drafting. What implementation settles, or defers, is
 recorded below.
+
+- **WS-12's budget is deferred to M11** (settled point 2): construction at
+  1,000 assets with CVaR over 2,520 scenarios takes far more than 60 seconds
+  in pure Python. Section 7 provides that the compute backend's cross-check
+  meets it; the register holds it open until then.
 
 # Consequences
 
