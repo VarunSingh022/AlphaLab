@@ -1576,7 +1576,10 @@
       "exit_gate": "A rebalancing backtest with CVaR, certified",
       "size": "L",
       "status": "In progress",
-      "evidence": [],
+      "evidence": [
+        "Mutation series CR (WS-12; ADR-0063), 57 mutations, each caught on the final tree by: CR01 (the certificate's bound ignores the box): test_linear::test_a_generated_program_agrees_with_the_exact_vertex_optimum[5], first reached at the end-to-end pin; CR02 (a feasible point is optimal whatever its gap): test_linear::test_an_answer_short_of_the_optimum_is_never_certified_whatever_the_budget (added for it); CR03 (a point near the bound is optimal whatever its rows): test_captured_programs::test_the_program_that_cannot_hold_its_limit_is_proven_infeasible_by_its_own_margin, first reached at the end-to-end pin; CR04 (any positive Farkas margin proves infeasibility): test_linear::test_a_program_within_its_tolerance_of_feasible_is_never_proven_infeasible (added for it); CR05 (the stall rule waits for the residual to double): test_linear::test_an_infeasible_program_is_proven_without_spending_the_budget; CR06 (a stalled feasible program is not resumed): test_linear::test_a_stalled_program_that_is_feasible_resumes_where_it_stopped; CR07 (the lift is set by the largest diagonal entry again): test_captured_programs::test_the_program_whose_interior_point_jammed_is_certified, first reached at the end-to-end pin; CR08 (the scaling's floor is not relative to the largest entry): the end-to-end pin alone, every other check holding; recorded as changing which iterate is certified, not whether it is right; CR09 (a direction past the floating-point range is taken): test_linear::test_a_direction_past_the_floating_point_range_is_never_taken (added for it); CR10 (a degenerate vertex is not checked with the iterate's multipliers): test_linear_objectives::test_costs_leave_a_trade_that_does_not_pay_undone, first reached at the end-to-end pin; CR11 (a constraint of fixed variables that misses is not decided): test_linear::test_a_generated_program_agrees_with_the_exact_vertex_optimum[55]; CR12 (a program with no row sets each variable at the bound its cost does not prefer): test_linear::test_a_program_with_no_row_is_solved_exactly; CR13 (the step goes all the way to the boundary): test_captured_programs::test_the_program_whose_interior_point_jammed_is_certified, first reached at the end-to-end pin; CR14 (Phase I corrects a row's violation in one direction only): test_linear::test_an_equality_the_box_keeps_off_its_bound_is_proven_either_way (added for it); CR15 (an inequality's slack spans half its row's reach): test_linear::test_a_generated_program_agrees_with_the_exact_vertex_optimum[5], first reached at the end-to-end pin; CR16 (the Farkas margin counts the box's least, not its most): test_captured_programs::test_the_program_that_cannot_hold_its_limit_is_proven_infeasible_by_its_own_margin, first reached at the end-to-end pin; CR17 (a NONCONVEX objective is not refused as such): test_objective_protocol::test_what_no_certified_method_takes_is_refused_before_solving; CR18 (a quadratic form over another universe is taken): test_objective_protocol::test_a_form_that_does_not_cover_the_universe_is_refused; CR19 (a scenario limit under a quadratic objective is admitted): test_scenario_risk::test_a_limit_under_an_objective_that_is_not_linear_is_refused; CR20 (CVaR's fractional scenario is dropped from its tail): test_captured_programs::test_the_program_that_cannot_hold_its_limit_is_proven_infeasible_by_its_own_margin, first reached at the end-to-end limit test; CR21 (CVaR's lifting spreads its excesses over one scenario too many): test_captured_programs::test_the_program_whose_interior_point_jammed_is_certified, first reached at the end-to-end pin; CR22 (minimum CVaR does not price its threshold): test_captured_programs::test_the_program_that_cannot_hold_its_limit_is_proven_infeasible_by_its_own_margin; CR23 (a drawdown's peak need not be the running maximum): test_scenario_risk::test_a_maximum_drawdown_limit_agrees_with_every_pair_of_steps; CR24 (a maximum drawdown is not bounded at level one): test_scenario_risk::test_a_maximum_drawdown_limit_agrees_with_every_pair_of_steps; CR25 (a limit's own value is not checked): test_scenario_risk::test_a_limit_whose_value_disagrees_with_its_rows_is_caught; CR26 (a binding limit is not named): test_scenario_risk::test_limits_combine_and_what_binds_is_named, first reached at the end-to-end limit test; CR27 (a weight within the tolerance of zero holds a name): test_cardinality::test_a_weight_within_the_tolerance_of_zero_holds_no_name (added for it); CR28 (a relaxed optimum one name over the limit is taken as within it): test_cardinality::test_the_bound_and_the_answer_bracket_the_best_over_every_subset; CR29 (names the bounds keep away from zero are not kept): test_cardinality::test_no_certified_portfolio_is_claimed_when_none_keeps_the_limit; CR30 (ties go against the asset id): test_cardinality::test_the_names_are_the_largest_ties_broken_by_asset_id; CR31 (the gap is measured in the wrong sense): test_cardinality::test_the_bound_and_the_answer_bracket_the_best_over_every_subset; CR32 (a restriction that fails is reported as restricted): test_cardinality::test_the_bound_and_the_answer_bracket_the_best_over_every_subset; CR33 (a calendar trigger fires at every slice): test_rebalancing_backtest::test_it_rebalances_at_the_first_slice_of_each_month_once_the_model_can_estimate; CR34 (a week is counted from the first of January, not by ISO): test_triggers::test_a_weekly_trigger_reads_the_iso_week; CR35 (a slice outside every session fires): test_triggers::test_a_calendar_is_taken_by_protocol_and_read_by_its_sessions; CR36 (the zone stated is read as UTC): test_triggers::test_the_zone_decides_the_date; CR37 (a distance counts only the assets the target holds): test_triggers::test_a_threshold_fires_on_one_weight_beyond_its_distance (its case restated for it); CR38 (a threshold does not fire before a first target): test_triggers::test_before_a_first_target_threshold_and_drift_fire; CR39 (drift is the largest distance, not the total): test_triggers::test_drift_fires_on_the_books_total_distance; CR40 (account equity ignores a contract's multiplier): test_strategy::test_account_equity_marks_the_accounts_holdings_of_the_strategys_assets (a multiplier added before the run); CR41 (the book is the side-signed fill, not the strategy's share of it): test_rebalancing_backtest::test_beside_another_strategy_its_book_is_its_own_and_its_rebalances_reconcile (its case restated for it); CR42 (the book leaves out the orders still working): test_strategy::test_sells_first_holds_the_purchases_until_every_sale_has_filled; CR43 (the triggers read the position, not the planned one): test_strategy::test_sells_first_holds_the_purchases_until_every_sale_has_filled; CR44 (a model's problem over assets the strategy was not given is taken): test_strategy::test_a_model_whose_problem_is_not_one_it_can_trade_is_refused; CR45 (a problem weighting an unpriced asset is taken): test_strategy::test_a_universe_asset_without_a_price_is_refused; CR46 (a refused rebalance is not recorded): test_rebalancing_backtest::test_a_problem_that_cannot_be_met_records_why_and_trades_nothing; CR47 (the targets are sized at twice the capital): test_rebalancing_backtest::test_each_rebalance_is_the_book_by_the_next_and_the_account_holds_it_at_the_end; CR48 (a held asset the problem leaves is not sold): test_strategy::test_a_held_asset_the_problem_leaves_is_sold_to_nothing; CR49 (sells first sends the purchases too): test_strategy::test_sells_first_holds_the_purchases_until_every_sale_has_filled, first reached at the end-to-end pin; CR50 (a later rebalance keeps the purchases still waiting): test_strategy::test_a_later_rebalance_that_needs_no_sale_drops_the_purchases_still_waiting (added for it); CR51 (the purchases go before every sale has filled): test_strategy::test_sells_first_holds_the_purchases_until_every_sale_has_filled; CR52 (costs from another book are taken): test_strategy::test_a_turnover_limit_from_the_book_is_taken_and_from_another_refused; CR53 (a turnover limit that leaves a held asset is taken): test_strategy::test_a_turnover_limit_that_would_sell_a_held_asset_unseen_is_refused; CR54 (a rebalance's intents carry no correlation id): test_strategy::test_a_certified_answer_is_sent_as_lot_rounded_targets; CR55 (state from another version is read): test_strategy::test_state_from_another_version_or_strategy_is_refused; CR56 (state with another strategy's trigger memories is read): test_strategy::test_state_from_another_version_or_strategy_is_refused; CR57 (an asset outside the run's registry is sized without its economics): test_strategy::test_an_asset_the_run_does_not_declare_is_refused_and_a_future_needs_its_economics.",
+        "Mutation history: the first run (CR01 to CR13) showed why a first failure must be read: five linear-program mutants failed first at the end-to-end test's pinned experiment record, which tests/integration reaches before tests/unit, and a pin moves for any change of the run's bits, not only a wrong one. Replayed against the optimizer's and rebalancing's own tests, CR01, CR03, CR07, CR10 and CR13 were caught there. CR02, which certified a feasible point whatever its gap, was not: every test program's first feasible candidate happened to be optimal, so budgets too small to converge are now held never to certify a vertex short of the optimum. CR04 survived, calling any positive Farkas margin a proof; three programs that miss by half their tolerance are now held never to be called infeasible. The run then slept for hours with the machine, and was stopped and resumed from CR09; the runner died before it recorded the runs it was stopped in, so no false catch was written. The rest caught 43 of 49. The six survivors each lacked the case that tells the defect apart, and each now has its test: CR09 (the overflow guard, unreachable from a program, held directly), CR14 (a one-sided Phase I, still right but 146 iterations against 26), CR27 (a sliver within the tolerance counted as a name), CR37 (the threshold case also moved an asset the target holds), CR41 (S-10's strategies never traded one asset in one step, so no order was netted) and CR50 (every later rebalance in the tests split again). The six catches first made by an end-to-end assertion (CR15, CR16, CR20, CR21, CR26, CR49) are caught by the focused tests too. The seven survivors, CR02 and CR08 were run again on the final tree: 9 of 9 caught. Every catcher was replayed alone under its mutant and read: each passes on the clean tree and fails by the defect's own effect -- mostly assertions, a refusal that no longer raises, or the error a removed refusal let through (CR18, CR45, CR48, CR57); none is a NameError, and none reads a clock. In that replay CR05 and CR12 first passed: each keeps its file's length, and the replay mutated it in the second after the clean run, so Python's bytecode cache ran the clean code; with bytecode off both fail, and the harness, whose runs are minutes apart, was never exposed. Baselines: 14,558, 14,569 and 14,575 passed, 90 deselected (the tests that read a clock, and the certificate's source digest)."
+      ],
       "note": "The continuation authorization names S-01, S-10 and S-14 for M9; mapped to the plan, nothing dropped. WS-12's integration line is S-01's construction -- a monthly factor-neutral, sector-capped, CVaR-limited rebalance in a 10-year backtest, as an experiment -- and it is M9's exit gate; S-01 whole is accepted at M13. S-10, the institutional multi-strategy book, is accepted at M13: M9 delivers its rebalancing piece, a rebalancing strategy whose book is its own share in a multi-strategy run, held by a test here. S-14, the cross-market multi-asset portfolio with a currency-hedged construction certified, is accepted at M10 with FX, futures and rates: M9 delivers the certified construction and the CapitalRule protocol a hedged book's rule satisfies, and the hedged construction is M10's. AC-11 (layering by AST) and AC-12 (no invented defaults) are verified at M9's close."
     },
     {
@@ -2373,16 +2376,21 @@
         {
           "milestone": "M9",
           "item": "The rebalancing package (TD-75, ADR-0063 settled point 5, GAP-20, N19): RebalancingStrategy at a slice's close, its book its own share of fills and working orders, certified answers as lot-rounded TARGET_QUANTITY intents, calendar, threshold and drift triggers that state every parameter, capital rules, the execution order stated, every rebalance recorded and its state declared; its book its own beside another strategy (S-10's piece); portfolio_optimizer's standalone rules documented as superseded",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M9",
           "item": "The linear program's normal equations scaled to a unit diagonal before their lift (TD-76, ADR-0063 settled point 2): a feasible CVaR program example 83 met, which jammed at NUMERICAL_FAILURE, certified; an infeasible one proven by its own margin; a direction past the floating-point range handed to Phase I",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M9",
           "item": "S-01's construction end to end, M9's exit gate (TD-77): examples/83, a factor-neutral, sector-capped, CVaR-limited book rebalanced monthly for ten years as an experiment of two limits, every rebalance certified or proven infeasible and reconciled, its record pinned; the construction-in-runs guide, docs/REBALANCING.md",
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M9",
+          "item": "M9's mutation series, CR01 to CR57 (WS-12, ADR-0063): the linear program, the objective protocol, scenario risk, cardinality and the rebalancing strategy, every first failure read and every catcher replayed alone; seven survivors and one defect only the end-to-end pin saw, each given its test",
           "status": "Local validation passed"
         }
       ],
@@ -3619,7 +3627,7 @@
   },
   "state": {
     "updated": "2026-11-22",
-    "remote_head": "ef37b6d",
+    "remote_head": "695b2aa",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4959,10 +4967,46 @@
         "workflow": "Optional Distributions",
         "run": 44984967795,
         "result": "success"
+      },
+      {
+        "sha": "ef37b6d",
+        "workflow": "Continuous Integration",
+        "run": 45000131768,
+        "result": "success: all six quality-gate cells (the rebalancing package, TD-75)"
+      },
+      {
+        "sha": "ef37b6d",
+        "workflow": "CodeQL",
+        "run": 45000131837,
+        "result": "success"
+      },
+      {
+        "sha": "ef37b6d",
+        "workflow": "Optional Distributions",
+        "run": 45000131779,
+        "result": "success"
+      },
+      {
+        "sha": "695b2aa",
+        "workflow": "Continuous Integration",
+        "run": 45001218740,
+        "result": "success: all six quality-gate cells, carrying 07763dd (the linear program's scaling, TD-76) and 695b2aa (S-01's construction end to end, TD-77); the end-to-end test's pinned experiment record agrees on Linux and macOS under CPython 3.12, 3.13 and 3.14"
+      },
+      {
+        "sha": "695b2aa",
+        "workflow": "CodeQL",
+        "run": 45001218802,
+        "result": "success"
+      },
+      {
+        "sha": "695b2aa",
+        "workflow": "Optional Distributions",
+        "run": 45001218725,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M9 (WS-12), after the exit gate's example (TD-77): the measurement at the budget's size, 1,000 assets with CVaR over 2,520 scenarios, run alone; then M9's mutation series (the linear program, construction's scenario risk and cardinality, rebalancing), AC-11 and AC-12 verified, the close's scope check and its record. Hosted CI for ef37b6d and the next push is read once at the next boundary.",
+    "next": "M9's close: the measurement at WS-12's budget size, 1,000 assets with CVaR over 2,520 scenarios, run alone; then the close record, its gate and hosted CI, and M9's checkpoint benchmarks. Then M10.",
     "open_questions": []
   },
   "log": [
@@ -5413,6 +5457,10 @@
     {
       "date": "2026-11-22",
       "entry": "M9's exit gate validated locally as example 83 (TD-77): S-01's construction, eight equities rebalanced monthly for ten years to the most expected return a value-neutral, sector-capped book holds within a CVaR limit, as an experiment of two limits. Each trial's 114 rebalances are certified, but for the tight trial's 2024-05-01 program, which is proven infeasible. The experiment is defined in a module of its own because its identity names its configuration type by module: run as a script it had been another experiment than the one its test imported. The construction-in-runs guide is written; its full-size figure waits for the measurement."
+    },
+    {
+      "date": "2026-11-23",
+      "entry": "M9's mutation series ran, CR01 to CR57. Its first failures needed reading: the end-to-end test's pinned experiment record is reached first and moves for any change of bits, so every catch it made was replayed against the focused tests. Two defects nothing focused caught -- CR02, a feasible point certified whatever its gap, and CR04, which survived, any positive Farkas margin taken as proof -- and six later survivors each gained the case that tells them apart. CR08, a floor in absolute terms, changes which iterate is certified and not whether it is right. The machine slept through hours of the run; it was stopped and resumed, and nothing it was stopped in was recorded. On the final tree all nine re-run were caught, and every catcher, replayed alone, fails by the defect's own effect. ef37b6d and 695b2aa passed hosted CI, all six cells each, with CodeQL and Optional Distributions, so the rebalancing package, the linear program's scaling and the exit gate's example are Hosted CI passed, and the experiment's pinned record holds on Linux and macOS."
     }
   ]
 }

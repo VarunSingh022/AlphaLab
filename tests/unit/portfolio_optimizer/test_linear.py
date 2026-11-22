@@ -27,6 +27,7 @@ from fractions import Fraction
 
 import pytest
 
+from alphalab.common.linalg import cholesky
 from alphalab.portfolio_optimizer import linear
 from alphalab.portfolio_optimizer.exceptions import OptimizationError
 from alphalab.portfolio_optimizer.linear import (
@@ -146,6 +147,85 @@ def test_a_generated_program_agrees_with_the_exact_vertex_optimum(seed: int) -> 
     assert _violation(program, solution.x) <= 1e-8
     # The bound is a proven lower bound: never above the exact optimum.
     assert Fraction(solution.bound) <= value + Fraction(1e-9) * (1 + abs(value))
+
+
+@pytest.mark.parametrize("budget", range(1, 9))
+def test_an_answer_short_of_the_optimum_is_never_certified_whatever_the_budget(
+    budget: int,
+) -> None:
+    """A budget too small to converge ends uncertified, never at a feasible point short of the best.
+
+    The interior point read early is finished at a vertex that may meet every
+    row and still not be optimal; only the bound proves it is. So whatever the
+    budget, an ``OPTIMAL`` answer is the exact optimum, and the small budgets
+    reach both outcomes: some programs certified within them, some not.
+    """
+
+    outcomes: set[SolveStatus] = set()
+    for seed in range(60):
+        program, rows = _generated(seed)
+        exact = exact_vertex_optimum(program.costs, rows, program.lower, program.upper)
+        solution = solve_linear_program(
+            program,
+            feasibility_tolerance=TOLERANCE,
+            convergence_tolerance=TOLERANCE,
+            max_iterations=budget,
+        )
+        outcomes.add(solution.status)
+        if solution.status is SolveStatus.OPTIMAL:
+            assert exact is not None and solution.objective is not None
+            value, _ = exact
+            assert abs(Fraction(solution.objective) - value) <= Fraction(1e-7) * (1 + abs(value)), (
+                seed
+            )
+    if budget <= 3:
+        assert outcomes - {SolveStatus.OPTIMAL, SolveStatus.INFEASIBLE}, outcomes
+
+
+NEAR_FEASIBLE = {
+    "a row past the box by half the tolerance": LinearProgram(
+        (1.0,), (LinearConstraint("past", ((0, 1.0),), 1.0 + 5e-10, False),), (0.0,), (1.0,)
+    ),
+    "two rows that miss each other by half the tolerance": LinearProgram(
+        (1.0, 1.0),
+        (
+            LinearConstraint("at-least", ((0, 1.0), (1, 1.0)), 1.0 + 5e-10, False),
+            LinearConstraint("at-most", ((0, -1.0), (1, -1.0)), -1.0, False),
+        ),
+        (0.0, 0.0),
+        (1.0, 1.0),
+    ),
+    "an equality just past a corner of the box": LinearProgram(
+        (0.0, 1.0),
+        (LinearConstraint("corner", ((0, 1.0), (1, 1.0)), 2.0 + 5e-10, True),),
+        (0.0, 0.0),
+        (1.0, 1.0),
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(NEAR_FEASIBLE))
+def test_a_program_within_its_tolerance_of_feasible_is_never_proven_infeasible(name: str) -> None:
+    """``INFEASIBLE`` claims no point is within the tolerance of every row (ADR-0063).
+
+    Each program misses by half its tolerance, so a point within it exists. A
+    budget too small to certify one sends the program to Phase I, whose margin
+    is that half: positive, and less than the tolerance times the multipliers'
+    weight, so it proves nothing. Whatever the budget, the answer is uncertified
+    or optimal, never infeasible.
+    """
+
+    statuses = set()
+    for budget in range(1, 13):
+        solution = solve_linear_program(
+            NEAR_FEASIBLE[name],
+            feasibility_tolerance=TOLERANCE,
+            convergence_tolerance=TOLERANCE,
+            max_iterations=budget,
+        )
+        statuses.add(solution.status)
+        assert solution.status is not SolveStatus.INFEASIBLE, (budget, solution.detail)
+    assert statuses == {SolveStatus.ITERATION_LIMIT, SolveStatus.OPTIMAL}
 
 
 def test_the_generated_programs_reach_both_outcomes_and_both_certificates() -> None:
@@ -269,6 +349,65 @@ def test_an_infeasible_program_is_proven_without_spending_the_budget() -> None:
     solution = solve(LinearProgram((1.0, 1.0), (need,), (0.0, 0.0), (1.0, 1.0)))
     assert solution.status is SolveStatus.INFEASIBLE
     assert solution.iterations < 60
+
+
+@pytest.mark.parametrize(
+    ("bound", "low", "high"),
+    [(0.0, 1.0, 2.0), (3.0, 1.0, 2.0), (1.0, (1.0, 1.0), (2.0, 2.0))],
+    ids=["above", "below", "above-in-two"],
+)
+def test_an_equality_the_box_keeps_off_its_bound_is_proven_either_way(
+    bound: float, low: float | tuple[float, ...], high: float | tuple[float, ...]
+) -> None:
+    """Phase I measures a row's miss in either direction, so either is proven as quickly.
+
+    An equality whose variables' box keeps it above its bound needs Phase I's
+    artificial on the other side from one kept below it; with both, each is
+    proven within a few dozen iterations, by a certificate checked exactly.
+    """
+
+    lower = low if isinstance(low, tuple) else (low,)
+    upper = high if isinstance(high, tuple) else (high,)
+    terms = tuple((j, 1.0) for j in range(len(lower)))
+    program = LinearProgram(
+        tuple(1.0 for _ in lower),
+        (LinearConstraint("equal", terms, bound, True),),
+        lower,
+        upper,
+    )
+    solution = solve(program)
+    assert solution.status is SolveStatus.INFEASIBLE, solution.detail
+    assert solution.iterations < 60, solution.iterations
+    assert exact_farkas_margin(program, solution.multipliers) > 0
+
+
+def test_a_direction_past_the_floating_point_range_is_never_taken(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A direction past the floating-point range ends the interior point before it is taken.
+
+    No program in the suite reaches this, nor one with coefficients of 1e+200
+    and 1e-200: the floor on the normal matrix's scaling bounds how fast an
+    infeasible program's multipliers grow, and the factorization refuses a
+    matrix that has overflowed. So the guard is held here directly, with a
+    factor whose every answer is infinite. The interior point stops at its
+    first iteration with its iterate untouched, and the exact finish still
+    certifies the program from there; taken, the step would carry infinities
+    and NaNs into every coordinate, and nothing could be certified.
+    """
+
+    class Overflowing:
+        def __init__(self, factor: object) -> None:
+            self.factor = factor
+
+        def solve(self, rhs: Sequence[float]) -> tuple[float, ...]:
+            return tuple(float("inf") for _ in rhs)
+
+    monkeypatch.setattr(linear, "cholesky", lambda matrix: Overflowing(cholesky(matrix)))
+    solution = solve(LinearProgram((1.0, 1.0), (BUDGET,), (0.0, 0.0), (1.0, 1.0)))
+    assert solution.status is SolveStatus.OPTIMAL, solution.detail
+    assert solution.certificate is LinearCertificate.VERTEX
+    assert solution.iterations == 0 and solution.objective == 1.0
 
 
 def test_a_stalled_program_that_is_feasible_resumes_where_it_stopped(

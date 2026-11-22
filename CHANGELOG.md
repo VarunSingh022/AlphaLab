@@ -1425,6 +1425,25 @@ entry below says otherwise.
   * what each rebalance records, and how a paused run resumes;
   * S-01's construction end to end;
   * what construction costs, measured, and what is not here.
+* **M9's mutation series** [plan WS-12]. `mutation_v4_3.py` gains the CR series:
+  57 mutations over the linear program, the objective protocol, scenario risk,
+  cardinality and the rebalancing strategy. Each is caught on the final tree by
+  a test that exercises what it breaks, and every catcher, replayed alone,
+  fails by the defect's own effect.
+  * **Tests added with it.** They hold that:
+    * a budget too small to converge never certifies a vertex short of the
+      optimum;
+    * a program within its tolerance of feasible is never called infeasible;
+    * an equality the box keeps above or below its bound is proven within a
+      few dozen iterations;
+    * a direction past the floating-point range ends the interior point before
+      it is taken;
+    * a weight within the tolerance of zero holds no name;
+    * a later rebalance that needs no sale ends the first's waiting purchases;
+    * account equity counts a contract's multiplier.
+  * **Two cases restated.** The threshold test now moves only the asset its
+    target leaves out. S-10's test now has the two strategies trade one asset
+    in one step, so their order is netted and each is told its share.
 
 ## Changed
 

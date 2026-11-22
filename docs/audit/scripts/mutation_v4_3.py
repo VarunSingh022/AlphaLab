@@ -190,6 +190,68 @@ reads a leg's event at an instant that never priced it, and XR36 records a
 venue from a refusal's reason -- each the defect's own effect. None is a
 ``NameError``, and none read a clock. The test that caught each is recorded in
 the progress register, in M8's evidence.
+
+M9's series:
+
+* **CR** -- WS-12, ADR-0063: the linear program's certificate, Farkas threshold,
+  stall rule, resume, scaling and guard, finish and Phase I; the objective
+  protocol's refusals; scenario risk's liftings and limits checked at their
+  value; cardinality's names, ties and gap; and the rebalancing strategy's
+  triggers, capital, book, execution, records and state.
+
+Its first run (CR01 to CR13) shows why a first failure must be read. Five
+linear-program mutants failed first at the end-to-end test's pinned experiment
+record, which tests/integration reaches before tests/unit. A pin moves for any
+change of the run's bits, not only a wrong one. Each was replayed against the
+optimizer's and rebalancing's own tests, without the pin. CR01, CR03, CR07,
+CR10 and CR13 were caught there, by the exact vertex enumeration, the captured
+programs and the cost-lifting tests. Two were not:
+
+* **CR02 certified a feasible point whatever its gap.** In every test program
+  the first feasible candidate happened to be optimal. Budgets too small to
+  converge now finish early iterates at vertices that meet every row short of
+  the optimum, and a test holds that no such vertex is certified.
+* **CR04, which survived, called any positive Farkas margin a proof.** A program
+  that misses by half its tolerance has a point within it, so claiming
+  infeasibility is false. Three such programs, solved under budgets that send
+  them to Phase I, are now held never to be called infeasible.
+
+CR08, a floor in absolute rather than relative terms, moved only the pin: every
+other end-to-end check held, and an absolute floor bounds an infeasible
+program's growth too. It changes which iterate a construction certifies, not
+whether it is right, and is recorded as such. The run was paused for hours by
+the machine's sleep, and resumed from CR09 with the two new tests.
+
+The rest of the series caught 43 of 49. The six survivors each lacked the case
+that tells the defect apart, and each now has its test:
+
+* **CR09, the overflow guard,** is unreachable from a program: the floor bounds
+  an infeasible program's multipliers, and the factorization refuses a matrix
+  that has overflowed, even with coefficients of 1e+200. It is held directly,
+  with a factor whose answers are infinite.
+* **CR14, a one-sided Phase I,** still proves an equality the box keeps above its
+  bound, but in 146 iterations against 26. Both directions of an equality's miss
+  are now held to a few dozen.
+* **CR27, a sliver within the tolerance counted as a name:** a bound now holds
+  one at 1e-11.
+* **CR37, a distance over the target's assets only:** the threshold test's case
+  also moved an asset the target holds, so it fired either way. It now moves
+  only the one the target leaves out.
+* **CR41, the book read from the fill's quantity rather than the strategy's
+  share:** S-10's test never had the two strategies trade one asset in one step,
+  so no order was netted. They now do, and the test reads the netted fill.
+* **CR50, stale purchases kept:** every later rebalance in the tests split again,
+  which overwrote them. One that needs no sale now ends the first's waiting
+  purchases.
+
+Six catches were first made by an end-to-end assertion: CR15, CR16, CR21 and
+CR49 by the pin, CR20 and CR26 by the limit's test. Each is caught by the
+optimizer's or rebalancing's own tests too. The seven survivors, CR02 and CR08
+were run again on the final tree: 9 of 9 caught. Every catcher was then replayed
+alone under its mutant and read. Each fails by the defect's own effect, and each
+passes on the clean tree: mostly assertions, a refusal that no longer raises,
+or the error a removed refusal let through (CR18, CR45, CR48 and CR57). None is
+a ``NameError``, and none reads a clock.
 """
 
 from __future__ import annotations
@@ -2654,6 +2716,462 @@ V43_M8: tuple[Any, ...] = (
     ),
 )
 
+_LP = "alphalab/portfolio_optimizer/linear.py"
+_CONSTRUCTION = "alphalab/portfolio_optimizer/construction.py"
+_RB_TRIGGERS = "alphalab/rebalancing/triggers.py"
+_RB_CAPITAL = "alphalab/rebalancing/capital.py"
+_RB_STRATEGY = "alphalab/rebalancing/strategy.py"
+
+#: M9's behaviour, one rule each.
+V43_M9: tuple[Any, ...] = (
+    # --- CR: construction in runs -- the linear program and its certificate, the
+    # objective protocol, scenario risk, cardinality, and the rebalancing
+    # strategy's triggers, capital, book, execution, records and state (WS-12;
+    # ADR-0063)
+    Mutation(
+        "CR01",
+        "the certificate's bound ignores the box",
+        _LP,
+        (
+            "        [b * value for b, value in zip(form.rhs, y, strict=True)]\n"
+            "        + [min(0.0, reduced * upper) for reduced, upper in zip(d, "
+            "form.upper, strict=True)]\n"
+        ),
+        "        [b * value for b, value in zip(form.rhs, y, strict=True)]\n",
+    ),
+    Mutation(
+        "CR02",
+        "a feasible point is optimal whatever its gap",
+        _LP,
+        ("        if checked.feasible and checked.gap <= context.convergence_tolerance:\n"),
+        "        if checked.feasible:\n",
+    ),
+    Mutation(
+        "CR03",
+        "a point near the bound is optimal whatever its rows",
+        _LP,
+        ("        if checked.feasible and checked.gap <= context.convergence_tolerance:\n"),
+        "        if checked.gap <= context.convergence_tolerance:\n",
+    ),
+    Mutation(
+        "CR04",
+        "any positive Farkas margin proves infeasibility",
+        _LP,
+        ("    if margin > feasibility_tolerance * math.fsum(abs(value) for value in trial.y):\n"),
+        "    if margin > 0.0:\n",
+    ),
+    Mutation(
+        "CR05",
+        "the stall rule waits for the residual to double",
+        _LP,
+        "                and residual > 0.5 * history[-1 - _STALL]\n",
+        "                and residual > 2.0 * history[-1 - _STALL]\n",
+    ),
+    Mutation(
+        "CR06",
+        "a stalled feasible program is not resumed",
+        _LP,
+        "    if stalled and iterations < max_iterations:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "CR07",
+        "the lift is set by the largest diagonal entry again",
+        _LP,
+        ("    scale = [1.0 / math.sqrt(max(matrix[i][i], floor)) for i in range(size)]\n"),
+        ("    scale = [1.0 / math.sqrt(floor / _REGULARIZATION) for i in range(size)]\n"),
+    ),
+    Mutation(
+        "CR08",
+        "the scaling's floor is not relative to the largest entry",
+        _LP,
+        ("    floor = _REGULARIZATION * max((matrix[i][i] for i in range(size)), default=1.0)\n"),
+        "    floor = 0.0 * max((matrix[i][i] for i in range(size)), default=1.0)\n",
+    ),
+    Mutation(
+        "CR09",
+        "a direction past the floating-point range is taken",
+        _LP,
+        ("    if not all(math.isfinite(value) for value in values):\n        raise _Overflow\n"),
+        ("    if False:\n        raise _Overflow\n"),
+    ),
+    Mutation(
+        "CR10",
+        "a degenerate vertex is not checked with the iterate's multipliers",
+        _LP,
+        ("        candidates.append((LinearCertificate.VERTEX, vertex[0], point.y))\n"),
+        "",
+    ),
+    Mutation(
+        "CR11",
+        "a constraint of fixed variables that misses is not decided",
+        _LP,
+        ("    missed = {number: sign for number, miss, sign in form.vacuous if miss > limit}\n"),
+        "    missed: dict[int, float] = {}\n",
+    ),
+    Mutation(
+        "CR12",
+        ("a program with no row sets each variable at the bound its cost does not prefer"),
+        _LP,
+        "            0.0 if cost >= 0.0 else bound\n",
+        "            bound if cost >= 0.0 else 0.0\n",
+    ),
+    Mutation(
+        "CR13",
+        "the step goes all the way to the boundary",
+        _LP,
+        "_STEP: Final = 0.995\n",
+        "_STEP: Final = 1.0\n",
+    ),
+    Mutation(
+        "CR14",
+        "Phase I corrects a row's violation in one direction only",
+        _LP,
+        "            for sign in (1.0, -1.0):\n",
+        "            for sign in (1.0,):\n",
+    ),
+    Mutation(
+        "CR15",
+        "an inequality's slack spans half its row's reach",
+        _LP,
+        "            slack = max(most - target, 0.0)\n",
+        "            slack = max(most - target, 0.0) / 2.0\n",
+    ),
+    Mutation(
+        "CR16",
+        "the Farkas margin counts the box's least, not its most",
+        _LP,
+        (
+            "    most = math.fsum(max(0.0, value) * upper for value, upper in zip(g, "
+            "form.upper, strict=True))\n"
+        ),
+        (
+            "    most = math.fsum(min(0.0, value) * upper for value, upper in zip(g, "
+            "form.upper, strict=True))\n"
+        ),
+    ),
+    Mutation(
+        "CR17",
+        "a NONCONVEX objective is not refused as such",
+        _CONSTRUCTION,
+        "    if kind is Convexity.NONCONVEX:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "CR18",
+        "a quadratic form over another universe is taken",
+        _CONSTRUCTION,
+        "    if set(form.linear) != set(universe):\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "CR19",
+        "a scenario limit under a quadratic objective is admitted",
+        _CONSTRUCTION,
+        "    if problem.constraints.limits and not linear:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "CR20",
+        "CVaR's fractional scenario is dropped from its tail",
+        _CONSTRUCTION,
+        ("        [part * ordered[whole]] if part > 0.0 and whole < len(ordered) else []\n"),
+        "        []\n",
+    ),
+    Mutation(
+        "CR21",
+        "CVaR's lifting spreads its excesses over one scenario too many",
+        _CONSTRUCTION,
+        "    share = 1.0 / ((1.0 - level) * len(rows))\n",
+        "    share = 1.0 / ((1.0 - level) * (len(rows) + 1))\n",
+    ),
+    Mutation(
+        "CR22",
+        "minimum CVaR does not price its threshold",
+        _CONSTRUCTION,
+        ('    variables = [LinearVariable("alpha", floor, ceiling, 1.0 if priced else 0.0)]\n'),
+        '    variables = [LinearVariable("alpha", floor, ceiling, 0.0)]\n',
+    ),
+    Mutation(
+        "CR23",
+        "a drawdown's peak need not be the running maximum",
+        _CONSTRUCTION,
+        (
+            "        lifted.extend(\n"
+            '            LinearRow(f"rising[{t}]", {}, {f"peak[{t}]": 1.0, f"peak[{t - '
+            '1}]": -1.0}, 0.0, None)\n'
+            "            for t in range(1, len(path))\n"
+            "        )\n"
+        ),
+        "",
+    ),
+    Mutation(
+        "CR24",
+        "a maximum drawdown is not bounded at level one",
+        _CONSTRUCTION,
+        "        top = self.limit if self.level == 1.0 else None\n",
+        "        top = None\n",
+    ),
+    Mutation(
+        "CR25",
+        "a limit's own value is not checked",
+        _CONSTRUCTION,
+        "        violation = max(violation, value - limit.limit)\n",
+        "        violation = max(violation, 0.0)\n",
+    ),
+    Mutation(
+        "CR26",
+        "a binding limit is not named",
+        _CONSTRUCTION,
+        "            binding = (*binding, limit.label)\n",
+        "            binding = binding\n",
+    ),
+    Mutation(
+        "CR27",
+        "a weight within the tolerance of zero holds a name",
+        _CONSTRUCTION,
+        (
+            "    held = tuple(asset for asset in problem.universe if "
+            "abs(weights[asset]) > tolerance)\n"
+        ),
+        ("    held = tuple(asset for asset in problem.universe if abs(weights[asset]) > 0.0)\n"),
+    ),
+    Mutation(
+        "CR28",
+        "a relaxed optimum one name over the limit is taken as within it",
+        _CONSTRUCTION,
+        "    if len(held) <= max_names:\n",
+        "    if len(held) <= max_names + 1:\n",
+    ),
+    Mutation(
+        "CR29",
+        "names the bounds keep away from zero are not kept",
+        _CONSTRUCTION,
+        (
+            "    kept = [asset for asset in problem.universe if _held_away(bounds, "
+            "asset, tolerance)]\n"
+        ),
+        "    kept: list[str] = []\n",
+    ),
+    Mutation(
+        "CR30",
+        "ties go against the asset id",
+        _CONSTRUCTION,
+        "        key=lambda asset: (-abs(weights[asset]), asset),\n",
+        ("        key=lambda asset: (-abs(weights[asset]), [-ord(c) for c in asset]),\n"),
+    ),
+    Mutation(
+        "CR31",
+        "the gap is measured in the wrong sense",
+        _CONSTRUCTION,
+        "        else max(0.0, _sense(problem.objective) * (value - bound))\n",
+        "        else max(0.0, -_sense(problem.objective) * (value - bound))\n",
+    ),
+    Mutation(
+        "CR32",
+        "a restriction that fails is reported as restricted",
+        _CONSTRUCTION,
+        "    if not restricted.succeeded:\n",
+        "    if False:\n",
+    ),
+    Mutation(
+        "CR33",
+        "a calendar trigger fires at every slice",
+        _RB_TRIGGERS,
+        "        return key != memory, key\n",
+        "        return True, key\n",
+    ),
+    Mutation(
+        "CR34",
+        "a week is counted from the first of January, not by ISO",
+        _RB_TRIGGERS,
+        "            year, week, _ = day.isocalendar()\n",
+        ("            year, week = day.year, (day.timetuple().tm_yday - 1) // 7 + 1\n"),
+    ),
+    Mutation(
+        "CR35",
+        "a slice outside every session fires",
+        _RB_TRIGGERS,
+        ("        if day is None:\n            return False, memory\n"),
+        ("        if day is None:\n            return True, memory\n"),
+    ),
+    Mutation(
+        "CR36",
+        "the zone stated is read as UTC",
+        _RB_TRIGGERS,
+        ("        return datetime.fromtimestamp(instant, resolve_zone(self.zone)).date()\n"),
+        ('        return datetime.fromtimestamp(instant, resolve_zone("UTC")).date()\n'),
+    ),
+    Mutation(
+        "CR37",
+        "a distance counts only the assets the target holds",
+        _RB_TRIGGERS,
+        "    assets = sorted(set(moment.weights) | set(target))\n",
+        "    assets = sorted(target)\n",
+    ),
+    Mutation(
+        "CR38",
+        "a threshold does not fire before a first target",
+        _RB_TRIGGERS,
+        (
+            "            return True, memory\n"
+            "        return any(distance > self.distance for distance in distances), "
+            "memory\n"
+        ),
+        (
+            "            return False, memory\n"
+            "        return any(distance > self.distance for distance in distances), "
+            "memory\n"
+        ),
+    ),
+    Mutation(
+        "CR39",
+        "drift is the largest distance, not the total",
+        _RB_TRIGGERS,
+        "        return math.fsum(distances) > self.amount, memory\n",
+        "        return max(distances) > self.amount, memory\n",
+    ),
+    Mutation(
+        "CR40",
+        "account equity ignores a contract's multiplier",
+        _RB_CAPITAL,
+        "                total += quantity * prices[asset] * multipliers[asset]\n",
+        "                total += quantity * prices[asset]\n",
+    ),
+    Mutation(
+        "CR41",
+        "the book is the side-signed fill, not the strategy's share of it",
+        _RB_STRATEGY,
+        "        share = event.attributed_quantity\n",
+        "        share = None\n",
+    ),
+    Mutation(
+        "CR42",
+        "the book leaves out the orders still working",
+        _RB_STRATEGY,
+        (
+            "            held = self._holdings.get(asset, _ZERO) + "
+            "context.orders.net_quantity(asset)\n"
+        ),
+        "            held = self._holdings.get(asset, _ZERO)\n",
+    ),
+    Mutation(
+        "CR43",
+        "the triggers read the position, not the planned one",
+        _RB_STRATEGY,
+        "        planned = weigh({**position, **self._pending})\n",
+        "        planned = weigh(position)\n",
+    ),
+    Mutation(
+        "CR44",
+        "a model's problem over assets the strategy was not given is taken",
+        _RB_STRATEGY,
+        "        if outside:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "CR45",
+        "a problem weighting an unpriced asset is taken",
+        _RB_STRATEGY,
+        "        if unpriced:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "CR46",
+        "a refused rebalance is not recorded",
+        _RB_STRATEGY,
+        ("        if answer is None:\n            self._records.append(\n"),
+        ("        if answer is None:\n            (\n"),
+    ),
+    Mutation(
+        "CR47",
+        "the targets are sized at twice the capital",
+        _RB_STRATEGY,
+        (
+            "            capital=capital,\n"
+            "            prices={asset: prices[asset] for asset in universe},\n"
+        ),
+        (
+            "            capital=capital * 2,\n"
+            "            prices={asset: prices[asset] for asset in universe},\n"
+        ),
+    ),
+    Mutation(
+        "CR48",
+        "a held asset the problem leaves is not sold",
+        _RB_STRATEGY,
+        ("                targets[asset] = _ZERO\n                target_weights[asset] = 0.0\n"),
+        "                pass\n",
+    ),
+    Mutation(
+        "CR49",
+        "sells first sends the purchases too",
+        _RB_STRATEGY,
+        "                sent = sales\n",
+        "                sent = targets\n",
+    ),
+    Mutation(
+        "CR50",
+        "a later rebalance keeps the purchases still waiting",
+        _RB_STRATEGY,
+        (
+            "        sent = targets\n"
+            "        self._pending, self._awaiting, self._pending_sequence = {}, {}, "
+            "None\n"
+        ),
+        "        sent = targets\n",
+    ),
+    Mutation(
+        "CR51",
+        "the purchases go before every sale has filled",
+        _RB_STRATEGY,
+        ("        if any(self._holdings.get(a, _ZERO) != q for a, q in self._awaiting.items()):\n"),
+        "        if False:\n",
+    ),
+    Mutation(
+        "CR52",
+        "costs from another book are taken",
+        _RB_STRATEGY,
+        "            if differ:\n",
+        "            if False:\n",
+    ),
+    Mutation(
+        "CR53",
+        "a turnover limit that leaves a held asset is taken",
+        _RB_STRATEGY,
+        "            if left:\n",
+        "            if False:\n",
+    ),
+    Mutation(
+        "CR54",
+        "a rebalance's intents carry no correlation id",
+        _RB_STRATEGY,
+        "                correlation_id=record.correlation_id,\n",
+        "                correlation_id=None,\n",
+    ),
+    Mutation(
+        "CR55",
+        "state from another version is read",
+        _RB_STRATEGY,
+        "        if version != REBALANCING_STATE_VERSION:\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "CR56",
+        "state with another strategy's trigger memories is read",
+        _RB_STRATEGY,
+        "        if len(memories) != len(self._triggers):\n",
+        "        if False:\n",
+    ),
+    Mutation(
+        "CR57",
+        "an asset outside the run's registry is sized without its economics",
+        _RB_STRATEGY,
+        "    if not isinstance(record, InstrumentRecord):\n",
+        "    if False:\n",
+    ),
+)
+
 MUTATIONS: tuple[Any, ...] = (
     tuple(RETARGETED.get(mutation.ident, mutation) for mutation in V41.MUTATIONS)
     + V43_M0
@@ -2665,6 +3183,7 @@ MUTATIONS: tuple[Any, ...] = (
     + V43_M6
     + V43_M7
     + V43_M8
+    + V43_M9
 )
 
 

@@ -44,9 +44,11 @@ from alphalab.portfolio_optimizer import (
 )
 from alphalab.rebalancing import (
     AccountEquity,
+    CalendarTrigger,
     CapitalRule,
     DriftTrigger,
     FixedCapital,
+    Period,
     RebalanceExecution,
     RebalanceView,
     RebalancingInputError,
@@ -336,6 +338,33 @@ def test_a_later_rebalance_replaces_purchases_still_waiting() -> None:
     assert {intent.correlation_id for intent in released} == {"RB:rebalance:2"}
 
 
+def test_a_later_rebalance_that_needs_no_sale_drops_the_purchases_still_waiting() -> None:
+    daily = RebalancingStrategy(
+        "RB",
+        assets=(A, B, C),
+        model=Fixed(minimum_variance),
+        triggers=(CalendarTrigger(Period.DAY, zone="UTC"),),
+        capital=FixedCapital(CAPITAL),
+        quantum=Decimal("1"),
+        terms=MARKET,
+        execution=RebalanceExecution.SELLS_FIRST,
+    )
+    desk = Desk(daily)
+    desk.hold(C, Decimal("2000"))
+    day = 86400.0
+    assert desk.slice(day + 1.0) == {C: Decimal("590")}
+    assert daily.records[0].deferred == (A, B)
+    # The next day's rebalance meets its sale still working, so it needs none: it
+    # sends every target at once, and nothing waits any longer.
+    assert desk.slice(2 * day + 1.0) == {A: Decimal("1180"), B: Decimal("262"), C: Decimal("590")}
+    assert daily.records[1].deferred == () and daily.capture_state()["pending"] == {}
+    desk.fill(C, Decimal("-1410"))
+    desk.fill(A, Decimal("1180"))
+    desk.fill(B, Decimal("262"))
+    # The first rebalance's sale has filled, and none of its purchases is sent again.
+    assert desk.slice(2 * day + 2.0) == {}
+
+
 def test_simultaneous_sends_every_target_at_once() -> None:
     rebalancer = strategy()
     rebalancer.on_fill(context(), fill(C, Decimal("2000")))
@@ -593,6 +622,9 @@ def test_account_equity_marks_the_accounts_holdings_of_the_strategys_assets() ->
     multipliers = dict.fromkeys(PRICES, Decimal("1"))
     # 1,000 + 10 * 50 - 2 * 100: the other asset is not the strategy's and is not counted.
     assert rule.amount(context(account=account), PRICES, multipliers) == Decimal("1300")
+    # A contract's multiplier counts: B at three times its price, 1,000 + 500 - 600.
+    contracts = {**multipliers, B: Decimal("3")}
+    assert rule.amount(context(account=account), PRICES, contracts) == Decimal("900")
     empty = Account(Decimal("-5"))
     assert rule.amount(context(account=empty), PRICES, multipliers) is None
     with pytest.raises(RebalancingInputError):

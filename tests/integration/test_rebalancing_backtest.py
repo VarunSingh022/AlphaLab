@@ -169,9 +169,12 @@ class SampleMinimumVariance:
 
 
 def _strategy(
-    model: SampleMinimumVariance, capital: CapitalRule | None = None
+    model: SampleMinimumVariance,
+    capital: CapitalRule | None = None,
+    execution: RebalanceExecution = RebalanceExecution.SELLS_FIRST,
+    kind: type[RebalancingStrategy] = RebalancingStrategy,
 ) -> RebalancingStrategy:
-    return RebalancingStrategy(
+    return kind(
         STRATEGY,
         assets=ASSETS,
         model=model,
@@ -179,7 +182,7 @@ def _strategy(
         capital=AccountEquity("USD") if capital is None else capital,
         quantum=Decimal("1"),
         terms=MARKET,
-        execution=RebalanceExecution.SELLS_FIRST,
+        execution=execution,
     )
 
 
@@ -360,37 +363,54 @@ def test_a_paused_run_resumes_to_the_same_result_and_records(
 # --------------------------------------------------------------------------- #
 
 HOLDER = "HOLDER"
-#: The holder buys 2,000 of the first asset at the run's first quote and sells
-#: 1,500 of them on day 200, between two of the rebalancer's month starts.
-HOLDER_PLAN = {START: Decimal("2000"), START + 200 * DAY: Decimal("500")}
+#: 2025-04-01 12:00 UTC: the rebalancer's second rebalance.
+APRIL = datetime(2025, 4, 1, 12, tzinfo=ZoneInfo("UTC")).timestamp()
+#: The holder buys 2,000 of the first asset at the run's first slice, and sells
+#: 1,500 of them at the April rebalance's own slice: its target and the
+#: rebalancer's are one netted order there, whose fills each strategy is told its
+#: share of.
+HOLDER_PLAN = {START: Decimal("2000"), APRIL: Decimal("500")}
 SHARED = ASSETS[0]
 
 
 class _Holder(BaseStrategy):
-    """Holds what its plan states for the shared asset, from each planned instant."""
+    """Holds what its plan states for the shared asset, from each planned slice."""
 
-    def on_quote(self, context: StrategyContext, event: Any) -> list[Intent]:
-        quote = event.quote
-        target = HOLDER_PLAN.get(quote.timestamp)
-        if quote.asset_id != SHARED or target is None:
+    def on_slice(self, context: StrategyContext, event: Any) -> list[Intent]:
+        target = HOLDER_PLAN.get(float(event.timestamp))
+        if target is None:
             return []
         return [
             Intent(
                 HOLDER,
                 SHARED,
                 target,
-                timestamp=quote.timestamp,
+                timestamp=float(event.timestamp),
                 kind=IntentKind.TARGET_QUANTITY,
                 terms=MARKET,
             )
         ]
 
 
+class _Recording(RebalancingStrategy):
+    """A rebalancing strategy that keeps every fill it is told of, for the test to read."""
+
+    fills: list[Any]
+
+    def on_fill(self, context: StrategyContext, event: Any) -> Any:
+        if not hasattr(self, "fills"):
+            self.fills = []
+        self.fills.append(event)
+        return super().on_fill(context, event)
+
+
 def _shared_run() -> tuple[BacktestResult, RebalancingStrategy, SampleMinimumVariance]:
     model = SampleMinimumVariance(lookback=40, cap=0.6)
     # Two strategies share the account: the rebalancer is told its budget, a
     # fixed capital, since the account's equity is not its own.
-    strategy = _strategy(model, FixedCapital(Decimal("600000")))
+    strategy = _strategy(
+        model, FixedCapital(Decimal("600000")), RebalanceExecution.SIMULTANEOUS, _Recording
+    )
     config = _config()
     config = replace(
         config,
@@ -405,7 +425,7 @@ def _shared_run() -> tuple[BacktestResult, RebalancingStrategy, SampleMinimumVar
         ),
     )
     runtime = create_runtime()
-    subscriptions = {STRATEGY: frozenset({"slices", "fills"}), HOLDER: frozenset({"quotes"})}
+    subscriptions = {STRATEGY: frozenset({"slices", "fills"}), HOLDER: frozenset({"slices"})}
     instances: dict[str, BaseStrategy] = {STRATEGY: strategy, HOLDER: _Holder()}
     for strategy_id, instance in instances.items():
         runtime = register_strategy(runtime, strategy_id, instance)
@@ -425,6 +445,18 @@ def test_beside_another_strategy_its_book_is_its_own_and_its_rebalances_reconcil
     result, strategy, model = _shared_run()
     records = strategy.records
     assert len(records) == 12 and all(record.traded for record in records)
+    # At the April rebalance the two targets were one order: the rebalancer was
+    # told its share of each of its fills, not the fill's whole quantity.
+    assert isinstance(strategy, _Recording)
+    shared = [
+        fill
+        for fill in strategy.fills
+        if fill.instrument == SHARED
+        and fill.attributed_quantity is not None
+        and fill.attributed_quantity
+        != (fill.fill_quantity if fill.side == "buy" else -fill.fill_quantity)
+    ]
+    assert shared, "no fill of the shared asset was netted between the two strategies"
     allocation = result.run.pipeline.allocation
     positions = result.run.pipeline.portfolio.positions
     # Its book is the position allocation measures its targets against...

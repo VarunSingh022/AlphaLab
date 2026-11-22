@@ -185,6 +185,19 @@ def test_an_optimum_that_keeps_the_limit_is_the_answer_exactly() -> None:
     assert result.names == ("B", "C")
 
 
+def test_a_weight_within_the_tolerance_of_zero_holds_no_name() -> None:
+    # D's lower bound holds it at 1e-11, inside the feasibility tolerance of 1e-10:
+    # the optimum holds B and C, and D's sliver is no name, so two keep the limit.
+    bounds = WeightBounds(0.0, 0.5).with_asset("D", 1e-11, 0.5)
+    stated = problem(MaximumReturn(MU), ConstraintSet(FULL, bounds))
+    relaxed = construct(stated)
+    assert relaxed.weights is not None and relaxed.weights["D"] == pytest.approx(1e-11, abs=1e-14)
+    result = construct_with_cardinality(stated, 2)
+    assert result.outcome is CardinalityOutcome.WITHIN and result.restricted is None
+    assert result.names == ("B", "C") and result.gap == 0.0
+    assert result.weights == relaxed.weights
+
+
 def test_the_names_are_the_largest_ties_broken_by_asset_id() -> None:
     # Five identical, independent assets: the minimum-variance weights tie at 0.2.
     identical = CovarianceMatrix.from_rows(

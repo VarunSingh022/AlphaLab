@@ -165,8 +165,10 @@ def test_a_threshold_fires_on_one_weight_beyond_its_distance() -> None:
     target = {"A": 0.5, "B": 0.5}
     assert trigger.fires(moment(0.0, {"A": 0.54, "B": 0.46}, target), None)[0] is False
     assert trigger.fires(moment(0.0, {"A": 0.56, "B": 0.44}, target), None)[0] is True
-    # An asset the book holds and the target does not is a distance too.
-    assert trigger.fires(moment(0.0, {"A": 0.5, "B": 0.44, "C": 0.06}, target), None)[0] is True
+    # An asset the book holds and the target does not is a distance too: C's
+    # 0.06 alone fires, with A and B within their distance.
+    assert trigger.fires(moment(0.0, {"A": 0.5, "B": 0.47, "C": 0.06}, target), None)[0] is True
+    assert trigger.fires(moment(0.0, {"A": 0.5, "B": 0.47, "C": 0.03}, target), None)[0] is False
 
 
 def test_drift_fires_on_the_books_total_distance() -> None:
