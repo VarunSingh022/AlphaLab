@@ -316,8 +316,12 @@ ASSETS, SCENARIOS, LEVEL = 5, 40, 0.9
 
 
 def _scenarios() -> list[list[float]]:
+    # Drawn with correctly rounded operations only. random() is the Mersenne
+    # Twister's 53 bits, the same on every host; gauss() calls libm's log and cos,
+    # whose last bit is the host's, and gave Linux and macOS two programs -- which
+    # the pin below, being of bits, told apart (v4.3).
     rng = random.Random(3)
-    return [[rng.gauss(0.001, 0.02) for _ in range(ASSETS)] for _ in range(SCENARIOS)]
+    return [[0.001 + 0.04 * (rng.random() - 0.5) for _ in range(ASSETS)] for _ in range(SCENARIOS)]
 
 
 def _cvar_program(returns: list[list[float]]) -> LinearProgram:
@@ -368,7 +372,7 @@ def test_the_same_program_gives_the_same_bits_on_every_host() -> None:
 
 
 #: The CVaR program's solution, ``repr`` of its weights, alpha, excesses and objective.
-PINNED_CVAR = "9993a77ed00ed8325aed88c7861dcd662450831980c566787076b2c813caab01"
+PINNED_CVAR = "0d1be0197036c8eefbeb1e971cd15753f830a45a38168abf4c841083fad824c7"
 
 
 # --------------------------------------------------------------------------- #

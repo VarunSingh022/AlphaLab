@@ -293,9 +293,14 @@ cardinality is an integer program and stays a boundary.
        largest entry so that dependent rows stay factorable, and each
        direction is refined against the unlifted matrix. Mehrotra's centring,
        a ratio cubed, is cubed by multiplication: Python's `**` is the
-       platform's `pow`, which is not correctly rounded everywhere. Its first
-       form used `**`, and hosted CI's Linux cells found the cross-host bits
-       pin moved by it;
+       platform's `pow`, which is not correctly rounded everywhere;
+     - **the cross-host bits pin needs data that is the same on every
+       host.** Hosted CI's Linux cells failed the pin while macOS passed it.
+       The `pow` above was suspected first and removed, but Linux's digest
+       did not move: the pinned program's scenarios were drawn with
+       `random.gauss`, which calls libm's `log` and `cos`, so the two hosts
+       solved two programs. They are drawn with `random()` and arithmetic
+       now, exact everywhere, so the pin compares one program's solution;
      - the exact finish. The basis is the basic variables when they are
        independent and as many as the rows; otherwise -- a degenerate vertex,
        or an optimal face -- the first independent columns, the basic ones

@@ -4765,7 +4765,7 @@
         "sha": "a4acfa7",
         "workflow": "Continuous Integration",
         "run": 44976115371,
-        "result": "failure: the three Linux cells failed one test, the linear program's cross-host bits pin (test_linear.py::test_the_same_program_gives_the_same_bits_on_every_host); the three macOS cells passed. Cause: the centring parameter was cubed by `**`, the platform's pow; fixed by multiplication in the next commit"
+        "result": "failure: the three Linux cells failed one test, the linear program's cross-host bits pin (test_linear.py::test_the_same_program_gives_the_same_bits_on_every_host); the three macOS cells passed. Cause: the pinned program's scenarios were drawn with random.gauss, whose libm log and cos differ between hosts, so the hosts solved two programs; first suspected to be pow in the centring (8013353), which did not move Linux's digest"
       },
       {
         "sha": "a4acfa7",
@@ -4795,6 +4795,24 @@
         "sha": "3e01086",
         "workflow": "Optional Distributions",
         "run": 44977224874,
+        "result": "success"
+      },
+      {
+        "sha": "8013353",
+        "workflow": "Continuous Integration",
+        "run": 44980084776,
+        "result": "failure: the same Linux-only test, Linux's digest unchanged by removing pow, which showed pow was not the cause"
+      },
+      {
+        "sha": "8013353",
+        "workflow": "CodeQL",
+        "run": 44980084742,
+        "result": "success"
+      },
+      {
+        "sha": "8013353",
+        "workflow": "Optional Distributions",
+        "run": 44980084749,
         "result": "success"
       }
     ],
@@ -5226,6 +5244,10 @@
     {
       "date": "2026-11-22",
       "entry": "8013353 (the centring cubed by multiplication) passed the full gate (14,448 tests) and was pushed; its CI is read at the next boundary. Building scenario risk showed an infeasible CVaR limit taking 509 iterations: the interior point ran to its budget before Phase I proved infeasibility. Tracing the primal residual showed the pattern -- an infeasible program's stops at its least violation while the multipliers reach 1e9 to 1e14, a feasible one's falls to 1e-16 within ten iterations -- so a residual that has not halved in twenty iterations now hands over to Phase I, and a feasible program stopped that way resumes from its iterate to the same bits (TD-72). Infeasible programs are proven in 26 to 34 iterations; the generated programs, the cross-host pin and the budget ladder's iteration counts are unchanged. Scenario risk itself waits, stashed, for this commit."
+    },
+    {
+      "date": "2026-11-22",
+      "entry": "Correction to the entry before last: pow was not the cause of the Linux cells' failure. 8013353's CI failed the same test with the same Linux digest, so removing pow moved nothing there. The cause was the test's data: the pinned CVaR program's scenarios were drawn with random.gauss, which calls libm's log and cos, whose last bits differ between glibc and macOS, so the two hosts solved two different programs and the pin, being of bits, told them apart. The solver was never at fault; its operations are + - x /, sqrt and fsum, all correctly rounded. The scenarios are now drawn with random() and arithmetic, exact on every host, and the pin is recomputed. Cubing by multiplication stays, since pow is not correctly rounded everywhere. ADR-0063's settled point and a4acfa7's CI entry say so. b59419a (TD-72, the stall) passed the full gate (14,450 tests)."
     }
   ]
 }
