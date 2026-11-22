@@ -23,11 +23,15 @@ The method
    Optimization* 2, 1992; Wright, *Primal-Dual Interior-Point Methods*, 1997).
    Each Newton system is reduced to the normal equations ``A T A' dy = r``, ``T``
    diagonal and positive, built column by column from the rows' sparse terms and
-   factored by :func:`alphalab.common.linalg.cholesky`. ``1e-12`` of the normal
-   matrix's largest diagonal entry (of one, when that is smaller) is added to
-   its diagonal so that dependent rows stay factorable, and each direction is
-   refined against the unraised matrix; the certificate, not the
-   regularization, decides the answer.
+   factored by :func:`alphalab.common.linalg.cholesky`. The normal matrix is
+   first scaled to a unit diagonal (Jacobi's scaling), each row by its own
+   diagonal entry or, when that is below ``1e-12`` of the largest, by that, and
+   ``1e-12`` is added to the scaled diagonal: dependent rows stay factorable, a
+   row is lifted by ``1e-12`` of its own entry -- by ``1e-24`` of the largest
+   when its own is that small -- and each direction is then refined against
+   the unraised matrix. A direction that leaves the floating-point range ends
+   the interior point, as a matrix that cannot be factored does. The
+   certificate, not the regularization, decides the answer.
 3. **An exact finish.** From the converged iterate each variable is read as at
    its lower bound, at its upper bound or basic. The basis is the basic
    variables when they are as many as the rows and independent; otherwise -- a
@@ -87,9 +91,13 @@ __all__ = [
 #: The fraction of the step to the boundary an iterate takes.
 _STEP: Final = 0.995
 
-#: The normal matrix's diagonal is raised by this fraction of its largest entry, so
+#: The normal matrix, scaled to a unit diagonal, has this added to its diagonal, so
 #: that dependent rows stay factorable; each direction is then refined against the
-#: unraised matrix, so the step meets the primal equations to rounding.
+#: unraised matrix, so the step meets the primal equations to rounding. Until v4.3's
+#: M9 the lift was this fraction of the *largest* diagonal entry, which swamped a
+#: row whose own entry was many orders smaller -- a CVaR program's excess rows near
+#: the optimum -- so its direction missed the primal equations, the step put the
+#: miss into a row already met, and the iterate jammed against its bounds.
 _REGULARIZATION: Final = 1e-12
 
 #: How many refinements a normal-equation solve may take.
@@ -371,7 +379,43 @@ def _boundary(values: Sequence[float], steps: Sequence[float]) -> float:
     return alpha
 
 
-def _normal_factor(form: _Standard, theta: Sequence[float]) -> CholeskyFactor:
+class _Overflow(Exception):
+    """A Newton direction left the floating-point range, so the iterate can go no further.
+
+    An infeasible program's multipliers grow without bound, and under Jacobi's
+    scaling nothing caps them; an interior point that meets this stops, as it
+    does when its normal matrix cannot be factored, and Phase I decides.
+    """
+
+
+def _require_finite(values: Sequence[float]) -> None:
+    if not all(math.isfinite(value) for value in values):
+        raise _Overflow
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalFactor:
+    """``A T A'``, scaled to a unit diagonal by ``scale``, lifted, and factored.
+
+    :meth:`solve` answers the unscaled system: ``A T A' dy = rhs`` is
+    ``(S A T A' S)(S^-1 dy) = S rhs``, with ``S`` the diagonal of ``scale``.
+
+    Raises:
+        _Overflow: If the right-hand side or the answer is not finite.
+    """
+
+    factor: CholeskyFactor
+    scale: tuple[float, ...]
+
+    def solve(self, rhs: Sequence[float]) -> list[float]:
+        scaled = [s * value for s, value in zip(self.scale, rhs, strict=True)]
+        _require_finite(scaled)
+        answer = [s * value for s, value in zip(self.scale, self.factor.solve(scaled), strict=True)]
+        _require_finite(answer)
+        return answer
+
+
+def _normal_factor(form: _Standard, theta: Sequence[float]) -> _NormalFactor:
     size = len(form.rows)
     matrix = [[0.0] * size for _ in range(size)]
     for k, column in enumerate(form.columns):
@@ -383,18 +427,28 @@ def _normal_factor(form: _Standard, theta: Sequence[float]) -> CholeskyFactor:
                     matrix[p][q] += scaled * b
                 else:
                     matrix[q][p] += scaled * b
-    largest = max((matrix[i][i] for i in range(size)), default=0.0)
-    lift = _REGULARIZATION * max(largest, 1.0)
+    # Jacobi's scaling: each row and column by the inverse root of its diagonal
+    # entry -- or of _REGULARIZATION of the largest (of one, when that is smaller),
+    # when its own is below that -- then the lift. A row is lifted by
+    # _REGULARIZATION of its own entry, and one far below the largest by
+    # _REGULARIZATION squared of the largest: never swamped near an optimum, and an
+    # infeasible program's multipliers still grow by a bounded step each iteration.
+    floor = _REGULARIZATION * max((matrix[i][i] for i in range(size)), default=1.0)
+    floor = max(floor, _REGULARIZATION)
+    scale = [1.0 / math.sqrt(max(matrix[i][i], floor)) for i in range(size)]
     for i in range(size):
-        matrix[i][i] += lift
-    return cholesky(matrix)
+        row = matrix[i]
+        for j in range(i):
+            row[j] *= scale[i] * scale[j]
+        row[i] = row[i] * (scale[i] * scale[i]) + _REGULARIZATION
+    return _NormalFactor(cholesky(matrix), tuple(scale))
 
 
 def _direction(
     form: _Standard,
     point: _Iterate,
     theta: Sequence[float],
-    factor: CholeskyFactor,
+    factor: _NormalFactor,
     r_p: Sequence[float],
     r_d: Sequence[float],
     r_xz: Sequence[float],
@@ -407,6 +461,7 @@ def _direction(
         for rd, rxz, rwv, x, w in zip(r_d, r_xz, r_wv, point.x, point.w, strict=True)
     ]
     scaled = [t * value for t, value in zip(theta, shifted, strict=True)]
+    _require_finite(scaled)
     rhs = [rp + value for rp, value in zip(r_p, _times(form, scaled), strict=True)]
     dy = list(factor.solve(rhs)) if rhs else []
     scale = 1.0 + _largest(rhs)
@@ -421,6 +476,8 @@ def _direction(
     dx = [t * (value - s) for t, value, s in zip(theta, aty, shifted, strict=True)]
     dz = [(rxz - z * d) / x for rxz, z, d, x in zip(r_xz, point.z, dx, point.x, strict=True)]
     dv = [(rwv + v * d) / w for rwv, v, d, w in zip(r_wv, point.v, dx, point.w, strict=True)]
+    for values in (dx, dz, dv):
+        _require_finite(values)
     return dx, dy, dz, dv
 
 
@@ -486,7 +543,10 @@ def _interior_point(
         # Predictor: the affine-scaling direction.
         r_xz = [-x * z for x, z in zip(point.x, point.z, strict=True)]
         r_wv = [-w * v for w, v in zip(point.w, point.v, strict=True)]
-        dx, dy, dz, dv = _direction(form, point, theta, factor, r_p, r_d, r_xz, r_wv)
+        try:
+            dx, dy, dz, dv = _direction(form, point, theta, factor, r_p, r_d, r_xz, r_wv)
+        except _Overflow:
+            return point, iteration, False, False
         alpha_p = min(_boundary(point.x, dx), _boundary(point.w, [-d for d in dx]))
         alpha_d = min(_boundary(point.z, dz), _boundary(point.v, dv))
         affine = math.fsum(
@@ -505,7 +565,10 @@ def _interior_point(
         # Corrector: centred, with the predictor's second-order terms.
         r_xz = [target - x * z - a * b for x, z, a, b in zip(point.x, point.z, dx, dz, strict=True)]
         r_wv = [target - w * v + a * b for w, v, a, b in zip(point.w, point.v, dx, dv, strict=True)]
-        dx, dy, dz, dv = _direction(form, point, theta, factor, r_p, r_d, r_xz, r_wv)
+        try:
+            dx, dy, dz, dv = _direction(form, point, theta, factor, r_p, r_d, r_xz, r_wv)
+        except _Overflow:
+            return point, iteration, False, False
         alpha_p = _STEP * min(_boundary(point.x, dx), _boundary(point.w, [-d for d in dx]))
         alpha_d = _STEP * min(_boundary(point.z, dz), _boundary(point.v, dv))
         point.x = [x + alpha_p * d for x, d in zip(point.x, dx, strict=True)]

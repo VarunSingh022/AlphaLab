@@ -1237,6 +1237,19 @@
       "compatibility": "Additive: a package of 17 exports (3,138 exports, 46 packages). SessionCalendar's shared-name reason now names three narrow protocols. Only docstrings change in portfolio_optimizer.rebalance, PortfolioManager.rebalance and PortfolioEngine.rebalance. No identity, digest or persisted byte moves for an existing run.",
       "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 5); CHANGELOG (Added, Deprecated); ARCHITECTURE's dependency table, layering and standalone-engine paragraphs; the package's docstrings; the manifest's SessionCalendar reason.",
       "tests": "tests/unit/rebalancing/test_triggers.py (22): months, ISO weeks and days by hand; one instant in two months in UTC and in Tokyo; an overnight MarketCalendar through the protocol, with a slice outside every session; threshold against drift; every refusal. tests/unit/rebalancing/test_strategy.py (31), against a fake desk: the book as each fill's share; lot-rounded targets; a held asset sold to nothing; sells first, and a deferral replaced; simultaneous; an unpriced holding; a declining model; an uncertified answer; a cardinality limit; the book checks on turnover and costs; a future without economics; the state through the encoder, and another version or strategy refused; both capital rules. tests/integration/test_rebalancing_backtest.py (9): 400 daily slices over three registered equities, rebalanced monthly to minimum variance estimated from the run's history; each record's targets are the next rebalance's book, and the account holds the strategy's holdings at the end; an infeasible cap trades nothing; two runs give one result; paused at three points, the run resumes to the digest of the same run replayed whole; and S-10's piece, beside a second strategy trading one of its assets in the same account, its book is its own share, the position allocation measures, its weights are of its stated budget, and its rebalances reconcile to it while the account holds both. Regression: the package count (45), nothing importing the package, section 19's narrowness pin, the two enums the declared state writes pinned, and the superseded notices with no warning raised."
+    },
+    {
+      "id": "TD-76",
+      "date": "2026-11-22",
+      "workstream": "WS-12",
+      "title": "The linear program's normal equations scaled to a unit diagonal before their lift, and a direction past the floating-point range handed to Phase I (ADR-0063 settled point 2, found by example 83)",
+      "problem": "Example 83's tight trial met a feasible CVaR program that the linear program called NUMERICAL_FAILURE after 150 iterations, whatever the budget. The least CVaR under its other constraints is 0.0092, inside the limit of 0.012. From the 21st iteration each Newton direction missed the primal equations: |A dx - r_p| grew from 1e-13 to 4.3e-07. The normal matrix's lift, 1e-12 of its largest diagonal entry, exceeded the scenario-excess rows' own entries by orders of magnitude near the optimum. Their multipliers' direction was wrong, and the error gathered in the CVaR row that sums them. A near-full step put it into a row already met, its variables were pressed to their bounds, and the iterate jammed at a residual of 4.755e-07.",
+      "alternatives": "(a) More refinements: each converges at the ratio of the lift to the row's entry, so slowly exactly where it matters. (b) A crossover to the simplex method from the vertex the finish reads: a new algorithm, when the cause is the system's scaling. (c) A lift relative to each row's own entry on the unscaled matrix: the Cholesky factorization refuses any pivot below n x eps of the largest diagonal entry, which is where those rows' pivots fall. (d) Jacobi's scaling with a unit lift: it certifies the program, but an infeasible program's multipliers then grow without bound, about 1e19 an iteration, and overflow before the stall rule's twenty iterations (the cardinality tests' infeasible restrictions). (e) Jacobi's scaling with each row's scale floored at 1e-12 of the largest, and a direction past the floating-point range ending the interior point.",
+      "decision": "(e). _NormalFactor scales the normal matrix by the inverse root of max(entry, 1e-12 x max(largest, 1)), adds 1e-12 to the scaled diagonal, and unscales its solve. A row is lifted by 1e-12 of its own entry, or by 1e-24 of the largest when it is that small. A right-hand side or direction that is not finite raises an internal _Overflow, which ends the interior point as a failed factorization does, and Phase I decides.",
+      "rationale": "Scaling each row by its own size is what the regularization needed. The lift exists to keep dependent rows factorable, and a duplicate row's pivot is still about 2e-12 in the scaled matrix, above the factorization's floor for any program under about 9,000 rows, as before. The floor keeps each iteration's growth of an infeasible program's multipliers bounded, so the stall rule still decides; the guard covers the rest. The certificate decides every answer, as before.",
+      "compatibility": "No public name, identity or persisted byte moves. Every earlier test and pin is unchanged: the answers they pin are exact vertex solves, so the changed iterates reach the same bits. The infeasible neighbour program takes 39 iterations, against 41 before.",
+      "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 2); linear.py's module docstring and _REGULARIZATION's note; CHANGELOG's linear-program entry.",
+      "tests": "tests/unit/portfolio_optimizer/test_captured_programs.py (4) holds the two programs example 83's tight trial met at its 105th and 107th rebalances, exactly, each rebuilt to its stated problem identity. The 105th is certified OPTIMAL. Its weights are held without the solver to the invested fraction, the caps, the sector caps, zero value exposure and a CVaR computed by sorting the losses, and its net return is at least the least-CVaR portfolio's. The 107th is INFEASIBLE by the margin by which its least CVaR, solved separately, misses the limit. The 105th fails under the earlier factor; the cardinality and linear tests' infeasible programs caught the unfloored scaling's overflow."
     }
   ],
   "plan_changes": [
@@ -2347,6 +2360,11 @@
         {
           "milestone": "M9",
           "item": "The rebalancing package (TD-75, ADR-0063 settled point 5, GAP-20, N19): RebalancingStrategy at a slice's close, its book its own share of fills and working orders, certified answers as lot-rounded TARGET_QUANTITY intents, calendar, threshold and drift triggers that state every parameter, capital rules, the execution order stated, every rebalance recorded and its state declared; its book its own beside another strategy (S-10's piece); portfolio_optimizer's standalone rules documented as superseded",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M9",
+          "item": "The linear program's normal equations scaled to a unit diagonal before their lift (TD-76, ADR-0063 settled point 2): a feasible CVaR program example 83 met, which jammed at NUMERICAL_FAILURE, certified; an infeasible one proven by its own margin; a direction past the floating-point range handed to Phase I",
           "status": "Local validation passed"
         }
       ],
@@ -3583,7 +3601,7 @@
   },
   "state": {
     "updated": "2026-11-22",
-    "remote_head": "1c59e40",
+    "remote_head": "ef37b6d",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -5369,6 +5387,10 @@
     {
       "date": "2026-11-22",
       "entry": "1c59e40 (the cardinality relaxation, TD-74) passed the full gate (14,560 tests) and was pushed. e12877e, 2c8236f and 1c59e40 then passed hosted CI: all six quality-gate cells each, with CodeQL and Optional Distributions. The linear program's cross-host pin held on every Linux and macOS cell, so TD-71 to TD-74 are Hosted CI passed. The rebalancing package validated locally (TD-75), and its first backtest found two things. The engine refused a purchase that filled before the sale paying for it (InsufficientFundsError), which is correct for a cash account; the strategy now states its execution order, and sells first in the test. Drift fired again while the strategy's own orders were working, so the triggers now read the planned position. Writing the package's records, test_v34_invariants caught a ZoneInfo built inside the package, a second zone authority; it now calls resolve_zone, through a data edge the package already reached through instrument. The first full gate then failed one test, test_persisted_enum_names: the strategy's declared state wrote a record's status by bare member name, a second dialect beside the format's Cls.NAME, which as_named_enum alone reads. It now writes Cls.NAME and reads it with as_named_enum, through a persistence edge also already in reach, and both enums are pinned. The continuation authorization's S-01, S-10 and S-14 are mapped to the plan in M9's note."
+    },
+    {
+      "date": "2026-11-22",
+      "entry": "ef37b6d (the rebalancing package, TD-75) passed the full gate (14,630 tests) and was pushed. Example 83, S-01's construction run for ten years as an experiment, found a defect in the linear program (TD-76). One of its 228 constructions was feasible, yet returned NUMERICAL_FAILURE whatever the budget. Traced: the normal matrix's lift, set by its largest entry, swamped the scenario-excess rows near the optimum, so each direction missed the primal equations, and the miss jammed the iterate against its bounds. Jacobi's scaling certified it. Run unfloored, it let an infeasible program's multipliers overflow before the stall rule fired, which the cardinality tests caught. Floored at 1e-12 of the largest entry, with a guard on non-finite directions, it passes every earlier test with every pin unchanged. The program and its infeasible neighbour are held as captured."
     }
   ]
 }

@@ -1286,7 +1286,11 @@ entry below says otherwise.
     why, with no point. It uses only IEEE-754 correctly rounded operations, so
     a program gives the same bits on every host. An infeasible program is
     proven once its residual stalls, in a few dozen iterations rather than its
-    whole budget; a feasible one that stalls resumes, to the same answer.
+    whole budget; a feasible one that stalls resumes, to the same answer. Each
+    Newton system's normal matrix is scaled to a unit diagonal before it is
+    regularized, so a row many orders below the largest keeps its direction
+    exact near an optimum; a direction past the floating-point range hands the
+    program to Phase I.
   * **A linear objective** is a `LinearObjective`. It states a `LinearForm`: a
     cost on each weight, and any `LinearVariable`s and `LinearRow`s its lifting
     adds -- CVaR's threshold and one excess per scenario, say -- each with the

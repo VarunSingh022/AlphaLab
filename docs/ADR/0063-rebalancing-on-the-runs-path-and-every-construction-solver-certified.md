@@ -328,6 +328,32 @@ cardinality is an integer program and stays a boundary.
        iterate; each step depends on the iterate alone, so it takes the steps
        it would have taken, and the answer is the same to the bit. Infeasible
        programs are proven in 26 to 34 iterations.
+     - **the normal matrix is scaled to a unit diagonal before its lift**
+       (TD-76). Example 83's ten-year backtest met a feasible CVaR program
+       that the first form called `NUMERICAL_FAILURE`, whatever the budget:
+       - the lift was `1e-12` of the largest diagonal entry. Near the
+         optimum the scenario-excess rows' own entries were many orders
+         smaller, so the lift swamped them, and their multipliers' direction
+         was wrong;
+       - the error gathered in the CVaR row that sums the excesses. A
+         near-full step put it into a row already met, its variables were
+         pressed to their bounds, and the iterate jammed at a residual of
+         4.755e-07.
+
+       Each row is now scaled by its own diagonal entry, or by `1e-12` of the
+       largest when its own is smaller, and `1e-12` is added to the scaled
+       diagonal. A row is lifted by `1e-12` of itself, or by `1e-24` of the
+       largest when it is that small, so an infeasible program's multipliers
+       still grow by a bounded step each iteration. A direction that leaves
+       the floating-point range ends the interior point, as a matrix that
+       cannot be factored does, and Phase I decides. A per-row lift without
+       the scaling was not enough: the Cholesky factorization refuses a pivot
+       below `n x eps` of the largest diagonal entry, which is where those
+       rows' pivots fall. The program and its neighbour, infeasible by
+       exactly the margin its certificate states, are held in
+       `tests/unit/portfolio_optimizer/test_captured_programs.py`. Every
+       earlier test and pin is unchanged: the answers they pin are exact
+       vertex solves, so the changed iterates reach the same bits.
    - **Linear objectives in construction.** A `LinearObjective` states a
      `LinearForm`: a cost on each weight, over exactly the universe, and any
      `LinearVariable`s and `LinearRow`s its lifting adds. Each variable states
