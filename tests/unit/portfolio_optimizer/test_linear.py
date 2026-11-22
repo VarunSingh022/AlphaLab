@@ -9,9 +9,10 @@
 * **Hand cases.** A degenerate vertex is certified at the vertex, exactly, and
   so is an optimal edge, at one of its vertices; dependent rows, which have no
   basis, at the interior; an infeasible row by a Farkas certificate that names
-  it; shifted and fixed bounds; the tolerance in each row's own units. A program
-  with no row is solved exactly, and a row whose variables are all fixed holds or
-  is its own Farkas certificate.
+  it; shifted and fixed bounds; the tolerance in each row's own units. An
+  infeasible program is proven once its residual stalls, and a feasible one that
+  stalls resumes to the same bits. A program with no row is solved exactly, and a
+  row whose variables are all fixed holds or is its own Farkas certificate.
 * **CVaR** (Rockafellar and Uryasev) over 40 scenarios at level 0.9 is the mean
   of the worst four losses at the solution, and no sampled portfolio does better.
 * **Bits.** The same program gives the same bits, pinned for every host.
@@ -26,6 +27,7 @@ from fractions import Fraction
 
 import pytest
 
+from alphalab.portfolio_optimizer import linear
 from alphalab.portfolio_optimizer.exceptions import OptimizationError
 from alphalab.portfolio_optimizer.linear import (
     LinearCertificate,
@@ -258,6 +260,39 @@ def test_the_tolerance_is_in_each_rows_own_units(
     assert solution.conflict == ("reach",)
     weight = sum(abs(Fraction(value)) for value in solution.multipliers)
     assert exact_farkas_margin(program, solution.multipliers) > Fraction(TOLERANCE) * weight
+
+
+def test_an_infeasible_program_is_proven_without_spending_the_budget() -> None:
+    # Its primal residual stops at the least violation: after twenty iterations
+    # without halving, Phase I proves it, long before the 200 allowed.
+    need = LinearConstraint("need", ((0, 1.0), (1, 1.0)), 3.0, False)
+    solution = solve(LinearProgram((1.0, 1.0), (need,), (0.0, 0.0), (1.0, 1.0)))
+    assert solution.status is SolveStatus.INFEASIBLE
+    assert solution.iterations < 60
+
+
+def test_a_stalled_program_that_is_feasible_resumes_where_it_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A stall window of one iteration stops this feasible program at once; Phase I
+    # proves no infeasibility, and the interior point resumes from its iterate, so
+    # it takes the steps it would have taken: the same bits, more iterations.
+    program = LinearProgram(
+        (-3.0, 2.0, 1.0, 3.0),
+        (
+            LinearConstraint("ge[0]", ((0, 1.0), (1, 1.0), (2, -1.0), (3, 2.0)), 4.0, False),
+            LinearConstraint("ge[1]", ((2, -1.0), (3, 2.0)), -3.0, False),
+            LinearConstraint("ge[2]", ((0, -1.0), (2, -1.0), (3, 1.0)), 3.0, False),
+        ),
+        (-2.0, -2.0, -1.0, 0.0),
+        (2.0, 3.0, 3.0, 2.0),
+    )
+    uninterrupted = solve(program)
+    monkeypatch.setattr(linear, "_STALL", 1)
+    resumed = solve(program)
+    assert uninterrupted.status is resumed.status is SolveStatus.OPTIMAL
+    assert resumed.x == uninterrupted.x and resumed.objective == uninterrupted.objective
+    assert resumed.iterations > uninterrupted.iterations
 
 
 def test_shifted_and_fixed_bounds_are_the_programs_own() -> None:

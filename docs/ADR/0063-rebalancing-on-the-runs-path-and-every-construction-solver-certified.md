@@ -313,7 +313,16 @@ cardinality is an integer program and stays a boundary.
      - `INFEASIBLE` only by a Phase I Farkas certificate, verified over the
        box, whose margin exceeds the tolerance times its total weight: any
        point within the tolerance of every row would leave less, so none is.
-       Otherwise `ITERATION_LIMIT` or `NUMERICAL_FAILURE`.
+       Otherwise `ITERATION_LIMIT` or `NUMERICAL_FAILURE`;
+     - **a stall hands over to Phase I early.** An infeasible program's primal
+       residual stops at its least violation while the multipliers grow
+       without bound, and the first form ran such a program to its iteration
+       budget: 130 to 500 iterations. An interior point whose residual has
+       not halved in twenty iterations now stops, and Phase I decides. If
+       Phase I proves no infeasibility, the interior point resumes from its
+       iterate; each step depends on the iterate alone, so it takes the steps
+       it would have taken, and the answer is the same to the bit. Infeasible
+       programs are proven in 26 to 34 iterations.
    - **Linear objectives in construction.** A `LinearObjective` states a
      `LinearForm`: a cost on each weight, over exactly the universe, and any
      `LinearVariable`s and `LinearRow`s its lifting adds. Each variable states

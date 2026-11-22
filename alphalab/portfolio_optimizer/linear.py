@@ -45,12 +45,16 @@ The method
    ``y`` by weak duality, so nothing else need be trusted.
 
 ``INFEASIBLE`` only with a verified Farkas certificate. When the interior point
-does not reach a certified answer, a Phase I program -- the least total
-violation of the rows over the box -- is solved the same way. Its multipliers
+does not reach a certified answer -- it fails to converge, or its primal
+residual stops halving for twenty iterations, as an infeasible program's does
+-- a Phase I program, the least total violation of the rows over the box, is
+solved the same way. Its multipliers
 ``y`` prove infeasibility when ``b' y`` exceeds the most ``y' A x`` can be over
 the box by more than ``feasibility_tolerance * sum |y_i|``: then no point of the
 box is within the tolerance of every row. The rows they weight are named as the
-conflict. Otherwise ``ITERATION_LIMIT`` or ``NUMERICAL_FAILURE``, with no ``x``.
+conflict. An interior point that only stalled, and that Phase I does not prove
+infeasible, resumes from where it stopped within the budget left. Otherwise
+``ITERATION_LIMIT`` or ``NUMERICAL_FAILURE``, with no ``x``.
 
 Every tolerance on a row is in the row's own units, as construction's are: a
 point is feasible when no row misses its bound by more than
@@ -96,6 +100,11 @@ _FINISH_ATTEMPTS: Final = 3
 
 #: Below this, an iterate's coordinate is no longer strictly inside its bounds.
 _TINY: Final = 1e-280
+
+#: An interior point whose primal residual has not halved in this many iterations
+#: has stalled. An infeasible program's residual stops at its least violation
+#: while its multipliers grow without bound; a feasible one's falls geometrically.
+_STALL: Final = 20
 
 
 def _finite(value: object, what: str) -> float:
@@ -416,13 +425,25 @@ def _direction(
 
 
 def _interior_point(
-    form: _Standard, tolerance: float, max_iterations: int
-) -> tuple[_Iterate, int, bool]:
-    """Mehrotra's predictor-corrector from the box's centre: the iterate, its count, converged."""
+    form: _Standard,
+    tolerance: float,
+    max_iterations: int,
+    *,
+    watch: bool = False,
+    start: _Iterate | None = None,
+) -> tuple[_Iterate, int, bool, bool]:
+    """Mehrotra's predictor-corrector from the box's centre, or from ``start``.
 
-    point = _start(form)
+    Returns the iterate, the iterations taken, whether it converged, and whether
+    it stopped on a stall, which it does only when ``watch``ing for one. Each
+    iteration depends on the iterate alone, so one resumed from where it
+    stopped takes the steps it would have taken.
+    """
+
+    point = _start(form) if start is None else start
     count = 2 * len(form.costs)
     c_scale = 1.0 + _largest(form.costs)
+    history: list[float] = []
     for iteration in range(max_iterations):
         ax = _times(form, point.x)
         aty = _transposed(form, point.y)
@@ -435,16 +456,25 @@ def _interior_point(
         complementarity += math.fsum(w * v for w, v in zip(point.w, point.v, strict=True))
         mu = complementarity / count
         objective = math.fsum(c * x for c, x in zip(form.costs, point.x, strict=True))
+        residual = _largest(r_p)
         if (
-            _largest(r_p) <= tolerance
+            residual <= tolerance
             and _largest(r_d) <= tolerance * c_scale
             and complementarity <= tolerance * (1.0 + abs(objective))
         ):
-            return point, iteration, True
+            return point, iteration, True, False
+        if watch:
+            history.append(residual)
+            if (
+                len(history) > _STALL
+                and residual > tolerance
+                and residual > 0.5 * history[-1 - _STALL]
+            ):
+                return point, iteration, False, True
         if min(point.x + point.w + point.z + point.v, default=1.0) <= _TINY:
             # An iterate pressed against a bound until it underflows makes no more
             # progress; an infeasible program does this. Phase I decides.
-            return point, iteration, False
+            return point, iteration, False, False
         theta = [
             1.0 / (z / x + v / w)
             for x, w, z, v in zip(point.x, point.w, point.z, point.v, strict=True)
@@ -452,7 +482,7 @@ def _interior_point(
         try:
             factor = _normal_factor(form, theta)
         except (NotPositiveDefiniteError, AlphaLabValidationError):
-            return point, iteration, False
+            return point, iteration, False, False
         # Predictor: the affine-scaling direction.
         r_xz = [-x * z for x, z in zip(point.x, point.z, strict=True)]
         r_wv = [-w * v for w, v in zip(point.w, point.v, strict=True)]
@@ -486,7 +516,7 @@ def _interior_point(
         point.y = [y + alpha_d * d for y, d in zip(point.y, dy, strict=True)]
         point.z = [z + alpha_d * d for z, d in zip(point.z, dz, strict=True)]
         point.v = [v + alpha_d * d for v, d in zip(point.v, dv, strict=True)]
-    return point, max_iterations, False
+    return point, max_iterations, False, False
 
 
 # --------------------------------------------------------------------------- #
@@ -717,6 +747,67 @@ def _named(program: LinearProgram, numbers: Sequence[int]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(program.constraints[n].label for n in sorted(set(numbers))))
 
 
+def _candidates(
+    form: _Standard, point: _Iterate
+) -> list[tuple[LinearCertificate, list[float], list[float]]]:
+    """What the certificate is checked on: the vertex, with its own multipliers and then
+    with the iterate's -- the bound holds for any, and at a degenerate vertex the
+    iterate's may prove what the basis's cannot -- and then the iterate itself."""
+
+    candidates: list[tuple[LinearCertificate, list[float], list[float]]] = []
+    vertex = _vertex(form, point)
+    if vertex is not None:
+        candidates.append((LinearCertificate.VERTEX, vertex[0], vertex[1]))
+        candidates.append((LinearCertificate.VERTEX, vertex[0], point.y))
+    candidates.append((LinearCertificate.INTERIOR, point.x, point.y))
+    return candidates
+
+
+@dataclass(frozen=True, slots=True)
+class _Context:
+    """What certifying a candidate reads besides the candidate."""
+
+    program: LinearProgram
+    form: _Standard
+    fixed: Sequence[float]
+    offset: float
+    unmoved: float
+    feasibility_tolerance: float
+    convergence_tolerance: float
+
+
+def _certified(
+    context: _Context,
+    candidates: Sequence[tuple[LinearCertificate, list[float], list[float]]],
+    iterations: int,
+) -> tuple[LinearSolution | None, float]:
+    """The first candidate the certificate verifies, as a solution, and the least violation seen."""
+
+    worst = math.inf
+    for kind, x, y in candidates:
+        checked = _check(context.form, x, y, context.feasibility_tolerance, context.offset)
+        worst = min(worst, checked.violation)
+        if checked.feasible and checked.gap <= context.convergence_tolerance:
+            return (
+                LinearSolution(
+                    status=SolveStatus.OPTIMAL,
+                    x=_unshift(context.program, context.form, context.fixed, x),
+                    objective=checked.objective,
+                    bound=checked.bound,
+                    multipliers=_per_constraint(context.program, context.form, y, {}),
+                    conflict=(),
+                    certificate=kind,
+                    iterations=iterations,
+                    max_violation=max(checked.violation, context.unmoved),
+                    gap=checked.gap,
+                    detail=f"Certified at a {kind.value}: feasible within the tolerance, "
+                    f"its objective within {checked.gap:.3g} (relative) of a proven bound.",
+                ),
+                worst,
+            )
+    return None, worst
+
+
 def _unshift(
     program: LinearProgram, form: _Standard, fixed: Sequence[float], x: Sequence[float]
 ) -> tuple[float, ...]:
@@ -769,57 +860,34 @@ def solve_linear_program(
             detail="Infeasible: every variable of the constraints named is fixed, and they miss "
             f"their bounds by {margin:.6g} in all.",
         )
-    unmoved = max((miss for _, miss, _ in form.vacuous), default=0.0)
-    candidates: list[tuple[LinearCertificate, list[float], list[float]]] = []
+    context = _Context(
+        program,
+        form,
+        fixed,
+        offset,
+        max((miss for _, miss, _ in form.vacuous), default=0.0),
+        feasibility_tolerance,
+        convergence_tolerance,
+    )
+    tolerance = min(feasibility_tolerance, convergence_tolerance)
     if not form.rows:
         # No row: each variable at the bound its cost prefers is optimal, exactly.
-        iterations, converged = 0, True
-        candidates.append(
-            (
-                LinearCertificate.VERTEX,
-                [
-                    0.0 if cost >= 0.0 else bound
-                    for cost, bound in zip(form.costs, form.upper, strict=True)
-                ],
-                [],
-            )
-        )
-    else:
-        point, iterations, converged = _interior_point(
-            form, min(feasibility_tolerance, convergence_tolerance), max_iterations
-        )
-        vertex = _vertex(form, point)
-        if vertex is not None:
-            # The vertex with its own multipliers, then with the iterate's: the bound
-            # holds for any multipliers, and at a degenerate vertex the iterate's may
-            # prove what the basis's cannot.
-            candidates.append((LinearCertificate.VERTEX, vertex[0], vertex[1]))
-            candidates.append((LinearCertificate.VERTEX, vertex[0], point.y))
-        candidates.append((LinearCertificate.INTERIOR, point.x, point.y))
-    worst = math.inf
-    for kind, x, y in candidates:
-        checked = _check(form, x, y, feasibility_tolerance, offset)
-        worst = min(worst, checked.violation)
-        if checked.feasible and checked.gap <= convergence_tolerance:
-            return LinearSolution(
-                status=SolveStatus.OPTIMAL,
-                x=_unshift(program, form, fixed, x),
-                objective=checked.objective,
-                bound=checked.bound,
-                multipliers=_per_constraint(program, form, y, {}),
-                conflict=(),
-                certificate=kind,
-                iterations=iterations,
-                max_violation=max(checked.violation, unmoved),
-                gap=checked.gap,
-                detail=f"Certified at a {kind.value}: feasible within the tolerance, "
-                f"its objective within {checked.gap:.3g} (relative) of a proven bound.",
-            )
+        preferred = [
+            0.0 if cost >= 0.0 else bound
+            for cost, bound in zip(form.costs, form.upper, strict=True)
+        ]
+        solution, _ = _certified(context, [(LinearCertificate.VERTEX, preferred, [])], 0)
+        assert solution is not None  # the bound equals the objective at this point
+        return solution
+    point, iterations, converged, stalled = _interior_point(
+        form, tolerance, max_iterations, watch=True
+    )
+    solution, worst = _certified(context, _candidates(form, point), iterations)
+    if solution is not None:
+        return solution
     # No certified optimum: is the program infeasible?
     phase, _ = _standard(program, phase_one=True)
-    trial, more, _ = _interior_point(
-        phase, min(feasibility_tolerance, convergence_tolerance), max_iterations
-    )
+    trial, more, _, _ = _interior_point(phase, tolerance, max_iterations)
     iterations += more
     margin = _farkas(form, trial.y)
     # Any point within the tolerance of every row would leave a margin of at most
@@ -847,6 +915,17 @@ def solve_linear_program(
             detail=f"Infeasible: the rows weighted by the certificate cannot hold together "
             f"within the bounds, by {margin:.6g}.",
         )
+    if stalled and iterations < max_iterations:
+        # It stalled, and Phase I proves no infeasibility: it resumes where it stopped,
+        # within what the budget has left, and takes the steps it would have taken.
+        point, more, converged, _ = _interior_point(
+            form, tolerance, max_iterations - iterations, start=point
+        )
+        iterations += more
+        solution, later = _certified(context, _candidates(form, point), iterations)
+        if solution is not None:
+            return solution
+        worst = min(worst, later)
     status = (
         SolveStatus.ITERATION_LIMIT
         if not converged and iterations >= max_iterations

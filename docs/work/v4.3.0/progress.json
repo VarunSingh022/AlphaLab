@@ -1185,6 +1185,19 @@
       "compatibility": "Additive: a solver module, and five package exports (LinearForm, LinearObjective, LinearRow, LinearVariable, MaximumReturn). ConstructionObjective includes MaximumReturn, named in the CHANGELOG. No existing problem's identity moves, since the method line appears only for a linear objective. v3.13's mutation Y50, anchored on construct's last branch, follows that branch's new form.",
       "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 2, and its known limitation); CHANGELOG; the linear module's and construction's docstrings; ARCHITECTURE's Custom Optimizers section and capability row; nowandfuture's 'Adding a construction method'.",
       "tests": "tests/unit/portfolio_optimizer/test_linear.py (81): 60 generated programs against an exhaustive exact vertex enumeration (tests/unit/portfolio_optimizer/lp_reference.py, sharing no code with the solver; ADR-0063 section 3 named an exact simplex, and enumeration proves the same over a bounded box more simply), reaching both outcomes and both certificates, every Farkas certificate verified in rational arithmetic; a degenerate vertex and an optimal edge finished exactly at a vertex; dependent rows certified at the interior; a Farkas certificate naming its row; shifted and fixed bounds; the tolerance in each row's own units, within and beyond it; no row; rows of fixed variables; CVaR at level 0.9; the bits pinned; refusals. tests/unit/portfolio_optimizer/test_linear_objectives.py (68): MaximumReturn against the exact optimum of the same problem stated independently -- absolute sums as polytopes, costs one orthant at a time -- over 40 seeds reaching caps, a gross limit, turnover, costs and infeasibility; a researcher's CVaR through the protocol against the exact k-worst-scenario program; binding named; a trade that does not pay left undone; crossed ranges and Farkas conflicts named; the identity pinned; a structure never written out; refusals."
+    },
+    {
+      "id": "TD-72",
+      "date": "2026-11-22",
+      "workstream": "WS-12",
+      "title": "The linear program hands a stalled interior point to Phase I early, and resumes it when Phase I proves nothing (ADR-0063 settled point 2)",
+      "problem": "An infeasible program's primal residual stops at its least violation while its multipliers grow without bound. The interior point stopped only on convergence, an underflowing coordinate or its budget, so an infeasible construction ran 130 to 500 iterations before Phase I proved it -- a CVaR limit no portfolio meets took 509. In a rebalancing backtest each infeasible rebalance would pay that.",
+      "alternatives": "(a) Solve Phase I first, every time: a second interior point for every feasible program. (b) The homogeneous self-dual embedding, which detects infeasibility by design: a different method, and a larger change than the defect. (c) Watch the primal residual, hand a stall to Phase I, and resume the interior point when Phase I proves nothing.",
+      "decision": "(c). An interior point whose primal residual is above the tolerance and has not halved in twenty iterations stops on a stall; Phase I then decides. If its Farkas certificate verifies, the program is INFEASIBLE; if not, the interior point resumes from its iterate within the iterations left. The stall only changes when Phase I runs, never what is certified.",
+      "rationale": "A feasible program's residual falls geometrically -- to 1e-16 within ten iterations on every measured program -- so the rule costs nothing there, and a false stall costs a Phase I and nothing else: each step depends on the iterate alone, so a resumed run takes the steps it would have taken and gives the same bits. Infeasible programs are proven in 26 to 34 iterations.",
+      "compatibility": "No answer changes: every feasible program's iterates, iterations and bits are as before (the cross-host pin, the generated programs and the budget ladder's iteration counts all unchanged). Infeasible ones end sooner, with the same status and certificate.",
+      "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 2); CHANGELOG; alphalab/portfolio_optimizer/linear.py's docstring.",
+      "tests": "tests/unit/portfolio_optimizer/test_linear.py: an infeasible program proven in under 60 iterations of 200; a feasible program stalled by a one-iteration window resuming to the same bits with more iterations; every earlier test unchanged."
     }
   ],
   "plan_changes": [
@@ -2275,6 +2288,11 @@
           "milestone": "M9",
           "item": "The certified linear program (TD-71, ADR-0063 settled point 2): alphalab.portfolio_optimizer.linear, Mehrotra's interior point and an exact finish, certified by a weak-duality bound or a Farkas certificate and held to an exact vertex enumeration; linear objectives through the protocol's LinearForm and the shipped MaximumReturn, every weight in a range the constraints imply, absolute-sum limits and costs lifted exactly",
           "status": "Pushed"
+        },
+        {
+          "milestone": "M9",
+          "item": "The linear program proves infeasibility once its residual stalls, and resumes a feasible program it stopped (TD-72, ADR-0063 settled point 2): infeasible programs in 26 to 34 iterations instead of 130 to 500, every feasible answer unchanged to the bit",
+          "status": "Local validation passed"
         }
       ],
       "evidence": []
@@ -3510,7 +3528,7 @@
   },
   "state": {
     "updated": "2026-11-22",
-    "remote_head": "a4acfa7",
+    "remote_head": "8013353",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -5204,6 +5222,10 @@
     {
       "date": "2026-11-22",
       "entry": "Hosted CI on a4acfa7 and 3e01086 failed on the three Linux cells, one test each: the linear program's cross-host bits pin moved. The three macOS cells, CodeQL and Optional Distributions passed, and the local gate had passed on macOS. Cause: Mehrotra's centring parameter was cubed with `**`, which CPython computes with the platform's pow; pow is not correctly rounded everywhere, so its last bit can differ between glibc and macOS, the iterates follow it, and the pinned solution's bits moved. It is now cubed by multiplication, so the linear program again uses only correctly rounded operations, as ADR-0063 section 3 requires; the pin's value is the macOS one, which the fix leaves unchanged. WS-12's linear-program item stays Pushed until the fix passes hosted CI. The pin did what it is for: it is the only check that runs the same program on two libms."
+    },
+    {
+      "date": "2026-11-22",
+      "entry": "8013353 (the centring cubed by multiplication) passed the full gate (14,448 tests) and was pushed; its CI is read at the next boundary. Building scenario risk showed an infeasible CVaR limit taking 509 iterations: the interior point ran to its budget before Phase I proved infeasibility. Tracing the primal residual showed the pattern -- an infeasible program's stops at its least violation while the multipliers reach 1e9 to 1e14, a feasible one's falls to 1e-16 within ten iterations -- so a residual that has not halved in twenty iterations now hands over to Phase I, and a feasible program stopped that way resumes from its iterate to the same bits (TD-72). Infeasible programs are proven in 26 to 34 iterations; the generated programs, the cross-host pin and the budget ladder's iteration counts are unchanged. Scenario risk itself waits, stashed, for this commit."
     }
   ]
 }

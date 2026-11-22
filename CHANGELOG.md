@@ -1284,7 +1284,9 @@ entry below says otherwise.
     tolerance whose objective is within the convergence tolerance of a proven
     bound, or for `INFEASIBLE` a Farkas certificate. Otherwise the status says
     why, with no point. It uses only IEEE-754 correctly rounded operations, so
-    a program gives the same bits on every host.
+    a program gives the same bits on every host. An infeasible program is
+    proven once its residual stalls, in a few dozen iterations rather than its
+    whole budget; a feasible one that stalls resumes, to the same answer.
   * **A linear objective** is a `LinearObjective`. It states a `LinearForm`: a
     cost on each weight, and any `LinearVariable`s and `LinearRow`s its lifting
     adds -- CVaR's threshold and one excess per scenario, say -- each with the
