@@ -1346,6 +1346,50 @@ entry below says otherwise.
     value at its weights, in its own sense: minimized or maximized as the
     objective states. It is `None` for risk parity, which solves for its
     budgets and takes no cardinality limit.
+* **Rebalancing: a construction rule run as a strategy** [plan WS-12, ADR-0063
+  section 6, GAP-20, N19]. Until now construction was standalone, and a
+  construction rule could not be backtested. `alphalab.rebalancing` is the
+  bridge, and nothing in the library imports it.
+  * **`RebalancingStrategy`** decides at a slice's close. When a trigger
+    fires it asks a researcher's `ConstructionModel` for a
+    `ConstructionProblem` from a `RebalanceView`: the prices, the book and its
+    weights, the capital, and the slice's context, whose history is bounded at
+    the instant. It constructs the problem and states a certified answer as
+    lot-rounded `TARGET_QUANTITY` intents, zero for a held asset the problem
+    leaves. The run turns them into orders through allocation, risk and the
+    OMS; the optimizer generates none. A model that holds too little to state
+    a problem returns `None`, and nothing is constructed or traded.
+  * **Triggers state every parameter** (AC-12). `CalendarTrigger` fires at
+    the first slice of each day, ISO week or month (`Period`). The date is
+    read in a stated IANA zone, or by a calendar's sessions through the
+    `SessionCalendar` protocol, which `MarketCalendar` satisfies: an overnight
+    session's slice belongs to the day it opened. `ThresholdTrigger` fires on
+    a weight farther than a stated distance from its last target, and
+    `DriftTrigger` on the book's total distance beyond a stated amount. A
+    researcher's own reads a `RebalanceMoment` and satisfies `Trigger`.
+  * **Capital is stated**: `FixedCapital`, `AccountEquity` in a named
+    currency, or a researcher's `CapitalRule`. Multipliers and lots are the
+    run's registry's, read by `economics_for`, the rule allocation and the
+    accounting read (AC-15). An instrument the registry does not hold is
+    refused.
+  * **Its book is its own**: its share of each fill, and of each order still
+    working, which is the position allocation measures its targets against.
+    A problem's costs and turnover must start from exactly that book, and a
+    turnover limit must keep every held asset; otherwise the problem is
+    refused.
+  * **Execution is stated** (`RebalanceExecution`). `SIMULTANEOUS` sends
+    every target at once. `SELLS_FIRST` holds the purchases until every sale
+    has filled, so a cash account pays for them from its sales. A run's
+    account refuses a fill it cannot pay for, and targets fill at prices
+    later than they were sized at, so a fully invested book needs room: a net
+    exposure below one.
+  * **Certified answers only.** A construction that is not `OPTIMAL`, or a
+    cardinality limit that no certified portfolio keeps, trades nothing. Each
+    rebalance is a `RebalanceRecord`: what fired, the problem's and result's
+    identities, the status and why, the targets, and the correlation id its
+    intents carry. A run's rebalances reconcile to its fills.
+  * **Its memory is declared state** (`REBALANCING_STATE_VERSION`). A paused
+    run resumes to the same fills and records.
 
 ## Changed
 
@@ -1387,6 +1431,14 @@ entry below says otherwise.
   The deprecation is documented, not warned: the package raises no warning, a
   rule its suite has held since v2.17. Nothing in the library calls them, as a
   regression test holds. `ml.Matrix` is not deprecated.
+* **`portfolio_optimizer`'s standalone rebalance rules, superseded** [ADR-0063
+  section 6]. `RebalanceTrigger` and `check_schedule_rebalance`, whose month is
+  thirty days, and `check_threshold_rebalance`, whose threshold defaults to
+  0.05, are superseded since 4.3, as are the `rebalance` methods of
+  `PortfolioManager` and `PortfolioEngine` that read them. They are unchanged
+  until 5.0. The replacements are `alphalab.rebalancing`'s triggers, which
+  state every parameter, and `RebalancingStrategy`. Like `ml`'s, the change is
+  documented, not warned.
 
 ## Fixed
 

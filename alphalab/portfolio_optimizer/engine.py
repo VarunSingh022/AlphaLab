@@ -59,6 +59,12 @@ class PortfolioEngine:
         last_ts: float,
         current_ts: float,
     ) -> PortfolioEngineState:
+        """``PortfolioManager.rebalance``.
+
+        Superseded since 4.3, unchanged until 5.0:
+        :class:`alphalab.rebalancing.RebalancingStrategy`.
+        """
+
         return PortfolioManager.rebalance(state, port_id, current_w, trigger, last_ts, current_ts)
 
     @staticmethod

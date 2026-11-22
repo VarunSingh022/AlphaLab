@@ -2612,6 +2612,25 @@
       "weight_breakdown": "function alphalab.portfolio_optimizer.views.weight_breakdown(state: alphalab.portfolio_optimizer.state.PortfolioEngineState, port_id: str) -> alphalab.portfolio_optimizer.weights.TargetWeights | None",
       "weight_ranges": "function alphalab.portfolio_optimizer.construction.weight_ranges(problem: 'ConstructionProblem') -> 'Mapping[str, tuple[float, float]]'"
     },
+    "alphalab.rebalancing": {
+      "AccountEquity": "class alphalab.rebalancing.capital.AccountEquity(currency: 'str') -> None",
+      "CalendarTrigger": "class alphalab.rebalancing.triggers.CalendarTrigger(period: 'Period', zone: 'str | None' = None, calendar: 'SessionCalendar | None' = None) -> None",
+      "CapitalRule": "class alphalab.rebalancing.capital.CapitalRule(*args, **kwargs)",
+      "ConstructionModel": "class alphalab.rebalancing.strategy.ConstructionModel(*args, **kwargs)",
+      "DriftTrigger": "class alphalab.rebalancing.triggers.DriftTrigger(amount: 'float') -> None",
+      "FixedCapital": "class alphalab.rebalancing.capital.FixedCapital(capital: 'Decimal') -> None",
+      "Period": "enum alphalab.rebalancing.triggers.Period[DAY, WEEK, MONTH]",
+      "REBALANCING_STATE_VERSION": "value builtins.int",
+      "RebalanceExecution": "enum alphalab.rebalancing.strategy.RebalanceExecution[SIMULTANEOUS, SELLS_FIRST]",
+      "RebalanceMoment": "class alphalab.rebalancing.triggers.RebalanceMoment(instant: 'float', weights: 'Mapping[str, float]', target: 'Mapping[str, float] | None') -> None",
+      "RebalanceRecord": "class alphalab.rebalancing.strategy.RebalanceRecord(sequence: 'int', instant: 'float', fired: 'tuple[str, ...]', correlation_id: 'str', problem_id: 'str', result_id: 'str', status: 'ConstructionStatus', cardinality: 'CardinalityOutcome | None', detail: 'str', targets: 'Mapping[str, Decimal]', weights: 'Mapping[str, float]', residual_weight: 'float', below_one_lot: 'tuple[str, ...]', deferred: 'tuple[str, ...]' = ()) -> None",
+      "RebalanceView": "class alphalab.rebalancing.strategy.RebalanceView(strategy_id: 'str', instant: 'float', assets: 'tuple[str, ...]', prices: 'Mapping[str, Decimal]', quantities: 'Mapping[str, Decimal]', weights: 'Mapping[str, float]', capital: 'Decimal', fired: 'tuple[str, ...]', context: 'StrategyContext') -> None",
+      "RebalancingInputError": "class alphalab.rebalancing.exceptions.RebalancingInputError",
+      "RebalancingStrategy": "class alphalab.rebalancing.strategy.RebalancingStrategy(strategy_id: 'str', *, assets: 'Sequence[str]', model: 'ConstructionModel', triggers: 'Sequence[Trigger]', capital: 'CapitalRule', quantum: 'Decimal', terms: 'OrderTerms', execution: 'RebalanceExecution', max_names: 'int | None' = None) -> 'None'",
+      "SessionCalendar": "class alphalab.rebalancing.triggers.SessionCalendar(*args, **kwargs)",
+      "ThresholdTrigger": "class alphalab.rebalancing.triggers.ThresholdTrigger(distance: 'float') -> None",
+      "Trigger": "class alphalab.rebalancing.triggers.Trigger(*args, **kwargs)"
+    },
     "alphalab.reinforcement_learning": {
       "Action": "enum alphalab.reinforcement_learning.action.Action[HOLD, BUY, SELL]",
       "QTable": "class alphalab.reinforcement_learning.q_learning.QTable(values: collections.abc.Mapping[tuple[tuple[str, str], alphalab.reinforcement_learning.action.Action], float] = <factory>) -> None",
@@ -3368,9 +3387,10 @@
     "SessionCalendar": {
       "bound_to": [
         "class alphalab.alt_data.sessions.SessionCalendar(*args, **kwargs)",
-        "class alphalab.futures.chain.SessionCalendar(*args, **kwargs)"
+        "class alphalab.futures.chain.SessionCalendar(*args, **kwargs)",
+        "class alphalab.rebalancing.triggers.SessionCalendar(*args, **kwargs)"
       ],
-      "reason": "Two narrow protocols, each stating only what its reader needs from a calendar: alt_data's places an instant in a trading day (is_open, next_open, session windows), futures' only asks whether a day is a trading day, for a roll rule. data.calendar.MarketCalendar satisfies both; neither is a calendar. Section 19 of the shared-names test."
+      "reason": "Three narrow protocols, each stating only what its reader needs from a calendar: alt_data's places an instant in a trading day (is_open, next_open, session windows), futures' only asks whether a day is a trading day, for a roll rule, and rebalancing's asks which trading day an instant belongs to, for a calendar trigger (calendar_id, trading_day_of). data.calendar.MarketCalendar satisfies all three; none is a calendar. Section 19 of the shared-names test."
     },
     "Split": {
       "bound_to": [

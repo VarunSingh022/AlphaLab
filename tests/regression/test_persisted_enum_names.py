@@ -135,6 +135,19 @@ NAMED: dict[str, tuple[str, ...]] = {
         "NOT_REGISTERED",
         "REGISTERED_BUT_UNPRICED",
     ),
+    # v4.3 (ADR-0063 section 6): a rebalancing strategy's declared state writes
+    # each rebalance's construction status and cardinality outcome.
+    "alphalab.portfolio_optimizer.construction.CardinalityOutcome": (
+        "WITHIN",
+        "RESTRICTED",
+        "UNRESOLVED",
+    ),
+    "alphalab.portfolio_optimizer.construction.ConstructionStatus": (
+        "OPTIMAL",
+        "INFEASIBLE",
+        "ITERATION_LIMIT",
+        "NUMERICAL_FAILURE",
+    ),
     # v4.1 (ledger FUT-001): a paused replay's cursor is written with its status.
     "alphalab.replay.state.ReplayStatus": ("READY", "RUNNING", "PAUSED", "STOPPED", "COMPLETED"),
     "alphalab.runtime.run.ExecutionMode": ("BACKTEST", "REPLAY", "PAPER", "LIVE"),

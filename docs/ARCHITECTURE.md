@@ -1137,6 +1137,14 @@ through a structural protocol rather than importing `alphalab.portfolio`.
 `tests/regression/test_v38_invariants.py` measures every one of these edges
 (ADR-0043).
 
+**`portfolio_optimizer` gained an importer in v4.3 and stayed on the list.**
+`alphalab.rebalancing` imports it (ADR-0063 section 6, GAP-20): a
+`RebalancingStrategy` is a strategy, which a run reaches through
+`StrategyProtocol` as it reaches a researcher's own, so neither wired path
+imports either package. A construction reaches a run only as a strategy's
+`TARGET_QUANTITY` intents, which allocation, risk and the OMS turn into orders;
+the optimizer still generates none.
+
 `feature_store` stayed on the list, and that is the architecture working rather
 than an oversight: it owns registration, versioning and caching and computes
 nothing, so the computation engine writes *through* it via
@@ -2347,10 +2355,12 @@ Replay", none of which was true).
 | `research` | `alt_data`, `common`, `core`, `econometrics`, `factor_library`, `instrument` |
 | `factor_library` | `alt_data`, `analytics`, `common`, `data`, `market` |
 | `portfolio_optimizer` | `analytics`, `common`, `conventions` |
+| `rebalancing` | `common`, `conventions`, `data`, `instrument`, `persistence`, `portfolio_optimizer`, `strategy` |
 
 Must not depend on: a leaf (`common`, `conventions`, `alt_data`, `econometrics`,
 `strategy`) on anything but `common`; research on the execution path or the lifecycle;
-anything on `lifecycle`, which composes the rest and is imported by nothing.
+anything on `lifecycle`, which composes the rest and is imported by nothing; anything
+on `rebalancing`, which a run reaches as a strategy, through `StrategyProtocol`.
 
 `research` reads `core` and `instrument` directly since v4.3: the survivorship
 review reads a run's fills against a universe's dated membership (ADR-0059). Both
@@ -2358,6 +2368,18 @@ were already within its reach through `factor_library`, so what it reaches is
 unchanged. It reads `econometrics` since v4.3 too: the cointegration screen tests
 each candidate pair with Engle and Granger's test (ADR-0074 section 8).
 `econometrics` is a leaf, so the edge adds nothing else to what `research` reaches.
+
+`rebalancing` (v4.3, ADR-0063 section 6) turns a certified construction into a
+strategy's targets. It reads `portfolio_optimizer` for the construction,
+`strategy` for the protocol and events a strategy is, `conventions` for an
+instrument's economics, `instrument` for `economics_for`, the one rule a
+target's multiplier and lot are read by (AC-15), `data` for `resolve_zone`, the
+one place a zone is resolved, and `persistence` for `as_named_enum`, which reads
+an enum in its declared state in the format's one form. `data` and
+`persistence` were already within its reach through `instrument`, so neither
+edge adds to what it reaches; a calendar is taken by protocol, so any calendar
+serves. Nothing imports it, and
+`tests/regression/test_documented_dependencies_are_measured.py` holds that too.
 
 ---
 

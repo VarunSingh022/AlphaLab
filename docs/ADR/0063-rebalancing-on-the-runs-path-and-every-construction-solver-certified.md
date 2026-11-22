@@ -504,6 +504,86 @@ cardinality is an integer program and stays a boundary.
      The cases reach all three outcomes. Ties go by asset id, a name its
      bounds keep is kept, and each objective's value is checked in its own
      sense.
+5. **The rebalancing package.**
+   - **Its edges, measured.** It imports `common`, `conventions`, `data`,
+     `instrument`, `persistence`, `portfolio_optimizer` and `strategy`.
+     Section 6 named `analytics`; implementation needs `instrument`, `data`
+     and `persistence` instead.
+     - **No `analytics`.** The model states the problem, its risk model
+       included, so the package builds none.
+     - **`instrument`** for `economics_for`, the one rule a run books an
+       instrument by. A target's multiplier and lot come from the run's
+       registry, as allocation and the accounting read them (AC-15). An
+       instrument the registry does not hold is refused, since its
+       multiplier cannot be assumed.
+     - **`data`** for `resolve_zone`, the one site a zone is resolved
+       (`test_v34_invariants.py`). The package already reached `data`
+       through `instrument`. The calendar is still taken by protocol, so any
+       calendar that states its trading days serves.
+     - **`persistence`** for `as_named_enum`. A record's construction status
+       and cardinality outcome are written in the strategy's declared state
+       as the format writes every plain enum, `Cls.NAME`, and read back by its
+       one decoder, which refuses a bare name. `test_persisted_enum_names.py`
+       pins both enums. The package already reached `persistence` through
+       `instrument`.
+
+     Nothing imports the package. `test_documented_dependencies_are_measured.py`
+     holds both directions.
+   - **The book is the strategy's own.** It is the strategy's share of each
+     fill (`FillEvent.attributed_quantity`) plus its share of the orders still
+     working (`OrderFacadeProtocol.net_quantity`): the position allocation
+     measures a target against. The context's portfolio is the account's,
+     which every strategy of a run shares, so it is not the book.
+     - The model reads that book, and so do a problem's costs and turnover.
+       Their `current` weights must be `RebalanceView.weights` exactly.
+     - A turnover limit that leaves a held asset is refused: its sale is
+       turnover the limit cannot see.
+   - **The triggers read the planned position**: what is working, plus the
+     purchases held back, as if filled. Otherwise a rebalance still being
+     executed reads as a distance from its own target, and a threshold or
+     drift trigger fires again at once.
+   - **Execution is stated** (`RebalanceExecution`). The engine refuses a fill
+     beyond the account's cash (`InsufficientFundsError`, correctly), and
+     fills arrive in the order the assets' next events do. So a purchase can
+     fill before the sale that pays for it.
+     - `SELLS_FIRST` sends the sales and holds the purchases until every sale
+       has filled.
+     - `SIMULTANEOUS` sends every target at once, for an account that can
+       carry the gap.
+     - Either way a target is sized at the rebalance's prices and fills at
+       later ones, so a fully invested book can cost more than the account
+       holds. The model's net exposure leaves the room; the engine chooses no
+       buffer.
+   - **A model may decline.** Returning `None` constructs, trades and records
+     nothing: a history shorter than its estimate needs is the case. A
+     problem is refused if it is not a `ConstructionProblem`, weights an asset
+     the strategy was not given, or weights one unpriced at the slice.
+   - **Capital is a rule** (`CapitalRule`): `FixedCapital`, or `AccountEquity`
+     in a stated currency, which converts nothing.
+   - **Records and state.**
+     - A `RebalanceRecord` carries what fired, the problem's and result's
+       identities (the limited problem's, under a cardinality limit), the
+       status and its detail, the targets, and the correlation id every
+       intent of the rebalance carries. Under `SELLS_FIRST` it also carries
+       the purchases deferred.
+     - An intent's metadata carry the rebalance's number and both identities.
+     - The book, the last target, the triggers' memories, the records and any
+       deferred purchases are the strategy's declared state, versioned.
+   - **The standalone rules** keep their behaviour. Their docstrings, and the
+     two `rebalance` methods that read them, name the replacements, and a
+     unit test holds that no warning is raised.
+   - **Tests.**
+     - Unit tests hold each trigger against hand-computed dates, ISO weeks,
+       two zones and an overnight `MarketCalendar`. They hold the strategy
+       against a fake desk: lot rounding, sells first, a deferral replaced,
+       the book checks, a cardinality limit and the state round trip.
+     - A backtest of 400 daily slices over three registered equities is
+       rebalanced monthly to a minimum-variance construction estimated from
+       the run's history. Each record's targets are the next rebalance's
+       book, and the account holds the strategy's holdings at the end. Two
+       runs are one result.
+     - Paused at three points and resumed, the run reaches the digest of the
+       same run replayed whole, with the same records and holdings.
 
 # Compatibility
 

@@ -1205,6 +1205,27 @@ def test_the_third_calendar_shaped_thing_is_a_protocol_not_a_calendar() -> None:
         assert not hasattr(protocol, "holidays")
 
 
+def test_a_calendar_trigger_reads_a_trading_day_and_owns_no_calendar() -> None:
+    """v4.3 (ADR-0063 section 6): a calendar trigger asks one question of a calendar.
+
+    ``alphalab.rebalancing.SessionCalendar`` declares a calendar's identity and
+    the trading day an instant belongs to -- what a trigger's period is read by
+    and its rendering names -- and nothing a calendar owns. ``MarketCalendar``
+    satisfies it, as it does the two above; a researcher's calendar may too.
+    """
+
+    from alphalab.data.calendar import MarketCalendar
+    from alphalab.rebalancing import SessionCalendar
+
+    declared = {name for name in vars(SessionCalendar) if not name.startswith("_")}
+    assert declared == {"calendar_id", "trading_day_of"}, (
+        "rebalancing's SessionCalendar grew beyond the trading day it reads; a protocol "
+        "with sessions and holidays on it is a second calendar in all but name."
+    )
+    assert not hasattr(SessionCalendar, "holidays")
+    assert {"calendar_id", "trading_day_of"} <= set(dir(MarketCalendar))
+
+
 # --------------------------------------------------------------------------- #
 # 20. "margin" -- an account calculation, a liquidation price, a published figure
 # --------------------------------------------------------------------------- #

@@ -1224,6 +1224,19 @@
       "compatibility": "Additive: four exports (3,121) and ConstructionDiagnostics' objective_value, defaulting to None, named in the CHANGELOG. No identity moves.",
       "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 4); CHANGELOG; construction.py's docstrings; ARCHITECTURE's capability row.",
       "tests": "tests/unit/portfolio_optimizer/test_cardinality.py (27): brute force over every set of k of five names for minimum variance, mean-variance, maximum return with costs and minimum CVaR -- the bound never worse than the best, the answer never better, the gap covering them; all three outcomes; an optimum within the limit returned exactly; ties by asset id; a name the bounds keep, and too many such; a failed relaxation and an infeasible restriction claimed as nothing; objective values in each objective's sense; identity; refusals."
+    },
+    {
+      "id": "TD-75",
+      "date": "2026-11-22",
+      "workstream": "WS-12",
+      "title": "The rebalancing package: a construction rule run as a strategy, its book its own, its triggers and capital stated, its execution order declared (ADR-0063 section 6, settled point 5, GAP-20, N19)",
+      "problem": "ADR-0063 section 6 turns a certified construction into a strategy's targets. Several facts constrain the design. The context's portfolio is the account's, shared by every strategy of a run. A target sized at one slice's prices fills at later ones, in the order the assets' next events arrive, and the engine refuses a fill beyond the account's cash. A model may hold too little history to state a problem. Every trigger parameter must be stated (AC-12). A calendar period is read in a zone, and AlphaLab resolves zones at one site. A target's multiplier and lot must be the registry's (AC-15).",
+      "alternatives": "The book: (a) the context's portfolio, wrong once two strategies share an account; (b) the strategy's own fills, under which a rebalance still working reads as a distance from its own target, and which is not what allocation measures a target against; (c) its own fills plus its working orders, with the triggers reading the planned position. Execution: (i) every target at once, which a cash account refuses whenever a purchase fills before the sale that pays for it; (ii) a cash buffer the engine chooses, an invented default; (iii) a stated RebalanceExecution, SIMULTANEOUS or SELLS_FIRST, with the buffer the model's net exposure. The zone: a ZoneInfo built in the package, which test_v34_invariants refuses as a second zone authority; a tzinfo the researcher builds; or resolve_zone through a data edge.",
+      "decision": "(c), (iii) and resolve_zone. alphalab.rebalancing exports 17 names: RebalancingStrategy(strategy_id, assets, model, triggers, capital, quantum, terms, execution, max_names=None); ConstructionModel.problem(view) -> ConstructionProblem | None; RebalanceView; RebalanceRecord; RebalanceExecution; CalendarTrigger (a period, and exactly one of zone or calendar) with Period; ThresholdTrigger; DriftTrigger; Trigger; RebalanceMoment; SessionCalendar; CapitalRule; FixedCapital; AccountEquity; RebalancingInputError; and REBALANCING_STATE_VERSION 1. A problem's costs and turnover must start from RebalanceView.weights exactly, and a turnover limit must keep every held asset. An uncertified construction is recorded and trades nothing. The package's edges are common, conventions, data, instrument, persistence, portfolio_optimizer and strategy, and nothing imports it. A record's status and cardinality outcome are written in the declared state as Cls.NAME and read by as_named_enum, both enums pinned. portfolio_optimizer.rebalance's rules and the two rebalance methods that read them are documented as superseded, unchanged, with no warning.",
+      "rationale": "The strategy's book is the position allocation measures its targets against, so a target means what the strategy says. Holding purchases until the sales fill is the honest model of a cash account, stated rather than chosen, and the engine's refusal of an unpaid fill stays the correct guard. A protocol takes any calendar. economics_for keeps one authority for multipliers. data and persistence were already within the package's reach through instrument, so neither edge widens it, and the state's enums take the format's one form rather than a second dialect.",
+      "compatibility": "Additive: a package of 17 exports (3,138 exports, 46 packages). SessionCalendar's shared-name reason now names three narrow protocols. Only docstrings change in portfolio_optimizer.rebalance, PortfolioManager.rebalance and PortfolioEngine.rebalance. No identity, digest or persisted byte moves for an existing run.",
+      "record": "docs/ADR/0063-rebalancing-on-the-runs-path-and-every-construction-solver-certified.md (settled point 5); CHANGELOG (Added, Deprecated); ARCHITECTURE's dependency table, layering and standalone-engine paragraphs; the package's docstrings; the manifest's SessionCalendar reason.",
+      "tests": "tests/unit/rebalancing/test_triggers.py (22): months, ISO weeks and days by hand; one instant in two months in UTC and in Tokyo; an overnight MarketCalendar through the protocol, with a slice outside every session; threshold against drift; every refusal. tests/unit/rebalancing/test_strategy.py (31), against a fake desk: the book as each fill's share; lot-rounded targets; a held asset sold to nothing; sells first, and a deferral replaced; simultaneous; an unpriced holding; a declining model; an uncertified answer; a cardinality limit; the book checks on turnover and costs; a future without economics; the state through the encoder, and another version or strategy refused; both capital rules. tests/integration/test_rebalancing_backtest.py (9): 400 daily slices over three registered equities, rebalanced monthly to minimum variance estimated from the run's history; each record's targets are the next rebalance's book, and the account holds the strategy's holdings at the end; an infeasible cap trades nothing; two runs give one result; paused at three points, the run resumes to the digest of the same run replayed whole; and S-10's piece, beside a second strategy trading one of its assets in the same account, its book is its own share, the position allocation measures, its weights are of its stated budget, and its rebalances reconcile to it while the account holds both. Regression: the package count (45), nothing importing the package, section 19's narrowness pin, the two enums the declared state writes pinned, and the superseded notices with no warning raised."
     }
   ],
   "plan_changes": [
@@ -1537,7 +1550,8 @@
       "exit_gate": "A rebalancing backtest with CVaR, certified",
       "size": "L",
       "status": "In progress",
-      "evidence": []
+      "evidence": [],
+      "note": "The continuation authorization names S-01, S-10 and S-14 for M9; mapped to the plan, nothing dropped. WS-12's integration line is S-01's construction -- a monthly factor-neutral, sector-capped, CVaR-limited rebalance in a 10-year backtest, as an experiment -- and it is M9's exit gate; S-01 whole is accepted at M13. S-10, the institutional multi-strategy book, is accepted at M13: M9 delivers its rebalancing piece, a rebalancing strategy whose book is its own share in a multi-strategy run, held by a test here. S-14, the cross-market multi-asset portfolio with a currency-hedged construction certified, is accepted at M10 with FX, futures and rates: M9 delivers the certified construction and the CapitalRule protocol a hedged book's rule satisfies, and the hedged construction is M10's. AC-11 (layering by AST) and AC-12 (no invented defaults) are verified at M9's close."
     },
     {
       "id": "M10",
@@ -2313,21 +2327,26 @@
         {
           "milestone": "M9",
           "item": "The certified linear program (TD-71, ADR-0063 settled point 2): alphalab.portfolio_optimizer.linear, Mehrotra's interior point and an exact finish, certified by a weak-duality bound or a Farkas certificate and held to an exact vertex enumeration; linear objectives through the protocol's LinearForm and the shipped MaximumReturn, every weight in a range the constraints imply, absolute-sum limits and costs lifted exactly",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M9",
           "item": "The linear program proves infeasibility once its residual stalls, and resumes a feasible program it stopped (TD-72, ADR-0063 settled point 2): infeasible programs in 26 to 34 iterations instead of 130 to 500, every feasible answer unchanged to the bit",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M9",
           "item": "Scenario risk (TD-73, ADR-0063 settled point 3): ScenarioSet; MinimumCVaR; CVaRLimit and CDaRLimit over the linear program; limits as a protocol checked at their own value; ConstraintSet.limits and ConstructionDiagnostics.limit_values; weight_ranges; a limit under an objective that is not linear refused",
-          "status": "Local validation passed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M9",
           "item": "The cardinality relaxation (TD-74, ADR-0063 settled point 4): construct_with_cardinality, two certified constructions and a CardinalityOutcome, the gap to the best stated through ConstructionDiagnostics.objective_value, held to brute force over every subset",
+          "status": "Hosted CI passed"
+        },
+        {
+          "milestone": "M9",
+          "item": "The rebalancing package (TD-75, ADR-0063 settled point 5, GAP-20, N19): RebalancingStrategy at a slice's close, its book its own share of fills and working orders, certified answers as lot-rounded TARGET_QUANTITY intents, calendar, threshold and drift triggers that state every parameter, capital rules, the execution order stated, every rebalance recorded and its state declared; its book its own beside another strategy (S-10's piece); portfolio_optimizer's standalone rules documented as superseded",
           "status": "Local validation passed"
         }
       ],
@@ -2951,7 +2970,7 @@
       "problem": "Optimiser not on the path",
       "severity": "M/P1",
       "status": "Open",
-      "status_note": "Open: reopened by ADR-0063 (D-V3, 2026-11-22), the rebalancing package; closes with M9's rebalancing backtest.",
+      "status_note": "Open: reopened by ADR-0063 (D-V3, 2026-11-22). The rebalancing package and a rebalancing backtest reconciled to its fills validated locally (TD-75); closes with M9's exit gate, S-01's construction as an experiment with CVaR, certified.",
       "workstreams": [
         "WS-12"
       ],
@@ -3564,7 +3583,7 @@
   },
   "state": {
     "updated": "2026-11-22",
-    "remote_head": "2c8236f",
+    "remote_head": "1c59e40",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -4850,10 +4869,64 @@
         "workflow": "Optional Distributions",
         "run": 44980084749,
         "result": "success"
+      },
+      {
+        "sha": "e12877e",
+        "workflow": "Continuous Integration",
+        "run": 44982687744,
+        "result": "success: all six quality-gate cells, the first passing run since a4acfa7; the linear program's cross-host bits pin held on Linux x86-64 and macOS arm64 under CPython 3.12, 3.13 and 3.14 once its program was drawn without libm, carrying a4acfa7 to e12877e (TD-71, TD-72)"
+      },
+      {
+        "sha": "e12877e",
+        "workflow": "CodeQL",
+        "run": 44982687693,
+        "result": "success"
+      },
+      {
+        "sha": "e12877e",
+        "workflow": "Optional Distributions",
+        "run": 44982687702,
+        "result": "success"
+      },
+      {
+        "sha": "2c8236f",
+        "workflow": "Continuous Integration",
+        "run": 44983644232,
+        "result": "success: all six quality-gate cells, scenario risk's pins held (TD-73)"
+      },
+      {
+        "sha": "2c8236f",
+        "workflow": "CodeQL",
+        "run": 44983644125,
+        "result": "success"
+      },
+      {
+        "sha": "2c8236f",
+        "workflow": "Optional Distributions",
+        "run": 44983644189,
+        "result": "success"
+      },
+      {
+        "sha": "1c59e40",
+        "workflow": "Continuous Integration",
+        "run": 44984967804,
+        "result": "success: all six quality-gate cells (TD-74)"
+      },
+      {
+        "sha": "1c59e40",
+        "workflow": "CodeQL",
+        "run": 44984967766,
+        "result": "success"
+      },
+      {
+        "sha": "1c59e40",
+        "workflow": "Optional Distributions",
+        "run": 44984967795,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M9 (WS-12), in ADR-0063's order: the rebalancing package and RebalancingStrategy (section 6); then the rebalancing backtest with CVaR (the exit gate), the construction-in-runs guide and example, the measurement at the budget's size, and M9's mutation series. Hosted CI for e12877e, 2c8236f and this commit is read once at the next boundary.",
+    "next": "M9 (WS-12), after the rebalancing package (TD-75): the exit gate, S-01's construction as an experiment -- a monthly factor-neutral, sector-capped, CVaR-limited rebalance in a 10-year backtest -- and S-10's piece, a rebalancing strategy in a multi-strategy book; the guide and example; the measurement at the budget's size, run alone; then M9's mutation series and close. Hosted CI for this commit is read once at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -5292,6 +5365,10 @@
     {
       "date": "2026-11-22",
       "entry": "2c8236f (scenario risk, TD-73) passed the full gate (14,533 tests) and was pushed; at that boundary e12877e's run had passed Linux 3.14 -- the first Linux cell to pass the cross-host pin since a4acfa7 -- and the three macOS cells, with Linux 3.12 and 3.13 still running. The cardinality relaxation validated locally (TD-74) as a composition of two certified constructions rather than a constraint, because a restriction that cannot meet the constraints proves nothing about other names and construct's four statuses have no honest word for it. Brute force over every subset holds the bound, the answer and the gap. Maximum return under uniform caps turned out to be a sparse vertex that either keeps the limit or cannot, so its case takes costs from a book, which spread it over four names."
+    },
+    {
+      "date": "2026-11-22",
+      "entry": "1c59e40 (the cardinality relaxation, TD-74) passed the full gate (14,560 tests) and was pushed. e12877e, 2c8236f and 1c59e40 then passed hosted CI: all six quality-gate cells each, with CodeQL and Optional Distributions. The linear program's cross-host pin held on every Linux and macOS cell, so TD-71 to TD-74 are Hosted CI passed. The rebalancing package validated locally (TD-75), and its first backtest found two things. The engine refused a purchase that filled before the sale paying for it (InsufficientFundsError), which is correct for a cash account; the strategy now states its execution order, and sells first in the test. Drift fired again while the strategy's own orders were working, so the triggers now read the planned position. Writing the package's records, test_v34_invariants caught a ZoneInfo built inside the package, a second zone authority; it now calls resolve_zone, through a data edge the package already reached through instrument. The first full gate then failed one test, test_persisted_enum_names: the strategy's declared state wrote a record's status by bare member name, a second dialect beside the format's Cls.NAME, which as_named_enum alone reads. It now writes Cls.NAME and reads it with as_named_enum, through a persistence edge also already in reach, and both enums are pinned. The continuation authorization's S-01, S-10 and S-14 are mapped to the plan in M9's note."
     }
   ]
 }
