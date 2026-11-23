@@ -1425,6 +1425,27 @@ entry below says otherwise.
   * what each rebalance records, and how a paused run resumes;
   * S-01's construction end to end;
   * what construction costs, measured, and what is not here.
+* **Business-day conventions, tenors and FX value dates** [plan N21, WS-13,
+  ADR-0067]. `alphalab.conventions` gains them, each by a declared rule, with
+  calendars taken by the `TradingDayCalendar` protocol, so the package still
+  imports only `common`.
+  * **`BusinessDayConvention`**: `FOLLOWING`, `MODIFIED_FOLLOWING`, `PRECEDING`
+    (ISDA 2006 section 4.12) and `UNADJUSTED`, a stated choice. `adjust` moves
+    a date to a day every calendar named is open, and `add_business_days`
+    counts such days.
+  * **`Tenor`** (`3M`, `1Y`, `2W`, `10D`) and `add_tenor`. A month from the
+    31st clamps to a shorter month. Under a stated end-of-month rule, a start
+    on its month's last business day lands on the last business day of the
+    month reached.
+  * **`ValueDateRule`** states a spot lag, the calendars a counted day must be
+    open in, and those the value date must be open in.
+    * `spot_value_date` counts the lag and rolls forward to a day every
+      settling calendar is open.
+    * `forward_value_date` adds a tenor from spot.
+    * A US-dollar pair commonly counts in the other currency's calendar alone,
+      so a US holiday before spot does not delay it. A cross commonly settles
+      on a US business day too. Each is stated by the calendars listed, never
+      inferred from the pair.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

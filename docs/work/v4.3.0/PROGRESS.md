@@ -1267,6 +1267,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0066-volatility-models-and-futures-depth.md.
 - **Tests:** To be built with M10's commits: calibration recovery on synthetic smiles; static-arbitrage refusal; Monte Carlo against closed forms; the roll transform's identity and a pack holiday moving a roll date; an SVI fit within one second per expiry; S-03 and S-04.
 
+### TD-81: Business-day conventions, tenors and FX value dates in conventions, a value date stated by the calendars it counts and settles in (ADR-0067 settled point 1, plan N21) (WS-13, 2026-11-23)
+
+- **Problem:** ADR-0067 section 2 needs value dates computed from both currencies' calendars, a spot lag, the US-dollar rule where a pair needs it, and forwards by tenor under a business-day convention and an end-of-month rule; rates (ADR-0065) needs the same conventions for schedules. None exists, and none may be inferred from a pair or a market's name (plan G.1, G.3). conventions must stay a leaf importing only common.
+- **Alternatives:** (a) A USD-rule enum (none, USD pair, cross) with the pair's currencies: the rule reads a pair's name and cannot state a market whose convention differs. (b) Calendars looked up by currency: a registry the engine does not ship (AC-22). (c) Two tuples of calendars supplied by protocol: those a counted day must be open in, and those the value date must be open in.
+- **Decision:** (c). alphalab.conventions.business_days: BusinessDayConvention (FOLLOWING, MODIFIED_FOLLOWING, PRECEDING, UNADJUSTED), adjust, add_business_days and is_business_day over every calendar named; Tenor and TenorUnit with parse and add_tenor, months clamped and the end-of-month rule stated; ValueDateRule(spot_lag, counted, settles) with spot_value_date and forward_value_date. Calendars by the TradingDayCalendar protocol, searches bounded by MAX_SETTLEMENT_SEARCH_DAYS.
+- **Rationale:** Stating the lists states the convention: a USD pair's and a cross's common rules are two choices of lists, and any other market's is a third, with nothing read from a name. The protocol keeps conventions a leaf, and the calendars may come from packs or the researcher.
+- **Compatibility:** Additive: ten exports (3,148); nothing persisted yet -- FX terms will carry a rule when ADR-0067's booking lands.
+- **Recorded in:** docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 1); CHANGELOG; the conventions package's and module's docstrings.
+- **Tests:** tests/unit/conventions/test_business_days.py (24): each convention at a weekend and a month's end; joint calendars; business-day counts across a holiday; a month from the 31st; the end-of-month rule stated and not; years, weeks and days; a USD pair moved by the Fourth of July and not delayed by Thanksgiving before spot, counted in both calendars for contrast; a cross on a US business day; a one-day lag and a same-day deal; forwards from a month's last business day; a MarketCalendar as a calendar; every refusal.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1518,6 +1528,7 @@ Evidence:
 - [Hosted CI passed] M3: research.bias.membership_review, and GR-5: the point-in-time run clean, the survivorship control named, the bias measured exactly
 - [Hosted CI passed] M3: data.packs.ReferencePack: source, coverage, licence, typed entries, content digest; universe_from_pack
 - [Hosted CI passed] M3: Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught
+- [Local validation passed] M10: Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in
 
 Evidence:
 

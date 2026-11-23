@@ -146,6 +146,39 @@ date are all wrong, or absent.
 - `execution_assumptions` and a fingerprint gain nothing. FX booking is a
   property of the instrument, not of the execution model.
 
+# Settled at implementation (2026-11-23)
+
+1. **Value dates** (`alphalab.conventions.business_days`).
+   - **Two lists of calendars, not a US-dollar flag.** `ValueDateRule` states
+     its spot lag and two tuples of calendars: those a counted day must be
+     open in, and those the value date must be open in. Section 2's "whether
+     the US-dollar rule applies" is stated by what the lists hold:
+     - a common USD pair counts in the other currency's calendar alone, and
+       settles where both are open;
+     - a common cross counts in both its currencies' calendars, and also
+       settles on a US business day.
+
+     No rule reads a pair's name. A market whose convention differs states
+     its own lists.
+   - **Spot** counts the lag in the counted calendars, then rolls forward to
+     the first day every settling calendar is open. **A forward** adds its
+     tenor to spot, under a stated `BusinessDayConvention` and end-of-month
+     rule, against the settling calendars.
+   - **Conventions** are ISDA 2006 section 4.12's following, modified
+     following and preceding, and `UNADJUSTED`, a stated choice for the dates
+     a contract leaves alone. A tenor's months clamp to a shorter month.
+     Under the end-of-month rule, a start on its month's last business day
+     lands on the last business day of the month reached.
+   - **Tests.** `tests/unit/conventions/test_business_days.py` holds each
+     convention at a weekend and at a month's end. It also holds:
+     - the end-of-month rule, stated and not;
+     - a USD pair whose value date the Fourth of July moves, and which
+       Thanksgiving the day before spot does not delay;
+     - a cross that settles on a US business day;
+     - a one-day lag, and forwards from a month's last business day;
+     - a `MarketCalendar` read as a calendar;
+     - every refusal.
+
 # Compatibility
 
 - Additive. A new terms kind, value-date rules and business-day conventions
