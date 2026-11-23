@@ -627,10 +627,21 @@ cardinality is an integer program and stays a boundary.
 None is accepted at drafting. What implementation settles, or defers, is
 recorded below.
 
-- **WS-12's budget is deferred to M11** (settled point 2): construction at
+- **WS-12's budget is deferred to M11** (settled point 2). Construction at
   1,000 assets with CVaR over 2,520 scenarios takes far more than 60 seconds
-  in pure Python. Section 7 provides that the compute backend's cross-check
-  meets it; the register holds it open until then.
+  in pure Python. It was measured at the budget's own size at M9's close, on
+  the reference machine (arm64, CPython 3.12.4, run alone), with minimum CVaR
+  at 0.95, fully invested and capped at 5%:
+  - one construction took 10,265 seconds over 29 iterations, certified
+    `OPTIMAL` at a vertex;
+  - forming and factoring the 2,521-row normal equations took 9,958 of those
+    seconds, and the vertex finish 86.
+
+  That is 171 times the budget. Section 7 provides that the compute
+  backend's cross-check meets it, and the register holds it open until then.
+  `benchmarks/benchmark_construction_cvar.py --budget` repeats the
+  measurement; without the flag the benchmark guards the method's growth in
+  CI.
 
 # Consequences
 

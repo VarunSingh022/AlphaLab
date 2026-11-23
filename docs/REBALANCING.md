@@ -270,9 +270,19 @@ takes:
 Example 83's 228 constructions over 63 scenarios take about forty seconds,
 and its two backtests a few more. WS-12's budget is a construction at 1,000
 assets with CVaR over 2,520 scenarios within 60 seconds. It is not met in pure
-Python, and M9's measurement of it is recorded in the register (ADR-0063
-section 7). The plan meets it with the compute backend (M11, WS-15), held to
-the pure-Python method by a cross-check.
+Python. Measured at that size at M9's close, alone on the reference machine:
+
+| | |
+| --- | --- |
+| Construction | Minimum CVaR at 0.95, fully invested, capped at 5% |
+| Wall time | 10,265 s, over 29 iterations |
+| Certificate | `OPTIMAL` at a vertex |
+| Forming and factoring the 2,521-row normal equations | 9,958 s |
+
+That is 171 times the budget. The plan meets it with the compute backend
+(M11, WS-15), held to the pure-Python method by a cross-check (ADR-0063
+section 7). `benchmarks/benchmark_construction_cvar.py --budget` repeats the
+measurement; without the flag, the benchmark guards the method's growth in CI.
 
 ---
 

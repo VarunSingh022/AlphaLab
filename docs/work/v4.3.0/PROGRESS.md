@@ -48,7 +48,7 @@ Never:
 | Remote head | `695b2aa` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M9's close: the measurement at WS-12's budget size, 1,000 assets with CVaR over 2,520 scenarios, run alone; then the close record, its gate and hosted CI, and M9's checkpoint benchmarks. Then M10. |
+| Next | M9's close pushed: its hosted CI and checkpoint benchmarks on the close commit, then M9 is Hosted CI passed, awaiting the owner's acceptance. Then M10: ADR-0065, ADR-0066 and ADR-0067 accepted under delegation, and WS-13, WS-27, WS-14 and WS-28 in turn. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -397,6 +397,7 @@ Never:
 - **2026-11-22** ef37b6d (the rebalancing package, TD-75) passed the full gate (14,630 tests) and was pushed. Example 83, S-01's construction run for ten years as an experiment, found a defect in the linear program (TD-76). One of its 228 constructions was feasible, yet returned NUMERICAL_FAILURE whatever the budget. Traced: the normal matrix's lift, set by its largest entry, swamped the scenario-excess rows near the optimum, so each direction missed the primal equations, and the miss jammed the iterate against its bounds. Jacobi's scaling certified it. Run unfloored, it let an infeasible program's multipliers overflow before the stall rule fired, which the cardinality tests caught. Floored at 1e-12 of the largest entry, with a guard on non-finite directions, it passes every earlier test with every pin unchanged. The program and its infeasible neighbour are held as captured.
 - **2026-11-22** M9's exit gate validated locally as example 83 (TD-77): S-01's construction, eight equities rebalanced monthly for ten years to the most expected return a value-neutral, sector-capped book holds within a CVaR limit, as an experiment of two limits. Each trial's 114 rebalances are certified, but for the tight trial's 2024-05-01 program, which is proven infeasible. The experiment is defined in a module of its own because its identity names its configuration type by module: run as a script it had been another experiment than the one its test imported. The construction-in-runs guide is written; its full-size figure waits for the measurement.
 - **2026-11-23** M9's mutation series ran, CR01 to CR57. Its first failures needed reading: the end-to-end test's pinned experiment record is reached first and moves for any change of bits, so every catch it made was replayed against the focused tests. Two defects nothing focused caught -- CR02, a feasible point certified whatever its gap, and CR04, which survived, any positive Farkas margin taken as proof -- and six later survivors each gained the case that tells them apart. CR08, a floor in absolute terms, changes which iterate is certified and not whether it is right. The machine slept through hours of the run; it was stopped and resumed, and nothing it was stopped in was recorded. On the final tree all nine re-run were caught, and every catcher, replayed alone, fails by the defect's own effect. ef37b6d and 695b2aa passed hosted CI, all six cells each, with CodeQL and Optional Distributions, so the rebalancing package, the linear program's scaling and the exit gate's example are Hosted CI passed, and the experiment's pinned record holds on Linux and macOS.
+- **2026-11-23** WS-12's budget measured at its own size, alone: one construction at 1,000 assets with minimum CVaR over 2,520 scenarios took 10,265 s over 29 iterations, certified OPTIMAL at a vertex, 97 percent of it the normal equations' 2,521 rows formed and factored -- 171 times the budget, held for M11's compute backend as ADR-0063 section 7 provides. benchmarks/benchmark_construction_cvar.py repeats it with --budget and otherwise guards the method's growth. M9's close is recorded: its scope check (the ledger's OFE-002 narrowed, found open), the exit gate's evidence, the scenario mapping, AC-11 and AC-12 verified, and GAP-20 and GAP-37 closed. M9 is Local validation passed until the close's hosted CI; acceptance is the owner's.
 
 ## Milestones
 
@@ -412,7 +413,7 @@ Never:
 | M6 | Hosted CI passed | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Hosted CI passed | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Accepted | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
-| M9 | In progress | WS-12 | A rebalancing backtest with CVaR, certified |
+| M9 | Local validation passed | WS-12 | A rebalancing backtest with CVaR, certified |
 | M10 | Not started | WS-13, WS-27, WS-14, WS-28 | S-03, S-04, S-05, S-06, S-14; GR-1, GR-3, GR-6 |
 | M11 | Not started | WS-15, WS-09, WS-25, WS-21 | Benchmarks; the 500-asset × 10-year run ≤ 5 minutes with the same `result_id` |
 | M12 | Not started | WS-16, WS-18, WS-20 | S-08; a stress family reproduced |
@@ -1493,7 +1494,7 @@ Evidence:
 
 ### WS-15: Performance and scale
 
-- [Not started] M11: WS-12's budget (moved here from WS-12 by TD-71): construction at 1,000 assets with CVaR over 2,520 scenarios within 60 seconds: measured on the pure-Python linear program at 10 to 320 assets (271 s at 320 x 806, about eight times an iteration's time per doubling), about two and a half to three hours extrapolated to the budget's size, so not met in pure Python. ADR-0063 section 7 gives it to the compute backend's cross-check (ADR-0057, WS-15) at M11; a measurement at the budget's own size is taken before M9 closes
+- [Not started] M11: WS-12's budget (moved here from WS-12 by TD-71): construction at 1,000 assets with CVaR over 2,520 scenarios within 60 seconds: measured on the pure-Python linear program at 10 to 320 assets (271 s at 320 x 806, about eight times an iteration's time per doubling), and at the budget's own size at M9's close: 10,265 s for one construction (MinimumCVaR at 0.95, fully invested, capped at 5%), 29 iterations, certified OPTIMAL at a vertex, 9,958 s of it forming and factoring the 2,521-row normal equations (arm64, CPython 3.12.4, alone), 171 times the budget, so not met in pure Python. ADR-0063 section 7 gives it to the compute backend's cross-check (ADR-0057, WS-15) at M11; benchmarks/benchmark_construction_cvar.py --budget repeats the measurement
 
 ### WS-19: Researcher entry points, composition, reproducibility APIs
 
@@ -1576,7 +1577,7 @@ Evidence:
 
 ## Gaps
 
-25 open, 24 closed, 4 discarded.
+23 open, 26 closed, 4 discarded.
 
 | Gap | Problem | Severity | Status | Workstreams | Milestone |
 | --- | --- | --- | --- | --- | --- |
@@ -1599,7 +1600,7 @@ Evidence:
 | GAP-17 | One execution model per run | H/P1 | Closed at M8 (WS-26, ADR-0061, TD-67): a model per declared venue, every simulated order routed to one and filled by its model; GR-4 holds a two-venue run's costs reconciling venue by venue (example 82, S-09). | WS-26 | M8 |
 | GAP-18 | No run-level or intraday next-open | L-M/P1 | Closed at M8 (WS-11, ADR-0060, TD-60): FillTiming.NEXT_OPEN fills a market order's turn at a bar at the bar's open, and with a declared calendar an order decided after a session's last bar fills at the next session's first bar's open. Opt-in; the default stays SAME_EVENT in 4.x (D-V4). | WS-11 | M8 |
 | GAP-19 | Latency costs nothing | M/P2 | Closed at M8 (WS-11, ADR-0060, TD-62): LatencyPricing.POST_LATENCY_EVENT keeps an order from the market until its latency has passed. Its first turn is its asset's first event at or after then, stamped there, and at the intraday bar it reaches the market within it meets the close alone. Opt-in; a run under STAMP, the default, is unchanged. | WS-11 | M8 |
-| GAP-20 | Optimiser not on the path | M/P1 | Open: reopened by ADR-0063 (D-V3, 2026-11-22). The rebalancing package and a rebalancing backtest reconciled to its fills validated locally (TD-75); closes with M9's exit gate, S-01's construction as an experiment with CVaR, certified. | WS-12 | M9 |
+| GAP-20 | Optimiser not on the path | M/P1 | Closed at M9's close (TD-75, TD-77): the rebalancing package runs a certified construction as a strategy, and S-01's construction -- a factor-neutral, sector-capped, CVaR-limited book rebalanced monthly for ten years as an experiment -- is a rebalancing backtest with CVaR, certified and reconciled to its fills, held by tests/integration/test_rebalancing_end_to_end.py; Hosted CI passed on 695b2aa. | WS-12 | M9 |
 | GAP-21 | DL and RL not end to end | M/P2 | Open | WS-16 | M12 |
 | GAP-22 | No depth, L2 or ns time | M/P3 | Open (after M13; ns in 5.0) | WS-17 | After M13 |
 | GAP-23 | FX booked as units | M/P2 | Open | WS-27 | M10 |
@@ -1616,7 +1617,7 @@ Evidence:
 | GAP-34 | 9,248-line pipeline module | L/P3 | Open | WS-15 | M11 |
 | GAP-35 | Windows untested | M/P2 | Open | WS-21 | M11 [OD] |
 | GAP-36 | US-centric day counts | H/P1 | Closed at M2's hosted exit gate (fe3c80b; N21, TD-14): the world's bond and swap day counts, each by its published definition, an instrument's terms explicit; GR-2's published worked examples matched. N21's other conventions in plan G.3 -- business-day conventions and FX value dates -- are where plan G.2 places them, at M10 with WS-14 (GR-6) and WS-27 (GR-3). | WS-13 | M2 |
-| GAP-37 | Closed construction objectives; one solver | M/P2 | Open: reopened by ADR-0063 (D-V3, 2026-11-22). Implemented: the objective protocol (TD-70), the certified linear program (TD-71, TD-72) and scenario risk on it (TD-73) -- minimum CVaR, CVaR and conditional-drawdown limits, and limits as a protocol. Closes when M9 passes. | WS-12 | M9 |
+| GAP-37 | Closed construction objectives; one solver | M/P2 | Closed at M9's close: an open objective protocol (TD-70) and a certified linear program (TD-71, TD-72, TD-76) beside the two quadratic methods, with minimum CVaR and CVaR and conditional-drawdown limits on it (TD-73) and a cardinality relaxation with its gap stated (TD-74), each Hosted CI passed. Exact cardinality and multi-period construction stay boundaries (OFE-002). | WS-12 | M9 |
 | GAP-38 | Remainders cancelled; size-less fills | M/P2 | Closed at M8 (WS-11, ADR-0060, TD-61): RestRemainder keeps a partial fill's remainder working for a stated number of events or seconds, then cancels it; StrictLiquidityCappedFill refuses an event with no size instead of filling in full. Both opt-in; a run declaring neither is unchanged. | WS-11 | M8 |
 | GAP-39 | (candidate) silent zero fill | — | Discarded | — | — |
 | GAP-40 | (candidate) no history accessor | — | Discarded | — | — |

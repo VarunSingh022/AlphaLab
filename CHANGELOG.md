@@ -1425,6 +1425,15 @@ entry below says otherwise.
   * what each rebalance records, and how a paused run resumes;
   * S-01's construction end to end;
   * what construction costs, measured, and what is not here.
+* **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
+  construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
+  took 10,265 seconds in pure Python, alone on the reference machine, over 29
+  iterations, certified `OPTIMAL` at a vertex. Forming and factoring its
+  2,521-row normal equations took 9,958 of those seconds. The 60-second budget
+  is held for the compute backend at M11 (WS-15).
+  `benchmarks/benchmark_construction_cvar.py --budget` repeats the measurement.
+  Without the flag the benchmark guards the method's growth: a doubled universe
+  costs 8.6 times as much, under a ceiling of 16.
 * **M9's mutation series** [plan WS-12]. `mutation_v4_3.py` gains the CR series:
   57 mutations over the linear program, the objective protocol, scenario risk,
   cardinality and the rebalancing strategy. Each is caught on the final tree by
