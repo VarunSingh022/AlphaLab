@@ -398,6 +398,7 @@ Never:
 - **2026-11-22** M9's exit gate validated locally as example 83 (TD-77): S-01's construction, eight equities rebalanced monthly for ten years to the most expected return a value-neutral, sector-capped book holds within a CVaR limit, as an experiment of two limits. Each trial's 114 rebalances are certified, but for the tight trial's 2024-05-01 program, which is proven infeasible. The experiment is defined in a module of its own because its identity names its configuration type by module: run as a script it had been another experiment than the one its test imported. The construction-in-runs guide is written; its full-size figure waits for the measurement.
 - **2026-11-23** M9's mutation series ran, CR01 to CR57. Its first failures needed reading: the end-to-end test's pinned experiment record is reached first and moves for any change of bits, so every catch it made was replayed against the focused tests. Two defects nothing focused caught -- CR02, a feasible point certified whatever its gap, and CR04, which survived, any positive Farkas margin taken as proof -- and six later survivors each gained the case that tells them apart. CR08, a floor in absolute terms, changes which iterate is certified and not whether it is right. The machine slept through hours of the run; it was stopped and resumed, and nothing it was stopped in was recorded. On the final tree all nine re-run were caught, and every catcher, replayed alone, fails by the defect's own effect. ef37b6d and 695b2aa passed hosted CI, all six cells each, with CodeQL and Optional Distributions, so the rebalancing package, the linear program's scaling and the exit gate's example are Hosted CI passed, and the experiment's pinned record holds on Linux and macOS.
 - **2026-11-23** WS-12's budget measured at its own size, alone: one construction at 1,000 assets with minimum CVaR over 2,520 scenarios took 10,265 s over 29 iterations, certified OPTIMAL at a vertex, 97 percent of it the normal equations' 2,521 rows formed and factored -- 171 times the budget, held for M11's compute backend as ADR-0063 section 7 provides. benchmarks/benchmark_construction_cvar.py repeats it with --budget and otherwise guards the method's growth. M9's close is recorded: its scope check (the ledger's OFE-002 narrowed, found open), the exit gate's evidence, the scenario mapping, AC-11 and AC-12 verified, and GAP-20 and GAP-37 closed. M9 is Local validation passed until the close's hosted CI; acceptance is the owner's.
+- **2026-11-23** M10 begun. Its entry needs ADR-0065, ADR-0066 and ADR-0067 accepted, and they are, under the owner's delegation (TD-78 to TD-80): a declared FX deal books two currencies, with value dates from both calendars and NDFs settled at a supplied fixing; a rates package whose curves are read by a required, named interpolation, bootstrapped to a stated tolerance, its instruments booked by declared terms -- BDY-014 reopened on its own reason, that the choice is the researcher's; and volatility models as estimates recording every choice, static arbitrage refused by name, local volatility and a seeded Monte Carlo pricer, continuous futures as identified transforms, and non-FX forwards -- BDY-015 reopened the same way. Each ADR's settled points are written as its commits land. M9's close commit 5af8ba6 passed the full gate (14,666 tests) and was pushed; its hosted CI and checkpoint benchmarks were running when this was written.
 
 ## Milestones
 
@@ -414,7 +415,7 @@ Never:
 | M7 | Hosted CI passed | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Accepted | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
 | M9 | Local validation passed | WS-12 | A rebalancing backtest with CVaR, certified |
-| M10 | Not started | WS-13, WS-27, WS-14, WS-28 | S-03, S-04, S-05, S-06, S-14; GR-1, GR-3, GR-6 |
+| M10 | In progress | WS-13, WS-27, WS-14, WS-28 | S-03, S-04, S-05, S-06, S-14; GR-1, GR-3, GR-6 |
 | M11 | Not started | WS-15, WS-09, WS-25, WS-21 | Benchmarks; the 500-asset × 10-year run ≤ 5 minutes with the same `result_id` |
 | M12 | Not started | WS-16, WS-18, WS-20 | S-08; a stress family reproduced |
 | M13 | Not started | WS-19, WS-22, WS-29, WS-20, WS-01, WS-10 | S-01, S-10, S-12; FUT-044 criteria; RQ-01..09 rehearsal |
@@ -1236,6 +1237,36 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** examples/83_rebalance_a_factor_neutral_book.py and examples/_rebalanced_book.py; docs/REBALANCING.md; CHANGELOG; examples/README.md and docs/EXAMPLES.md; docs/README.md.
 - **Tests:** tests/integration/test_rebalancing_end_to_end.py (13). Both trials are completed and counted, and the experiment's record is pinned. Each trial has 114 rebalances, each at its month's first weekday in New York. Every rebalance is certified but the tight trial's 2024-05-01, which is proven infeasible and trades nothing. Six sampled answers, the formerly jammed 105th included, are re-solved to the same result identity. Each is held without the solver to every constraint, its CVaR computed by sorting, and its targets lie within one share of its weights. The trials part first where the tight limit binds, at 0.012. At every rebalance the book is the last certified targets, and the account holds it.
 
+### TD-78: ADR-0067 accepted: a declared FX deal books two currencies, with value dates computed from both calendars (N15, GAP-23) (WS-27, 2026-11-23)
+
+- **Problem:** A FOREX record is booked as units of a cash equity: buying EUR/USD moves dollars and holds no euros, so an account's cash per currency, its exposure and a forward's settlement are wrong or absent (GAP-23). Value dates follow both currencies' calendars and the US-dollar rule where a pair needs it, and none of that is a property of a pair's name. Forwards, swaps, rollovers and NDFs need declared terms.
+- **Alternatives:** (a) Keep FX as units and add a reporting layer: the cash a forward moves on its value date would still be invented at report time. (b) An FX position type beside Position: a second portfolio model. (c) A declared FX deal booked as two currency legs, each pending until its value date by FUT-015 and FUT-037's settlement mechanism, the account holding currencies and converting on demand.
+- **Decision:** (c). FxTerms on InstrumentRecord outside its identity key, with SPOT, FORWARD and NDF kinds. A ValueDateRule states the spot lag, both currencies' calendars, the US-dollar rule and, for a forward, an outright date or a tenor with a business-day convention and an end-of-month rule; it is computed in conventions with calendars taken by protocol. A swap is a package of two deals (ADR-0062), and a rollover is a swap a strategy states. An NDF books its difference in the settlement currency at a fixing from a named source, refused when missing or stale. A record without FxTerms is booked as before.
+- **Rationale:** Settlement truth per currency is an existing invariant (nowandfuture section 14), and the pending-settlement and delivered-leg mechanisms already book what an FX deal needs. Value dates and fixings are declared, so nothing is inferred from a pair's name (plan G.1 and G.3) and no rate is invented (AC-17).
+- **Compatibility:** Additive: a terms kind, conventions rules, NDF fixing and two-currency booking for records that declare them; no identity, digest or byte moves for any run, registry or record that declares none.
+- **Recorded in:** docs/ADR/0067-fx-instruments-and-value-dates.md.
+- **Tests:** To be built with M10's commits: GR-3, an FX forward booked in two currencies with a holiday-adjusted value date and cash per currency equal to the hand calculation, rolled as a swap; value dates against both calendars; NDF settlement at a supplied fixing and its refusals; S-05.
+
+### TD-79: ADR-0065 accepted: a rates package -- curves under a required named interpolation, certified bootstrapping, instruments booked by declared terms (N13, BDY-014 reopened, GAP-24, GAP-51) (WS-14, 2026-11-23)
+
+- **Problem:** BDY-014 kept fixed income a foundation: no curve bootstrapper and no fixed-income engine. A rates researcher cannot build discount or projection curves, discount at OIS, value or book swaps, FRAs, floaters, linkers or repos, or run a duration-neutral book (S-06). The boundary's own reason -- a library choosing an interpolation silently hides a market assumption -- is the constraint any reopening must keep.
+- **Alternatives:** (a) Keep the boundary. (b) Curves with a default interpolation: the hidden assumption the boundary refused. (c) A rates library whose interpolation, conventions and quotes are each the researcher's, required and recorded, with instruments booked on the path by declared terms.
+- **Decision:** (c). alphalab.rates imports common and conventions. A curve's pillars are read by a required named Interpolation -- log-linear on discount factors and linear on zero rates at M10 -- with extrapolation refused unless stated; projection curves are bootstrapped against a stated discount curve. The bootstrap solves each pillar to a stated tolerance and refuses a quote it cannot meet. SwapTerms, FraTerms, FloaterTerms, LinkerTerms and RepoTerms ride outside the identity key, and SWAP, FRA and REPO are appended to AssetType. A rates position books its cash flows on payment dates from fixings delivered as observations, and is marked by a stated source or a supplied curve, recorded as a valuation. Basic credit: a spread curve or a hazard curve with a stated recovery.
+- **Rationale:** Requiring the interpolation by name turns the boundary's objection into the design: the choice is the researcher's and is in every curve's identity. Booking by terms keeps the cash ledger the book of record, and every number has the provenance ADR-0058 gave estimates.
+- **Compatibility:** Additive; macro.bond and macro.yield_curve unchanged; no identity moves for a run declaring none.
+- **Recorded in:** docs/ADR/0065-fixed-income-and-rates.md.
+- **Tests:** To be built with M10's commits: GR-6, a published worked bootstrap reproduced; swap PV parity at inception; accrual by convention; a swap book through a backtest with fixings on the schedule, cash per currency reconciled; a 30-instrument curve within one second; S-06.
+
+### TD-80: ADR-0066 accepted: volatility models as estimates with static arbitrage refused, local volatility, Monte Carlo, identified roll transforms and non-FX forwards (N14, BDY-015 reopened, GAP-25, GAP-51) (WS-28, 2026-11-23)
+
+- **Problem:** BDY-015 kept parametric fits out: a model with parameters somebody has to choose and defend. Researchers cannot fit SVI or SABR, refuse an arbitrageable surface, read local volatility, price under Heston or by Monte Carlo (GAP-25), nor trade a continuous futures series whose roll is an identified transform moved by a pack's holiday (S-03); non-FX forwards are missing (GAP-51).
+- **Alternatives:** (a) Keep the boundary. (b) Fits with default betas, weights and bounds: chosen by the library, defended by nobody. (c) Fits as ADR-0058 estimates recording every choice, nothing defaulted, with arbitrage checked by name and models marking positions only as diagnostics.
+- **Decision:** (c). options.models fits raw SVI per expiry, SABR by Hagan's expansion with a stated beta, and Heston, each an estimate recording quotes, objective, weights, bounds, start, method, tolerance, parameters and errors; a fit that does not converge returns no parameters. Butterfly and calendar arbitrage are refused by name, local volatility is read by Dupire's formula only from a surface that passes, and a seeded Monte Carlo pricer reports its standard error under stated dynamics. A continuous futures series is a dataset transform whose identity covers chain, roll rule, adjustment and calendar, cited in provenance. ForwardTerms and AssetType.FORWARD for non-FX forwards.
+- **Rationale:** The boundary's reason is answered by the record: a fitted model is chosen and defended in its identity. Models mark only as diagnostics, so the book of record stays the market's.
+- **Compatibility:** Additive; existing pricing and interpolation unchanged; no identity moves for a run declaring none.
+- **Recorded in:** docs/ADR/0066-volatility-models-and-futures-depth.md.
+- **Tests:** To be built with M10's commits: calibration recovery on synthetic smiles; static-arbitrage refusal; Monte Carlo against closed forms; the roll transform's identity and a pack holiday moving a roll date; an SVI fit within one second per expiry; S-03 and S-04.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1267,7 +1298,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-11 | Execution realism: fills, partial fills, latency, plan+queue, combos | M8 | Accepted |
 | WS-12 | Portfolio construction and rebalancing | M9 | In progress |
 | WS-13 | Global conventions, reference data and historical universes | M2, M3, M10 | In progress |
-| WS-14 | Fixed income and rates | M10 | Not started |
+| WS-14 | Fixed income and rates | M10 | In progress |
 | WS-15 | Performance and scale | M11 | Not started |
 | WS-16 | ML/DL/RL research environments | M12 | Not started |
 | WS-17 | Market microstructure (depth, L2/L3) | After M13 | Not started |
@@ -1280,8 +1311,8 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-24 | Validation over actual backtests | M5 | In progress |
 | WS-25 | Factor and feature research | M6, M11 | In progress |
 | WS-26 | Per-venue execution (FUT-045) | M8 | Accepted |
-| WS-27 | FX and multi-currency correctness | M10 | Not started |
-| WS-28 | Options and futures depth | M10 | Not started |
+| WS-27 | FX and multi-currency correctness | M10 | In progress |
+| WS-28 | Options and futures depth | M10 | In progress |
 | WS-29 | Release engineering and v4.3.0 artifacts | M0, M13 | In progress |
 
 ### WS-00: Governance, charter and decision records
@@ -1654,9 +1685,9 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | ADR-0062 | Combo and multi-leg intents (N16) | WS-11 | Before M8 | Accepted (2026-11-17) |
 | ADR-0063 | Rebalancing bridge and certified additional solvers (reopens ADR-0043's non-goal and §19) | WS-12 | Before M9 | Accepted (2026-11-22) |
 | ADR-0064 | Research model protocol and artifacts (N8) | WS-08 | Before M7 | Accepted (2026-11-16) |
-| ADR-0065 | Fixed income and rates (reopens BDY-014) | WS-14 | Before M10 | Not drafted in the repository |
-| ADR-0066 | Volatility models (reopens BDY-015) | WS-28 | Before M10 | Not drafted in the repository |
-| ADR-0067 | FX instruments and value dates (N15) | WS-27 | Before M10 | Not drafted in the repository |
+| ADR-0065 | Fixed income and rates (reopens BDY-014) | WS-14 | Before M10 | Accepted (2026-11-23) |
+| ADR-0066 | Volatility models (reopens BDY-015) | WS-28 | Before M10 | Accepted (2026-11-23) |
+| ADR-0067 | FX instruments and value dates (N15) | WS-27 | Before M10 | Accepted (2026-11-23) |
 | ADR-0068 | Researcher entry module `alphalab.lab` (D-54-R3, N20) | WS-19 | Before M13 (its documented-module part before M4) | Not drafted in the repository |
 | ADR-0069 | RL and DL episode driver (N24) | WS-16 | Before M12 | Not drafted in the repository |
 | ADR-0070 | Depth protocol and microstructure (reopens BDY-003; ns time stays 5.0) | WS-17 | After M13 | Not drafted in the repository |
