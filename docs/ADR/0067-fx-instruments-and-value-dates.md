@@ -178,6 +178,30 @@ date are all wrong, or absent.
      - a one-day lag, and forwards from a month's last business day;
      - a `MarketCalendar` read as a calendar;
      - every refusal.
+2. **FX terms on the record** (`alphalab.instrument.terms`).
+   - **Calendars are named by id.** The registry is persisted, and a calendar
+     is the run's, from a pack (ADR-0059) or the researcher. So the record's
+     `FxValueDateRule` names each calendar by its `calendar_id`, and the run
+     resolves it to section 1's `ValueDateRule` with the calendars it
+     declares. A value date that needs an id the run does not declare is
+     refused.
+   - **The record is the pair, priced in its quote.** A record that declares
+     `FxTerms` is a `FOREX` record whose currency is the quote. Its economics
+     are a cash equity's or none, so one unit is one unit of the base
+     currency.
+   - **The rule's shape is checked where it is declared.**
+     - Spot states no later date.
+     - A forward or an NDF states exactly one of an outright date and a
+       tenor, and a tenor states its convention and end-of-month rule.
+     - An NDF states its fixing, which settles in one of its two currencies.
+       No other kind has a fixing.
+   - **Persisted by name.** `FxKind` and `BusinessDayConvention` are written
+     by member name and pinned (ledger PER-004). A tenor is written by its
+     label and a date in ISO form. A record that declares no terms writes
+     `null`, as before.
+   - **Tests.** `tests/unit/instrument/test_fx_terms.py` holds each kind on
+     its record, every refusal, and the codec's and the registry snapshot's
+     round trips.
 
 # Compatibility
 

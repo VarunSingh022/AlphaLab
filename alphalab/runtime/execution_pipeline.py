@@ -88,7 +88,7 @@ from alphalab.instrument.margin import (
 )
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
-from alphalab.instrument.terms import Deliverable, FutureTerms, OptionTerms
+from alphalab.instrument.terms import Deliverable, FutureTerms, FxTerms, OptionTerms
 from alphalab.market.bar import Bar, IntervalUnit, TimeFrame
 from alphalab.market.engine import MarketEngine
 from alphalab.market.events import (
@@ -5192,6 +5192,8 @@ def _require_exchange_adjusted(
                     "a future's delivery is not adjusted for an exchange. Close it before."
                 )
             continue
+        if isinstance(terms, FxTerms):
+            continue  # an FX deal exchanges two currencies; it delivers no instrument
         before = replace(
             terms, adjustments=tuple(a for a in terms.adjustments if a.effective_at < timestamp)
         ).effective(timestamp)
@@ -5239,6 +5241,8 @@ def _require_adjusted_for(state: ExecutionPipelineState, split: Split, timestamp
                     "future's delivery is not adjusted for a split. Close it before the split."
                 )
             continue
+        if isinstance(terms, FxTerms):
+            continue  # an FX deal exchanges two currencies; it delivers no instrument
         before = replace(
             terms, adjustments=tuple(a for a in terms.adjustments if a.effective_at < timestamp)
         ).effective(timestamp)

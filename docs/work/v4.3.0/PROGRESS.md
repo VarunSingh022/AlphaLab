@@ -41,14 +41,14 @@ Never:
 - Deleting Git history or force-pushing.
 - Disabling security controls or rulesets to bypass a failure.
 
-## Current state (2026-11-22)
+## Current state (2026-11-24)
 
 | | |
 | --- | --- |
-| Remote head | `ad622de` |
+| Remote head | `30ced8d` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M10 (WS-27 first): ADR-0067's FX booking -- FxTerms on the instrument record, a declared FX fill booked as two currency legs pending to the value date, swaps as packages, NDF fixings from a supplied rate -- toward GR-3 and S-05; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for ad622de and the next push is read once at the next boundary. |
+| Next | M10, WS-27: booking a declared FX deal in two currencies -- each leg an exchange pending to its value date, computed from the run's calendars by id, no position in the pair, the account's cash per currency -- then swaps as packages, NDF fixings from a supplied rate, GR-3 and S-05; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for 30ced8d and the next push is read at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -288,6 +288,9 @@ Never:
 | `5027760` | Continuous Integration | 45097781788 | success: all six quality-gate cells (M10's three ADRs) |
 | `5027760` | CodeQL | 45097781815 | success |
 | `5027760` | Optional Distributions | 45097781846 | success |
+| `ad622de` | Continuous Integration | 45382369708 | success: all six quality-gate cells (business-day conventions, tenors and FX value dates) |
+| `ad622de` | CodeQL | 45382370098 | success |
+| `ad622de` | Optional Distributions | 45382369697 | success |
 
 ## Continuation log
 
@@ -407,6 +410,7 @@ Never:
 - **2026-11-23** WS-12's budget measured at its own size, alone: one construction at 1,000 assets with minimum CVaR over 2,520 scenarios took 10,265 s over 29 iterations, certified OPTIMAL at a vertex, 97 percent of it the normal equations' 2,521 rows formed and factored -- 171 times the budget, held for M11's compute backend as ADR-0063 section 7 provides. benchmarks/benchmark_construction_cvar.py repeats it with --budget and otherwise guards the method's growth. M9's close is recorded: its scope check (the ledger's OFE-002 narrowed, found open), the exit gate's evidence, the scenario mapping, AC-11 and AC-12 verified, and GAP-20 and GAP-37 closed. M9 is Local validation passed until the close's hosted CI; acceptance is the owner's.
 - **2026-11-23** M10 begun. Its entry needs ADR-0065, ADR-0066 and ADR-0067 accepted, and they are, under the owner's delegation (TD-78 to TD-80): a declared FX deal books two currencies, with value dates from both calendars and NDFs settled at a supplied fixing; a rates package whose curves are read by a required, named interpolation, bootstrapped to a stated tolerance, its instruments booked by declared terms -- BDY-014 reopened on its own reason, that the choice is the researcher's; and volatility models as estimates recording every choice, static arbitrage refused by name, local volatility and a seeded Monte Carlo pricer, continuous futures as identified transforms, and non-FX forwards -- BDY-015 reopened the same way. Each ADR's settled points are written as its commits land. M9's close commit 5af8ba6 passed the full gate (14,666 tests) and was pushed; its hosted CI and checkpoint benchmarks were running when this was written.
 - **2026-11-24** Resumed from the pause of 2026-11-23, as the owner directed, under the standing authorization. The host had restarted and the scratchpad was empty, so the venv was rebuilt from the dev extras on CPython 3.12.4 and gate.sh restored from the checkpoint's copy; the toolchain (ruff 0.17.6, mypy 2.4.1) checked clean on the checkout first. ad622de, whose full gate had passed before the pause (14,690 tests), was pushed. M9's close passed hosted CI on all six cells, with CodeQL and Optional Distributions, and its checkpoint benchmarks passed on all six cells, so M9 is Hosted CI passed and awaits the owner's acceptance. 5027760, M10's ADRs, passed all six cells too.
+- **2026-11-24** ad622de passed hosted CI on all six cells, with CodeQL and Optional Distributions, so WS-13's business-day conventions are Hosted CI passed. ADR-0067's FX terms are declared on the record (TD-82): FxTerms, FxKind, FxValueDateRule with its calendars named by id, and an NDF's NdfFixing, refused where malformed and persisted with the registry by name only when declared. Booking such a deal in two currencies is the next step; until it lands a declared deal books as a cash equity, as the CHANGELOG states.
 
 ## Milestones
 
@@ -1285,6 +1289,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 1); CHANGELOG; the conventions package's and module's docstrings.
 - **Tests:** tests/unit/conventions/test_business_days.py (24): each convention at a weekend and a month's end; joint calendars; business-day counts across a holiday; a month from the 31st; the end-of-month rule stated and not; years, weeks and days; a USD pair moved by the Fourth of July and not delayed by Thanksgiving before spot, counted in both calendars for contrast; a cross on a US business day; a one-day lag and a same-day deal; forwards from a month's last business day; a MarketCalendar as a calendar; every refusal.
 
+### TD-82: An FX deal's terms declared on its record, its calendars named by id (ADR-0067 settled point 2) (WS-27, 2026-11-24)
+
+- **Problem:** ADR-0067 section 1 puts FxTerms on InstrumentRecord, outside its identity key, with a value-date rule (section 2) and an NDF's fixing (section 4), persisted with the registry and written only when declared (section 5). conventions' ValueDateRule holds calendar objects, but the registry is persisted and a calendar is the run's, from a pack or the researcher, so a record cannot hold one. Nothing may be defaulted (AC-12).
+- **Alternatives:** (a) The record holds conventions' ValueDateRule with its calendars: a calendar is not persistable data, and a registry restored without the run's calendars could not be read. (b) Calendars looked up by currency code: a registry the engine does not ship (AC-22), and a pair's rule read from its name (plan G.3). (c) The record names each calendar by its calendar_id, and the run resolves the ids against the calendars it declares, refusing one it does not.
+- **Decision:** (c). alphalab.instrument.terms: FxKind (SPOT, FORWARD, NDF); FxValueDateRule(spot_lag, counted, settles, outright, tenor, convention, end_of_month), its calendars by id; NdfFixing(settlement_currency, fixing_lag, source); FxTerms(base, quote, kind, value_dates, fixing), a third member of ContractTerms. A record declaring it is FOREX, priced in the quote, with a cash equity's economics or none. Spot states no later date; a forward or an NDF exactly one of an outright date and a tenor; a tenor its convention and end-of-month rule; an NDF its fixing, in one of its currencies, and no other kind one. The codec writes the kinds and conventions by member name (pinned, PER-004), a tenor by its label and a date in ISO form.
+- **Rationale:** Ids keep the record data and the calendars the run's, as ADR-0059 makes them, and keep a missing calendar a refusal at the value date that needs it rather than an assumption. Checking the rule's shape where it is declared refuses a malformed deal before any run reads it.
+- **Compatibility:** Additive: four exports (3,152); a record that declares no terms writes null as before, so no registry's bytes or digest move. Booking a declared deal in two currencies is WS-27's next step; until it lands such a fill is booked as units of a cash equity, as every FOREX fill is, and the CHANGELOG says so.
+- **Recorded in:** docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 2); CHANGELOG; the terms module's docstring; test_persisted_enum_names (FxKind, BusinessDayConvention).
+- **Tests:** tests/unit/instrument/test_fx_terms.py (30): spot, a forward by tenor and by outright date, and an NDF on their records; each through the codec and, with the registry, through its snapshot; a registry without FX terms writing null; every refusal of the terms, the rule and the fixing; a record that is not FOREX, not priced in its quote, or with a contract's economics; written terms that do not read. tests/unit/runtime/test_fx_pairs_beside_corporate_actions.py (2): a split and a holding exchange pass over an FX order working at the venue. The full gate's mypy found that both checks narrowed a record's terms to an option's once a future's were excluded, and would have read an option's adjustments from FX terms; both tests fail that way without the fix.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1536,7 +1550,7 @@ Evidence:
 - [Hosted CI passed] M3: research.bias.membership_review, and GR-5: the point-in-time run clean, the survivorship control named, the bias measured exactly
 - [Hosted CI passed] M3: data.packs.ReferencePack: source, coverage, licence, typed entries, content digest; universe_from_pack
 - [Hosted CI passed] M3: Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught
-- [Pushed] M10: Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in
+- [Hosted CI passed] M10: Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in
 
 Evidence:
 
@@ -1610,6 +1624,10 @@ Evidence:
 - [Accepted] M8: S-09 and GR-4 (ADR-0061 settled point 4): examples/82_research_execution_across_venues.py -- queued TWAP children at two declared venues and routed, commissions per venue, implementation shortfall, latency-priced fills, and a two-venue run reconciled venue by venue; in the installed smoke test
 - [Accepted] M8: The venue measures read the routed venue (section J: analytics measures and reads the per-venue projection; ADR-0061 settled point 3): venue_quality finds GR-4's ALPHA fill six basis points above the 50.00 arrival and BETA's five, and attribution's venue dimension covers both trades through the reports they share their ids with; ADR-0061 section 1's 'and trade record' settled differently -- no record type gains a field; venues routed by listing alone recorded at version 9 and resumed
 - [Accepted] M8: The per-venue stress scenario (stress_v4_3.py venues): 4,000 orders routed by size between a per-share and a per-order venue, every route, each venue's commission and their sum asserted, flat at ten times the run
+
+### WS-27: FX and multi-currency correctness
+
+- [Local validation passed] M10: An FX deal's terms on its record (TD-82, ADR-0067 settled point 2): FxTerms with its FxKind, FxValueDateRule (calendars by id) and an NDF's NdfFixing, refused where malformed, persisted with the registry by name and only when declared
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 

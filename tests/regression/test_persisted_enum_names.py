@@ -68,6 +68,15 @@ NAMED: dict[str, tuple[str, ...]] = {
     "alphalab.options.enums.ExerciseStyle": ("AMERICAN", "EUROPEAN", "BERMUDAN"),
     "alphalab.options.enums.OptionType": ("CALL", "PUT"),
     "alphalab.options.expiration.SettlementStyle": ("PHYSICAL", "CASH"),
+    # v4.3.0 (ADR-0067): an FX deal's declared terms, by name -- its kind and,
+    # for a tenor, the business-day convention its value date lands by.
+    "alphalab.instrument.terms.FxKind": ("SPOT", "FORWARD", "NDF"),
+    "alphalab.conventions.business_days.BusinessDayConvention": (
+        "FOLLOWING",
+        "MODIFIED_FOLLOWING",
+        "PRECEDING",
+        "UNADJUSTED",
+    ),
     # v4.2.0 (ledger FUT-015): an instrument's settlement rule, by its basis.
     "alphalab.conventions.settlement.SettlementBasis": (
         "TRADE_DATE",

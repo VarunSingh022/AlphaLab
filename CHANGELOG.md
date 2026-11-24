@@ -1446,6 +1446,29 @@ entry below says otherwise.
       so a US holiday before spot does not delay it. A cross commonly settles
       on a US business day too. Each is stated by the calendars listed, never
       inferred from the pair.
+* **An FX deal's terms, declared on its record** [plan WS-27, GAP-23,
+  ADR-0067]. `FxTerms` joins `OptionTerms` and `FutureTerms` on
+  `InstrumentRecord`, outside its identity key, so `ContractTerms` gains a
+  member. It is declared on a `FOREX` record priced in its quote currency, and
+  states:
+  * the base and quote currencies, distinct ISO 4217 codes;
+  * its kind, an `FxKind`: `SPOT`, `FORWARD` or `NDF`;
+  * its value dates, an `FxValueDateRule`:
+    * the spot lag;
+    * the calendars, by `calendar_id`, that a counted day and the value date
+      must be open in;
+    * for a forward, an outright date, or a tenor with its
+      `BusinessDayConvention` and end-of-month rule;
+  * for an NDF, its `NdfFixing`: a settlement currency of the pair's, the
+    fixing lag, and the source's name.
+
+  None has a default. The terms are persisted with the instrument registry,
+  by name, and only when declared: a registry that declares none writes what
+  it always wrote. A split or a holding exchange checks each contract a book
+  holds or works for a deliverable the action changes, and passes over an FX
+  pair, which delivers none. Booking a fill of such a record in two currencies
+  is the next step of WS-27. Until it lands, such a fill is booked as units of
+  a cash equity, as every `FOREX` fill is.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

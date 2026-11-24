@@ -1315,6 +1315,19 @@
       "compatibility": "Additive: ten exports (3,148); nothing persisted yet -- FX terms will carry a rule when ADR-0067's booking lands.",
       "record": "docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 1); CHANGELOG; the conventions package's and module's docstrings.",
       "tests": "tests/unit/conventions/test_business_days.py (24): each convention at a weekend and a month's end; joint calendars; business-day counts across a holiday; a month from the 31st; the end-of-month rule stated and not; years, weeks and days; a USD pair moved by the Fourth of July and not delayed by Thanksgiving before spot, counted in both calendars for contrast; a cross on a US business day; a one-day lag and a same-day deal; forwards from a month's last business day; a MarketCalendar as a calendar; every refusal."
+    },
+    {
+      "id": "TD-82",
+      "date": "2026-11-24",
+      "workstream": "WS-27",
+      "title": "An FX deal's terms declared on its record, its calendars named by id (ADR-0067 settled point 2)",
+      "problem": "ADR-0067 section 1 puts FxTerms on InstrumentRecord, outside its identity key, with a value-date rule (section 2) and an NDF's fixing (section 4), persisted with the registry and written only when declared (section 5). conventions' ValueDateRule holds calendar objects, but the registry is persisted and a calendar is the run's, from a pack or the researcher, so a record cannot hold one. Nothing may be defaulted (AC-12).",
+      "alternatives": "(a) The record holds conventions' ValueDateRule with its calendars: a calendar is not persistable data, and a registry restored without the run's calendars could not be read. (b) Calendars looked up by currency code: a registry the engine does not ship (AC-22), and a pair's rule read from its name (plan G.3). (c) The record names each calendar by its calendar_id, and the run resolves the ids against the calendars it declares, refusing one it does not.",
+      "decision": "(c). alphalab.instrument.terms: FxKind (SPOT, FORWARD, NDF); FxValueDateRule(spot_lag, counted, settles, outright, tenor, convention, end_of_month), its calendars by id; NdfFixing(settlement_currency, fixing_lag, source); FxTerms(base, quote, kind, value_dates, fixing), a third member of ContractTerms. A record declaring it is FOREX, priced in the quote, with a cash equity's economics or none. Spot states no later date; a forward or an NDF exactly one of an outright date and a tenor; a tenor its convention and end-of-month rule; an NDF its fixing, in one of its currencies, and no other kind one. The codec writes the kinds and conventions by member name (pinned, PER-004), a tenor by its label and a date in ISO form.",
+      "rationale": "Ids keep the record data and the calendars the run's, as ADR-0059 makes them, and keep a missing calendar a refusal at the value date that needs it rather than an assumption. Checking the rule's shape where it is declared refuses a malformed deal before any run reads it.",
+      "compatibility": "Additive: four exports (3,152); a record that declares no terms writes null as before, so no registry's bytes or digest move. Booking a declared deal in two currencies is WS-27's next step; until it lands such a fill is booked as units of a cash equity, as every FOREX fill is, and the CHANGELOG says so.",
+      "record": "docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 2); CHANGELOG; the terms module's docstring; test_persisted_enum_names (FxKind, BusinessDayConvention).",
+      "tests": "tests/unit/instrument/test_fx_terms.py (30): spot, a forward by tenor and by outright date, and an NDF on their records; each through the codec and, with the registry, through its snapshot; a registry without FX terms writing null; every refusal of the terms, the rule and the fixing; a record that is not FOREX, not priced in its quote, or with a contract's economics; written terms that do not read. tests/unit/runtime/test_fx_pairs_beside_corporate_actions.py (2): a split and a holding exchange pass over an FX order working at the venue. The full gate's mypy found that both checks narrowed a record's terms to an option's once a future's were excluded, and would have read an option's adjustments from FX terms; both tests fail that way without the fix."
     }
   ],
   "plan_changes": [
@@ -2498,7 +2511,7 @@
         {
           "milestone": "M10",
           "item": "Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         }
       ],
       "evidence": [
@@ -2800,7 +2813,13 @@
         "M10"
       ],
       "status": "In progress",
-      "items": [],
+      "items": [
+        {
+          "milestone": "M10",
+          "item": "An FX deal's terms on its record (TD-82, ADR-0067 settled point 2): FxTerms with its FxKind, FxValueDateRule (calendars by id) and an NDF's NdfFixing, refused where malformed, persisted with the registry by name and only when declared",
+          "status": "Local validation passed"
+        }
+      ],
       "evidence": []
     },
     {
@@ -3690,8 +3709,8 @@
     ]
   },
   "state": {
-    "updated": "2026-11-22",
-    "remote_head": "ad622de",
+    "updated": "2026-11-24",
+    "remote_head": "30ced8d",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -5109,10 +5128,28 @@
         "workflow": "Optional Distributions",
         "run": 45097781846,
         "result": "success"
+      },
+      {
+        "sha": "ad622de",
+        "workflow": "Continuous Integration",
+        "run": 45382369708,
+        "result": "success: all six quality-gate cells (business-day conventions, tenors and FX value dates)"
+      },
+      {
+        "sha": "ad622de",
+        "workflow": "CodeQL",
+        "run": 45382370098,
+        "result": "success"
+      },
+      {
+        "sha": "ad622de",
+        "workflow": "Optional Distributions",
+        "run": 45382369697,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M10 (WS-27 first): ADR-0067's FX booking -- FxTerms on the instrument record, a declared FX fill booked as two currency legs pending to the value date, swaps as packages, NDF fixings from a supplied rate -- toward GR-3 and S-05; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for ad622de and the next push is read once at the next boundary.",
+    "next": "M10, WS-27: booking a declared FX deal in two currencies -- each leg an exchange pending to its value date, computed from the run's calendars by id, no position in the pair, the account's cash per currency -- then swaps as packages, NDF fixings from a supplied rate, GR-3 and S-05; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for 30ced8d and the next push is read at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -5579,6 +5616,10 @@
     {
       "date": "2026-11-24",
       "entry": "Resumed from the pause of 2026-11-23, as the owner directed, under the standing authorization. The host had restarted and the scratchpad was empty, so the venv was rebuilt from the dev extras on CPython 3.12.4 and gate.sh restored from the checkpoint's copy; the toolchain (ruff 0.17.6, mypy 2.4.1) checked clean on the checkout first. ad622de, whose full gate had passed before the pause (14,690 tests), was pushed. M9's close passed hosted CI on all six cells, with CodeQL and Optional Distributions, and its checkpoint benchmarks passed on all six cells, so M9 is Hosted CI passed and awaits the owner's acceptance. 5027760, M10's ADRs, passed all six cells too."
+    },
+    {
+      "date": "2026-11-24",
+      "entry": "ad622de passed hosted CI on all six cells, with CodeQL and Optional Distributions, so WS-13's business-day conventions are Hosted CI passed. ADR-0067's FX terms are declared on the record (TD-82): FxTerms, FxKind, FxValueDateRule with its calendars named by id, and an NDF's NdfFixing, refused where malformed and persisted with the registry by name only when declared. Booking such a deal in two currencies is the next step; until it lands a declared deal books as a cash equity, as the CHANGELOG states."
     }
   ]
 }

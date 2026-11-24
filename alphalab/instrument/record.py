@@ -75,7 +75,7 @@ from alphalab.instrument.economics import InstrumentEconomics
 from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.identity import canonical_instrument_key, derive_asset_id
 from alphalab.instrument.margin import MarginTerms
-from alphalab.instrument.terms import ContractTerms, FutureTerms, OptionTerms
+from alphalab.instrument.terms import ContractTerms, FutureTerms, FxTerms, OptionTerms
 
 __all__ = ["DatedAlias", "InstrumentRecord", "normalize_key_field", "normalize_sector_label"]
 
@@ -338,7 +338,10 @@ class InstrumentRecord:
             -- or ``None``, when a contract is settled at a price the caller
             states, as every contract was before v4.1.1 (ledger FUT-013).
             Declared only with the contract's economics and last trading
-            instant; not part of the identity key.
+            instant; not part of the identity key. A currency pair's
+            :class:`~alphalab.instrument.terms.FxTerms` (v4.3, ADR-0067) make
+            its fills exchanges of two currencies; they need neither, and the
+            record is priced in their quote currency.
         settlement: How a trade in the instrument settles -- its market's T+n,
             counted by the listing venue's declared calendar -- or ``None``: it
             settles at the trade, as every trade did before v4.2.0 (ledger
@@ -433,18 +436,40 @@ class InstrumentRecord:
         return canonical_instrument_key(self.asset_type, self.exchange, self.symbol, self.currency)
 
 
+def _require_consistent_fx_terms(record: InstrumentRecord, terms: FxTerms, named: str) -> None:
+    """An FX deal's terms belong to a currency pair priced in its quote currency (ADR-0067)."""
+
+    if record.asset_type is not AssetType.FOREX:
+        raise InstrumentInputError(
+            f"{named} is a {record.asset_type.value}; FxTerms are a currency pair's terms."
+        )
+    if record.currency != terms.quote:
+        raise InstrumentInputError(
+            f"{named} is priced in {record.currency} and its terms quote {terms.base}/"
+            f"{terms.quote}: a pair is priced in its quote currency."
+        )
+    if record.economics is not None and not record.economics.is_cash_equity:
+        raise InstrumentInputError(
+            f"{named} declares FX terms and economics settled as "
+            f"{record.economics.settlement.value}: a deal's unit is one unit of its base currency."
+        )
+
+
 def _require_consistent_terms(record: InstrumentRecord) -> None:
     """Terms that cannot belong to this record are refused at declaration (FUT-013)."""
 
     terms = record.terms
     named = f"{record.symbol} on {record.exchange}"
+    if isinstance(terms, FxTerms):
+        _require_consistent_fx_terms(record, terms, named)
+        return
     if isinstance(terms, OptionTerms):
         expected, settles = AssetType.OPTION, SettlementModel.OPTION_PREMIUM
     elif isinstance(terms, FutureTerms):
         expected, settles = AssetType.FUTURE, SettlementModel.FUTURES_VARIATION
     else:
         raise InstrumentInputError(
-            f"terms are OptionTerms or FutureTerms, got {type(terms).__name__}."
+            f"terms are OptionTerms, FutureTerms or FxTerms, got {type(terms).__name__}."
         )
     if record.asset_type is not expected:
         raise InstrumentInputError(

@@ -54,6 +54,10 @@ What is supported, and what is refused
   adjustment for a split or a merger; an automatic-exercise threshold, or none.
 * Futures: cash settlement at the final price, or physical delivery of one
   deliverable at the final price.
+* FX deals (v4.3, ADR-0067): spot, a forward -- an outright value date or a
+  tenor from spot -- and a non-deliverable forward settled at a fixing. Each
+  states its two currencies and the calendars, by id, that its value date is
+  counted and settled in; the run supplies the calendars.
 
 Refused, each where it would be needed: a basket or a cash component valued
 against one underlying value (each component's value is stated instead); a
@@ -67,9 +71,13 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from datetime import date
 from decimal import Decimal, InvalidOperation
+from enum import Enum, auto
 from typing import Any
 
+from alphalab.conventions.business_days import BusinessDayConvention, Tenor
+from alphalab.conventions.exceptions import ConventionInputError
 from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.options.enums import ExerciseStyle, OptionType
 from alphalab.options.expiration import SettlementStyle
@@ -80,6 +88,10 @@ __all__ = [
     "ContractTerms",
     "Deliverable",
     "FutureTerms",
+    "FxKind",
+    "FxTerms",
+    "FxValueDateRule",
+    "NdfFixing",
     "OptionTerms",
     "TermsAdjustment",
     "terms_from_primitives",
@@ -585,7 +597,196 @@ class FutureTerms:
             raise InstrumentInputError(f"deliverable is a Deliverable, got {self.deliverable!r}.")
 
 
-type ContractTerms = OptionTerms | FutureTerms
+class FxKind(Enum):
+    """What an FX deal settles (ADR-0067)."""
+
+    #: Both currencies at spot.
+    SPOT = auto()
+    #: Both currencies at a later value date: outright, or a tenor from spot.
+    FORWARD = auto()
+    #: No base currency at all: the difference from a fixing, in one currency.
+    NDF = auto()
+
+
+def _currency(value: Any, name: str) -> str:
+    if not isinstance(value, str) or len(value) != 3 or not value.isalpha() or not value.isupper():
+        raise InstrumentInputError(f"{name} is an ISO 4217 code such as 'EUR', got {value!r}.")
+    return value
+
+
+def _calendar_ids(value: Any, name: str) -> tuple[str, ...]:
+    ids = tuple(value) if isinstance(value, tuple | list) else ()
+    if not ids or any(not isinstance(i, str) or not i.strip() for i in ids):
+        raise InstrumentInputError(
+            f"{name} names at least one calendar by its calendar_id, got {value!r}; no calendar "
+            "is assumed open."
+        )
+    if len(set(ids)) != len(ids):
+        raise InstrumentInputError(f"{name} names a calendar twice: {list(ids)}.")
+    return ids
+
+
+@dataclass(frozen=True, slots=True)
+class FxValueDateRule:
+    """When an FX deal struck on a day settles, its calendars named by ``calendar_id``.
+
+    It is :class:`~alphalab.conventions.business_days.ValueDateRule`'s
+    declaration on a record: the run supplies a calendar for each id named, and
+    a calendar it does not declare is refused where a value date needs it.
+
+    Attributes:
+        spot_lag: Business days from the trade to spot.
+        counted: The calendars a counted day must be open in.
+        settles: The calendars the value date must be open in.
+        outright: A forward's stated value date, or ``None``.
+        tenor: A forward's tenor from spot, or ``None``. A forward states exactly
+            one of ``outright`` and ``tenor``; spot states neither.
+        convention: With a tenor, the business-day convention it lands by.
+        end_of_month: With a tenor, whether the end-of-month rule holds.
+    """
+
+    spot_lag: int
+    counted: tuple[str, ...]
+    settles: tuple[str, ...]
+    outright: date | None = None
+    tenor: Tenor | None = None
+    convention: BusinessDayConvention | None = None
+    end_of_month: bool | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.spot_lag, bool)
+            or not isinstance(self.spot_lag, int)
+            or self.spot_lag < 0
+        ):
+            raise InstrumentInputError(
+                f"spot_lag is {self.spot_lag!r}; a non-negative number of business days."
+            )
+        object.__setattr__(self, "counted", _calendar_ids(self.counted, "counted"))
+        object.__setattr__(self, "settles", _calendar_ids(self.settles, "settles"))
+        if self.outright is not None and (
+            not isinstance(self.outright, date) or self.tenor is not None
+        ):
+            raise InstrumentInputError(
+                "A forward states an outright value date or a tenor from spot, not both, and an "
+                f"outright date is a date: got {self.outright!r} and {self.tenor!r}."
+            )
+        if self.tenor is not None:
+            if not isinstance(self.tenor, Tenor):
+                raise InstrumentInputError(f"tenor is a Tenor, got {self.tenor!r}.")
+            if not isinstance(self.convention, BusinessDayConvention) or not isinstance(
+                self.end_of_month, bool
+            ):
+                raise InstrumentInputError(
+                    "A tenor lands by a stated BusinessDayConvention and a stated end-of-month "
+                    f"rule; got {self.convention!r} and {self.end_of_month!r}."
+                )
+        elif self.convention is not None or self.end_of_month is not None:
+            raise InstrumentInputError(
+                "A convention and an end-of-month rule are a tenor's, and there is no tenor."
+            )
+
+    @property
+    def forward(self) -> bool:
+        """Whether the rule states a value date later than spot."""
+
+        return self.outright is not None or self.tenor is not None
+
+
+@dataclass(frozen=True, slots=True)
+class NdfFixing:
+    """How a non-deliverable forward is settled: its fixing (ADR-0067 section 4).
+
+    Attributes:
+        settlement_currency: The one currency the difference is paid in: one of
+            the pair's.
+        fixing_lag: Business days before the value date the rate is fixed, in
+            the calendars the value date settles in.
+        source: The fixing source's name, as the run's supplied rates name it.
+            A missing, stale or future-dated fixing is refused, never invented.
+    """
+
+    settlement_currency: str
+    fixing_lag: int
+    source: str
+
+    def __post_init__(self) -> None:
+        _currency(self.settlement_currency, "settlement_currency")
+        if (
+            isinstance(self.fixing_lag, bool)
+            or not isinstance(self.fixing_lag, int)
+            or self.fixing_lag < 0
+        ):
+            raise InstrumentInputError(
+                f"fixing_lag is {self.fixing_lag!r}; a non-negative number of business days."
+            )
+        if not isinstance(self.source, str) or not self.source.strip():
+            raise InstrumentInputError(f"An NDF names its fixing source, got {self.source!r}.")
+
+
+@dataclass(frozen=True, slots=True)
+class FxTerms:
+    """An FX deal's terms: what two currencies it exchanges, and when (v4.3, ADR-0067).
+
+    A fill of a record that declares them is an exchange of two amounts: buying
+    ``q`` at ``p`` credits ``q`` of ``base`` and debits ``q x p`` of ``quote``,
+    each pending until the value date, and leaves no position in the pair. A
+    record of a pair that declares none is booked as a unit of a cash equity,
+    as every FX record was before v4.3.
+
+    Attributes:
+        base: The currency one unit of the pair is.
+        quote: The currency its price is in; the record's own currency.
+        kind: Spot, a forward or a non-deliverable forward.
+        value_dates: The value-date rule, its calendars named.
+        fixing: An NDF's fixing; required for ``NDF`` and refused otherwise.
+    """
+
+    base: str
+    quote: str
+    kind: FxKind
+    value_dates: FxValueDateRule
+    fixing: NdfFixing | None = None
+
+    def __post_init__(self) -> None:
+        _currency(self.base, "base")
+        _currency(self.quote, "quote")
+        if self.base == self.quote:
+            raise InstrumentInputError(
+                f"An FX deal exchanges two currencies, not {self.base} twice."
+            )
+        if not isinstance(self.kind, FxKind):
+            raise InstrumentInputError(f"kind is an FxKind, got {self.kind!r}.")
+        if not isinstance(self.value_dates, FxValueDateRule):
+            raise InstrumentInputError(
+                f"value_dates is an FxValueDateRule, got {self.value_dates!r}."
+            )
+        if (self.kind is FxKind.SPOT) == self.value_dates.forward:
+            raise InstrumentInputError(
+                f"A {self.kind.name} deal "
+                + (
+                    "settles at spot, so it states no forward date or tenor."
+                    if self.kind is FxKind.SPOT
+                    else "settles later than spot, so it states an outright date or a tenor."
+                )
+            )
+        if self.kind is FxKind.NDF:
+            if not isinstance(self.fixing, NdfFixing):
+                raise InstrumentInputError(
+                    "An NDF states its fixing: the currency, lag and source."
+                )
+            if self.fixing.settlement_currency not in (self.base, self.quote):
+                raise InstrumentInputError(
+                    f"An NDF on {self.base}/{self.quote} settles in one of them, not "
+                    f"{self.fixing.settlement_currency}."
+                )
+        elif self.fixing is not None:
+            raise InstrumentInputError(
+                f"A {self.kind.name} deal delivers; only an NDF has a fixing."
+            )
+
+
+type ContractTerms = OptionTerms | FutureTerms | FxTerms
 
 
 # --------------------------------------------------------------------------- #
@@ -604,6 +805,31 @@ def terms_to_primitives(terms: ContractTerms | None) -> dict[str, Any] | None:
 
     if terms is None:
         return None
+    if isinstance(terms, FxTerms):
+        dates = terms.value_dates
+        fixing = terms.fixing
+        return {
+            "kind": "fx",
+            "base": terms.base,
+            "quote": terms.quote,
+            "fx_kind": terms.kind.name,
+            "value_dates": {
+                "spot_lag": dates.spot_lag,
+                "counted": list(dates.counted),
+                "settles": list(dates.settles),
+                "outright": None if dates.outright is None else dates.outright.isoformat(),
+                "tenor": None if dates.tenor is None else dates.tenor.label,
+                "convention": None if dates.convention is None else dates.convention.name,
+                "end_of_month": dates.end_of_month,
+            },
+            "fixing": None
+            if fixing is None
+            else {
+                "settlement_currency": fixing.settlement_currency,
+                "fixing_lag": fixing.fixing_lag,
+                "source": fixing.source,
+            },
+        }
     if isinstance(terms, FutureTerms):
         return {
             "kind": "future",
@@ -685,6 +911,37 @@ def _adjustment_in(value: Any) -> TermsAdjustment:
     )
 
 
+def _fx_terms_in(value: Mapping[str, Any]) -> FxTerms:
+    rule = value["value_dates"]
+    convention = rule["convention"]
+    fixing = value["fixing"]
+    try:
+        tenor = None if rule["tenor"] is None else Tenor.parse(str(rule["tenor"]))
+    except ConventionInputError as exc:
+        raise InstrumentInputError(f"An FX deal's tenor does not read: {exc}") from exc
+    return FxTerms(
+        base=str(value["base"]),
+        quote=str(value["quote"]),
+        kind=FxKind[value["fx_kind"]],
+        value_dates=FxValueDateRule(
+            spot_lag=int(rule["spot_lag"]),
+            counted=tuple(str(i) for i in rule["counted"]),
+            settles=tuple(str(i) for i in rule["settles"]),
+            outright=None if rule["outright"] is None else date.fromisoformat(rule["outright"]),
+            tenor=tenor,
+            convention=None if convention is None else BusinessDayConvention[convention],
+            end_of_month=rule["end_of_month"],
+        ),
+        fixing=None
+        if fixing is None
+        else NdfFixing(
+            settlement_currency=str(fixing["settlement_currency"]),
+            fixing_lag=int(fixing["fixing_lag"]),
+            source=str(fixing["source"]),
+        ),
+    )
+
+
 def terms_from_primitives(value: Any, where: str = "terms") -> ContractTerms | None:
     """Read terms :func:`terms_to_primitives` wrote.
 
@@ -700,6 +957,8 @@ def terms_from_primitives(value: Any, where: str = "terms") -> ContractTerms | N
         raise InstrumentInputError(f"{where} are not contract terms: {value!r}.")
     try:
         kind = value["kind"]
+        if kind == "fx":
+            return _fx_terms_in(value)
         if kind == "future":
             return FutureTerms(
                 SettlementStyle[value["settlement"]], _deliverable_in(value["deliverable"])
@@ -740,4 +999,6 @@ def terms_from_primitives(value: Any, where: str = "terms") -> ContractTerms | N
             )
     except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
         raise InstrumentInputError(f"{where} are not contract terms: {exc}.") from exc
-    raise InstrumentInputError(f"{where} are of kind {value.get('kind')!r}, not option or future.")
+    raise InstrumentInputError(
+        f"{where} are of kind {value.get('kind')!r}, not option, future or fx."
+    )
