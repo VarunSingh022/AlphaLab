@@ -43,6 +43,11 @@ phase 5): each undelivered leg is a ledger transaction of its own (:data:`DELIVE
 whose units are pending until their delivery instant, under a declared
 :class:`DeliveryConvention` -- by default neither sellable nor collateral
 until they arrive.
+
+An FX deal (v4.3.0, ADR-0067) moves two currencies and no position: each
+currency's leg is a ledger transaction of its own (``FX_LEG``), its cash
+pending until the deal's value date, and both legs name the deal
+(:data:`FX_DEAL`) and its value date (:data:`VALUE_DATE`).
 """
 
 from __future__ import annotations
@@ -64,9 +69,11 @@ __all__ = [
     "DELIVERY_PARTS",
     "DELIVERY_TERMS",
     "ENTITLEMENT",
+    "FX_DEAL",
     "PAYMENT_CHANGE",
     "SETTLEMENT_CASH",
     "SETTLES_AT",
+    "VALUE_DATE",
     "CashPosition",
     "DeliveryConvention",
     "Entitlement",
@@ -105,6 +112,11 @@ DELIVERY_PARTS: Final = "delivery_parts"
 DELIVERY_BASIS: Final = "delivery_basis"
 #: The metadata key of a delivery's convention: "sellable", "collateral", both or neither.
 DELIVERY_TERMS: Final = "delivery_terms"
+#: The metadata key naming the FX deal a leg belongs to: its base leg's
+#: transaction id, on both legs (v4.3.0, ADR-0067).
+FX_DEAL: Final = "fx_deal"
+#: The metadata key of an FX deal's value date, ISO 8601, on both legs.
+VALUE_DATE: Final = "value_date"
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,17 +303,24 @@ def settle_pending(
     return kept
 
 
-#: The ledger entries a pending settlement is booked by: a fill, and an
-#: exchange's cash paid after its instant (FUT-025).
+#: The ledger entries a pending settlement is booked by: a fill, an
+#: exchange's cash paid after its instant (FUT-025), and an FX deal's legs.
 _PENDING_TYPES: Final = frozenset(
-    {TransactionType.BUY, TransactionType.SELL, TransactionType.EXCHANGE}
+    {
+        TransactionType.BUY,
+        TransactionType.SELL,
+        TransactionType.EXCHANGE,
+        TransactionType.FX_LEG,
+    }
 )
+#: The ledger entries whose quantity is cash and which move no units.
+_CASH_ONLY: Final = frozenset({TransactionType.EXCHANGE, TransactionType.FX_LEG})
 
 
 def _entry_of(transaction: Transaction, settles_at: float) -> PendingSettlement:
     """``transaction``'s cash, pending until ``settles_at``."""
 
-    exchange = transaction.type is TransactionType.EXCHANGE
+    exchange = transaction.type in _CASH_ONLY
     cash = transaction.metadata.get(SETTLEMENT_CASH)
     delivered = transaction.metadata.get(DELIVERS)
     if delivered is not None:
@@ -320,7 +339,8 @@ def _entry_of(transaction: Transaction, settles_at: float) -> PendingSettlement:
         transaction.transaction_id,
         transaction.asset_id,
         transaction.currency,
-        # An exchange's cash moves no units: its quantity is the cash.
+        # An exchange's cash, and an FX deal's leg, move no units: the
+        # quantity is the cash.
         transaction.quantity if cash is None else Decimal(str(cash)),
         Decimal("0") if exchange else transaction.quantity,
         transaction.timestamp,
@@ -356,8 +376,8 @@ def amend_pending(
 def pending_from(transactions: Iterable[Transaction]) -> tuple[PendingSettlement, ...]:
     """The index a ledger implies: its fills replayed through :func:`settle_pending`, in order.
 
-    A fill, an exchange's cash paid after its instant (FUT-025), and an amendment
-    of it (FUT-034) keep it.
+    A fill, an exchange's cash paid after its instant (FUT-025), an amendment
+    of it (FUT-034), and an FX deal's legs (ADR-0067) keep it.
     """
 
     pending: tuple[PendingSettlement, ...] = ()

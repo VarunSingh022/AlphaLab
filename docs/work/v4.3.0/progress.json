@@ -1328,6 +1328,19 @@
       "compatibility": "Additive: four exports (3,152); a record that declares no terms writes null as before, so no registry's bytes or digest move. Booking a declared deal in two currencies is WS-27's next step; until it lands such a fill is booked as units of a cash equity, as every FOREX fill is, and the CHANGELOG says so.",
       "record": "docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 2); CHANGELOG; the terms module's docstring; test_persisted_enum_names (FxKind, BusinessDayConvention).",
       "tests": "tests/unit/instrument/test_fx_terms.py (30): spot, a forward by tenor and by outright date, and an NDF on their records; each through the codec and, with the registry, through its snapshot; a registry without FX terms writing null; every refusal of the terms, the rule and the fixing; a record that is not FOREX, not priced in its quote, or with a contract's economics; written terms that do not read. tests/unit/runtime/test_fx_pairs_beside_corporate_actions.py (2): a split and a holding exchange pass over an FX order working at the venue. The full gate's mypy found that both checks narrowed a record's terms to an option's once a future's were excluded, and would have read an option's adjustments from FX terms; both tests fail that way without the fix."
+    },
+    {
+      "id": "TD-83",
+      "date": "2026-11-24",
+      "workstream": "WS-27",
+      "title": "A declared FX deal booked as two currency legs pending to its value date, funded and not financed (ADR-0067 settled point 3)",
+      "problem": "ADR-0067 section 1 books a declared FX fill as an exchange of two amounts, each pending to the value date as FUT-015 and FUT-037 book pending legs, and leaves no position. PortfolioEngine.apply_fill books exactly one position, one cash movement, one transaction and one event; an EXCHANGE transaction is read by the corporate-action reconciliation (entitlements, payment_chain) as an action's payment; and the margin model reads positions. The run must find each deal's value date from calendars it declares, and refuse what it cannot book before an order exists.",
+      "alternatives": "(a) Book the legs as EXCHANGE transactions: entitlements would report every FX leg as a corporate action's payment. (b) Book them as DEPOSIT and WITHDRAWAL, as convert_cash does: every return calculation would read an FX deal as an external flow. (c) A new FX_LEG transaction type, one per currency, pending by the existing SETTLES_AT and SETTLEMENT_CASH metadata, and an FxDealBooked event. For funding: (i) finance a forward's debit as an obligation, which the margin model could not see, so it would carry no requirement; (ii) pay every leg from cash held, as every fill in a currency is.",
+      "decision": "(c) and (ii). PortfolioEngine.apply_fx_deal books two FX_LEG transactions and one FxDealBooked event: buying q at p credits q of the base and debits q x p of the quote with the commission, each rounded once half-even, no position, nothing realized; both legs move trade-date cash and are pending to the value date's instant, naming the deal (FX_DEAL) and its value date (VALUE_DATE). In the pipeline a declared pair's fill books so, its value date counted from the venue calendar's trade day by the pair's rule over the calendars VenueCalendars declares, found by calendar_id, settling at the value date's first open in the venue's calendar. Refused before an order exists, and at a venue's fill: a base the run does not settle, an undeclared calendar id, an outright date before the trade or off a business day, a value date the venue does not trade, and an NDF until its fixing is booked. Funded, not financed: a deal is refused before an order exists when the currency it pays cannot cover it by its value date -- ACC-017's rule, extended so a credit arriving by the deal's value date counts, which pays a rollover's near leg -- and a venue's fill its cash cannot pay stops the run. Risk judges an FX order as any order, except that a sale spends no buying power. A record declaring FxTerms may state a lot or a minimum notional and refuses a settlement rule, margin terms and borrow terms. InstrumentRegistry indexes its pairs (fx_pairs), so every FX check costs a run without one an emptiness check.",
+      "rationale": "A type of its own keeps every reader of EXCHANGE, DEPOSIT and WITHDRAWAL exactly as it was, and the existing settlement metadata makes the pending index follow from the ledger, so a restore rebuilds it. Paying from cash held is the rule every fill in a currency already keeps (ExecutionPipeline.fund); financing a deal the margin model cannot see would be leverage without a requirement, so it is refused and recorded as ADR-0067's known limitation.",
+      "compatibility": "Additive: TransactionType gains FX_LEG and InstrumentRegistry a derived fx_pairs index (both manifest bindings change, named in the CHANGELOG), the portfolio snapshot reads FxDealBooked, and both are pinned (PER-004). No identity, digest or persisted byte moves for a run, registry or book that declares no FX terms. A FOREX record that declares FxTerms is refused margin, borrow and a settlement rule, which no released record could have declared with them.",
+      "record": "docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 3, known limitation 1); CHANGELOG; the settlement module's docstring; test_persisted_enum_names (FX_LEG, FxDealBooked).",
+      "tests": "tests/unit/portfolio/test_fx_deals.py (13): both legs and the commission, a sale reversing them, half-even rounding to each minor unit (JPY's none), the legs pending to the value date and settled after, each leg's ledger metadata and the index the ledger implies, the snapshot round trip, cash per currency as deposits plus exchanged less commission, and six refusals that move nothing. tests/integration/test_fx_booking.py (6): GR-3's booking -- a EUR/USD forward three months from a spot the Fourth of July moved, cash per currency by hand with the commission, the legs pending to 7 October's open, the dollar valuation at the supplied rate; a spot deal valued 7 July, and a sale of euros not held refused before an order exists; a sale valued 7 October paid by the euros the forward delivers that day, and one valued 1 October refused; and the refusals of an unsettled base, an undeclared calendar and an NDF. tests/unit/instrument/test_fx_terms.py gains the record refusals, a pair's lot, and the registry's fx_pairs index, derived and restored. test_sector_classification_reaches_attribution's table of the pipeline's registry reads records the one keyed read _fx_record adds, behind the fx_pairs index (nine record_for reads, two of the index)."
     }
   ],
   "plan_changes": [
@@ -2817,6 +2830,11 @@
         {
           "milestone": "M10",
           "item": "An FX deal's terms on its record (TD-82, ADR-0067 settled point 2): FxTerms with its FxKind, FxValueDateRule (calendars by id) and an NDF's NdfFixing, refused where malformed, persisted with the registry by name and only when declared",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M10",
+          "item": "Two-currency booking (TD-83, ADR-0067 settled point 3): PortfolioEngine.apply_fx_deal books FX_LEG legs pending to the value date and an FxDealBooked event, no position; in a run, value dates from the venue's trade day over calendars declared by id, refusals before an order exists, funded and not financed",
           "status": "Local validation passed"
         }
       ],
@@ -3710,7 +3728,7 @@
   },
   "state": {
     "updated": "2026-11-24",
-    "remote_head": "30ced8d",
+    "remote_head": "f33ee56",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -5146,10 +5164,28 @@
         "workflow": "Optional Distributions",
         "run": 45382369697,
         "result": "success"
+      },
+      {
+        "sha": "30ced8d",
+        "workflow": "Continuous Integration",
+        "run": 45384266828,
+        "result": "success: all six quality-gate cells (M9's Hosted CI record)"
+      },
+      {
+        "sha": "30ced8d",
+        "workflow": "CodeQL",
+        "run": 45384267078,
+        "result": "success"
+      },
+      {
+        "sha": "30ced8d",
+        "workflow": "Optional Distributions",
+        "run": 45384267015,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M10, WS-27: booking a declared FX deal in two currencies -- each leg an exchange pending to its value date, computed from the run's calendars by id, no position in the pair, the account's cash per currency -- then swaps as packages, NDF fixings from a supplied rate, GR-3 and S-05; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for 30ced8d and the next push is read at the next boundary.",
+    "next": "M10, WS-27: rollover as a swap -- a near and a far deal as one package (ADR-0062) -- and NDF settlement at a supplied fixing, completing GR-3; then S-05's carry book and an FX guide; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for f33ee56 and the next push is read at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -5620,6 +5656,10 @@
     {
       "date": "2026-11-24",
       "entry": "ad622de passed hosted CI on all six cells, with CodeQL and Optional Distributions, so WS-13's business-day conventions are Hosted CI passed. ADR-0067's FX terms are declared on the record (TD-82): FxTerms, FxKind, FxValueDateRule with its calendars named by id, and an NDF's NdfFixing, refused where malformed and persisted with the registry by name only when declared. Booking such a deal in two currencies is the next step; until it lands a declared deal books as a cash equity, as the CHANGELOG states."
+    },
+    {
+      "date": "2026-11-24",
+      "entry": "f33ee56 pushed: ADR-0067's FX terms on the record (TD-82). Its full gate found two defects first, each fixed before the push: the split and holding-exchange checks narrowed a record's terms to an option's once a future's were excluded, and would have read an option's adjustments from FX terms (two tests fail without the fix); and the amendment had not re-certified the engine source. 30ced8d passed hosted CI on all six cells. Two-currency booking (TD-83) is validated locally: FX_LEG legs pending to the value date, FxDealBooked, no position, value dates from the declared calendars by id, and an FX deal funded from cash held -- a financed deal is ADR-0067's known limitation 1."
     }
   ]
 }

@@ -448,10 +448,28 @@ def _require_consistent_fx_terms(record: InstrumentRecord, terms: FxTerms, named
             f"{named} is priced in {record.currency} and its terms quote {terms.base}/"
             f"{terms.quote}: a pair is priced in its quote currency."
         )
-    if record.economics is not None and not record.economics.is_cash_equity:
+    economics = record.economics
+    if economics is not None and (
+        economics.multiplier != 1
+        or economics.settlement is not SettlementModel.CASH_EQUITY
+        or economics.allows_negative_prices
+    ):
         raise InstrumentInputError(
-            f"{named} declares FX terms and economics settled as "
-            f"{record.economics.settlement.value}: a deal's unit is one unit of its base currency."
+            f"{named} declares FX terms and economics settled as {economics.settlement.value} "
+            f"with a multiplier of {economics.multiplier}: a deal's unit is one unit of its base "
+            "currency, exchanged in full at a positive rate. Its economics may state a lot or a "
+            "minimum notional, and nothing else."
+        )
+    if record.settlement is not None:
+        raise InstrumentInputError(
+            f"{named} declares FX terms and a settlement rule: a deal settles at its value date, "
+            "by its terms' rule, and a second rule would state a second date."
+        )
+    if record.margin is not None or record.borrow is not None:
+        raise InstrumentInputError(
+            f"{named} declares FX terms and {'margin' if record.margin is not None else 'borrow'} "
+            "terms: an FX deal holds no position for a margin model or a borrow to read. It is "
+            "paid from cash the account holds."
         )
 
 

@@ -7,8 +7,9 @@
   currency twice, spot with a forward date, a forward with none or both, a tenor
   without its convention and end-of-month rule, an NDF without its fixing or
   settling outside its pair, no calendar or one named twice; and on a record, a
-  pair that is not FOREX, not priced in its quote currency, or with economics
-  that are not a cash equity.
+  pair that is not FOREX, not priced in its quote currency, with economics other
+  than a fully paid unit (a lot or a minimum notional may be stated), or
+  declaring a settlement rule, margin terms or borrow terms beside its own.
 * **Persisted.** Each kind reads back equal through the terms codec and
   through the registry's snapshot, and a registry with no FX terms writes what
   it always wrote.
@@ -23,9 +24,14 @@ from decimal import Decimal
 import pytest
 
 from alphalab.conventions.business_days import BusinessDayConvention, Tenor, TenorUnit
+from alphalab.conventions.daycount import DayCount
 from alphalab.conventions.economics import InstrumentEconomics, SettlementModel
+from alphalab.conventions.lot import LotSpecification
+from alphalab.conventions.settlement import SettlementBasis, SettlementRule
 from alphalab.core.enums import AssetType
+from alphalab.instrument.borrow import BorrowAvailability, BorrowTerms
 from alphalab.instrument.exceptions import InstrumentInputError
+from alphalab.instrument.margin import MarginBasis, MarginTerms
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry, register_instruments
 from alphalab.instrument.snapshot import capture, from_primitives, registry_digest, restore
@@ -188,10 +194,56 @@ def test_a_deal_states_every_term(build: Callable[[], object], reason: str) -> N
                 economics=InstrumentEconomics(Decimal("100"), SettlementModel.FUTURES_VARIATION),
                 terms=SPOT,
             ),
-            "one unit of its base currency",
+            "one unit of its base",
+        ),
+        (
+            lambda: InstrumentRecord(
+                "EURUSD",
+                AssetType.FOREX,
+                "XFXV",
+                "USD",
+                economics=InstrumentEconomics(Decimal("1000"), SettlementModel.CASH_EQUITY),
+                terms=SPOT,
+            ),
+            "multiplier of 1000",
+        ),
+        (
+            lambda: InstrumentRecord(
+                "EURUSD",
+                AssetType.FOREX,
+                "XFXV",
+                "USD",
+                settlement=SettlementRule(SettlementBasis.TRADING_DAYS, 2),
+                terms=SPOT,
+            ),
+            "a second date",
+        ),
+        (
+            lambda: InstrumentRecord(
+                "EURUSD",
+                AssetType.FOREX,
+                "XFXV",
+                "USD",
+                margin=MarginTerms(MarginBasis.VALUE_RATE, Decimal("0.5"), Decimal("0.3")),
+                terms=SPOT,
+            ),
+            "margin terms: an FX deal holds no position",
+        ),
+        (
+            lambda: InstrumentRecord(
+                "EURUSD",
+                AssetType.FOREX,
+                "XFXV",
+                "USD",
+                borrow=BorrowTerms(
+                    (BorrowAvailability(0.0, Decimal("100"), Decimal("0.01")),), DayCount.ACT_360
+                ),
+                terms=SPOT,
+            ),
+            "borrow terms: an FX deal holds no position",
         ),
     ],
-    ids=["equity", "priced-in-base", "economics"],
+    ids=["equity", "priced-in-base", "economics", "multiplier", "settlement", "margin", "borrow"],
 )
 def test_a_record_holds_fx_terms_only_as_a_pair_priced_in_its_quote(
     build: Callable[[], object], reason: str
@@ -216,3 +268,28 @@ def test_written_terms_that_do_not_read_are_refused(
     mutate(written)
     with pytest.raises(InstrumentInputError, match=reason):
         terms_from_primitives(written)
+
+
+def test_a_pair_may_state_its_lot_and_minimum_notional() -> None:
+    economics = InstrumentEconomics(
+        Decimal("1"),
+        SettlementModel.CASH_EQUITY,
+        lot=LotSpecification(Decimal("1000"), Decimal("1000")),
+        minimum_notional=Decimal("10000"),
+    )
+    record = InstrumentRecord(
+        "EURUSD", AssetType.FOREX, "XFXV", "USD", economics=economics, terms=SPOT
+    )
+    assert record.economics == economics and record.terms == SPOT
+
+
+def test_the_registry_indexes_its_fx_pairs_as_it_indexes_its_margined_records() -> None:
+    plain = InstrumentRecord("EURUSD", AssetType.FOREX, "XFXV", "USD")
+    forward = pair("EURUSD3M", "USD", FORWARD)
+    registry = register_instruments(InstrumentRegistry(), (plain, forward))
+    assert registry.fx_pairs is not None and dict(registry.fx_pairs) == {forward.asset_id: None}
+    # Derived again from the records alone, as a restored registry is.
+    assert InstrumentRegistry(instruments=registry.instruments).fx_pairs == registry.fx_pairs
+    restored = restore(from_primitives(deserialize(serialize(capture(registry)))))
+    assert restored.fx_pairs == registry.fx_pairs
+    assert not register_instruments(InstrumentRegistry(), (plain,)).fx_pairs

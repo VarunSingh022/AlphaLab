@@ -89,7 +89,7 @@ from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegis
 from alphalab.instrument.margin import MarginModel, OptionPricing, ScenarioMargin
 from alphalab.instrument.membership import HistoricalUniverse
 from alphalab.instrument.record import DatedAlias, InstrumentRecord, normalize_sector_label
-from alphalab.instrument.terms import OptionTerms
+from alphalab.instrument.terms import FxTerms, OptionTerms
 from alphalab.options.enums import ExerciseStyle
 
 __all__ = [
@@ -177,6 +177,11 @@ class InstrumentRegistry:
             :class:`~alphalab.instrument.membership.HistoricalUniverse` (v4.3,
             ADR-0059). Declared with :func:`register_universe`. A registry
             holding none snapshots and digests exactly as before.
+        fx_pairs: ``asset_id`` -> ``None``, for every instrument declaring
+            :class:`~alphalab.instrument.terms.FxTerms` (v4.3, ADR-0067) --
+            what the execution path reads before it books a fill or judges an
+            order as an FX deal, so a registry declaring none costs that path
+            one emptiness check. An index, derived like ``margined``.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
@@ -197,6 +202,7 @@ class InstrumentRegistry:
     controls: TradingControls | None = None
     recallable: PersistentMap[str, None] | None = None
     universes: PersistentMap[str, HistoricalUniverse] = field(default_factory=PersistentMap)
+    fx_pairs: PersistentMap[str, None] | None = None
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -251,6 +257,18 @@ class InstrumentRegistry:
                         asset_id: None
                         for asset_id, record in self.instruments.items()
                         if record.borrow is not None and record.borrow.recalls
+                    }
+                ),
+            )
+        if self.fx_pairs is None:
+            object.__setattr__(
+                self,
+                "fx_pairs",
+                PersistentMap(
+                    {
+                        asset_id: None
+                        for asset_id, record in self.instruments.items()
+                        if isinstance(record.terms, FxTerms)
                     }
                 ),
             )
@@ -505,6 +523,11 @@ def register_instrument(
                 registry.recallable
                 if record.borrow is None or not record.borrow.recalls or registry.recallable is None
                 else registry.recallable.set(record.asset_id, None)
+            ),
+            fx_pairs=(
+                registry.fx_pairs
+                if not isinstance(record.terms, FxTerms) or registry.fx_pairs is None
+                else registry.fx_pairs.set(record.asset_id, None)
             ),
         )
     )

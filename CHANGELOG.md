@@ -1446,29 +1446,67 @@ entry below says otherwise.
       so a US holiday before spot does not delay it. A cross commonly settles
       on a US business day too. Each is stated by the calendars listed, never
       inferred from the pair.
-* **An FX deal's terms, declared on its record** [plan WS-27, GAP-23,
-  ADR-0067]. `FxTerms` joins `OptionTerms` and `FutureTerms` on
-  `InstrumentRecord`, outside its identity key, so `ContractTerms` gains a
-  member. It is declared on a `FOREX` record priced in its quote currency, and
-  states:
-  * the base and quote currencies, distinct ISO 4217 codes;
-  * its kind, an `FxKind`: `SPOT`, `FORWARD` or `NDF`;
-  * its value dates, an `FxValueDateRule`:
-    * the spot lag;
-    * the calendars, by `calendar_id`, that a counted day and the value date
-      must be open in;
-    * for a forward, an outright date, or a tenor with its
+* **FX deals, booked as the two currencies they exchange** [plan WS-27,
+  GAP-23, ADR-0067]. Until now an FX trade was booked as units of the pair,
+  and the account never held the currency it bought.
+  * **Declared on the record.** `FxTerms` joins `OptionTerms` and
+    `FutureTerms` on `InstrumentRecord`, outside its identity key, so
+    `ContractTerms` gains a member. It is declared on a `FOREX` record priced
+    in its quote currency, and states:
+    * the base and quote currencies, distinct ISO 4217 codes;
+    * its kind, an `FxKind`: `SPOT`, `FORWARD` or `NDF`;
+    * its value dates, an `FxValueDateRule`: the spot lag; the calendars, by
+      `calendar_id`, that a counted day and the value date must be open in;
+      and for a forward, an outright date, or a tenor with its
       `BusinessDayConvention` and end-of-month rule;
-  * for an NDF, its `NdfFixing`: a settlement currency of the pair's, the
-    fixing lag, and the source's name.
+    * for an NDF, its `NdfFixing`: a settlement currency of the pair's, the
+      fixing lag, and the source's name.
 
-  None has a default. The terms are persisted with the instrument registry,
-  by name, and only when declared: a registry that declares none writes what
-  it always wrote. A split or a holding exchange checks each contract a book
-  holds or works for a deliverable the action changes, and passes over an FX
-  pair, which delivers none. Booking a fill of such a record in two currencies
-  is the next step of WS-27. Until it lands, such a fill is booked as units of
-  a cash equity, as every `FOREX` fill is.
+    None has a default. A pair may state a lot or a minimum notional. A
+    settlement rule, margin terms or borrow terms beside its FX terms are
+    refused. The terms are persisted with the instrument registry, by name,
+    and only when declared.
+  * **Booked in two currencies.** `PortfolioEngine.apply_fx_deal` books a
+    deal:
+    * buying `q` at `p` credits `q` of the base and debits `q x p` of the
+      quote, with the commission, and selling reverses it;
+    * each amount is rounded once, half-even, to its currency's minor unit;
+    * no position is opened and nothing is realized.
+
+    Both legs move trade-date cash at the deal and are pending until the
+    value date: `cash_position` reports each currency's unsettled credits and
+    debits. Each leg is a ledger transaction of the new `TransactionType`
+    member `FX_LEG`, naming the deal (`FX_DEAL`) and its value date
+    (`VALUE_DATE`). The `FxDealBooked` event records the deal.
+  * **In a run.** A fill of a declared pair is booked so.
+    * Its value date is counted from the trade day in the listing venue's
+      calendar, by the pair's rule. The rule's calendars are found by
+      `calendar_id` among those `ExecutionPipelineConfig.calendars`
+      declares.
+    * The legs settle at the value date's first open in the venue's
+      calendar.
+    * Refused before an order exists: a pair whose base the run does not
+      settle (`also_settles`), a calendar the rule names that the run does
+      not declare, an outright date before the trade or off a business day,
+      and an NDF, until its fixing is booked.
+    * **Funded, not financed.** A deal is refused before an order exists when
+      the currency it pays cannot cover it by its value date: the quote for a
+      purchase, the base for a sale. That currency's cash counts, less what is
+      reserved, less working orders that pay in it, less credits not yet
+      received. A credit that arrives by the deal's value date counts, so
+      euros a maturing forward delivers pay a sale valued that day, which is
+      how a rollover's near leg is paid. A venue's fill its cash cannot pay
+      stops the run with `InsufficientFundsError`.
+    * Risk judges an FX order as any order, except that a sale spends no
+      buying power: it opens no short.
+    * `InstrumentRegistry` indexes its pairs (`fx_pairs`), so a run declaring
+      none pays one emptiness check for all of this.
+  * **Beside corporate actions.** A split or a holding exchange checks each
+    contract a book holds or works for a deliverable it changes. It passes
+    over an FX pair, which delivers none.
+
+  A record, registry or book that declares no FX terms writes what it always
+  wrote.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

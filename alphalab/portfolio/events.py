@@ -231,3 +231,37 @@ class PositionSplit(PortfolioEvent):
     asset_id: str
     ratio: Decimal
     quantity: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class FxDealBooked(PortfolioEvent):
+    """An FX deal booked as the two currencies it exchanges (v4.3.0, ADR-0067).
+
+    The account holds currencies, not pairs: the deal moved two cash balances,
+    each pending until the value date, and opened, changed or closed no
+    position.
+
+    Attributes:
+        asset_id: The pair's record.
+        base: The currency one unit of the pair is.
+        base_amount: What the deal moved in ``base``, signed: received positive.
+        quote: The currency the price is in.
+        quote_amount: What the exchange moved in ``quote``, signed, before the
+            commission.
+        price: The deal's rate: ``quote`` per unit of ``base``.
+        commission: In ``quote``, debited with its leg; a negative one is a
+            rebate.
+        value_date: The value date, ISO 8601, by the pair's declared rule.
+        settles_at: The value date's instant. Both amounts are pending until
+            then.
+    """
+
+    asset_id: str
+    base: str
+    base_amount: Decimal
+    quote: str
+    quote_amount: Decimal
+    price: Decimal
+    commission: Decimal
+    value_date: str
+    settles_at: float

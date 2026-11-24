@@ -133,6 +133,8 @@ NAMED: dict[str, tuple[str, ...]] = {
         "EXCHANGE",
         # Phase 3 (FUT-023): a day's interest or fee accrued, not yet posted.
         "ACCRUAL",
+        # v4.3.0 (ADR-0067): one currency's leg of an FX deal.
+        "FX_LEG",
     ),
     "alphalab.runtime.execution_pipeline.ExecutionRouting": (
         "SIMULATED",
@@ -319,6 +321,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "CashWithdrawn",
         # Phase 5 (FUT-037): written only when a delivery is amended.
         "DeliveryAmended",
+        # v4.3.0 (ADR-0067): written only by a run that books an FX deal.
+        "FxDealBooked",
         "MarketValueUpdated",
         # Phase 4 (FUT-034): written only by a run whose payment was amended.
         "PaymentAmended",

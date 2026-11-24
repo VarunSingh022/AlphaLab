@@ -86,6 +86,7 @@ from alphalab.portfolio.events import (
     CashFlowBooked,
     CashWithdrawn,
     DeliveryAmended,
+    FxDealBooked,
     MarketValueUpdated,
     PaymentAmended,
     PortfolioEvent,
@@ -181,6 +182,8 @@ _EVENT_TYPES: Mapping[str, type[PortfolioEvent]] = {
         PaymentAmended,
         # Phase 5 (FUT-037): written only by a run whose delivery was amended.
         DeliveryAmended,
+        # v4.3.0 (ADR-0067): written only by a run that books an FX deal.
+        FxDealBooked,
     )
 }
 
@@ -213,6 +216,10 @@ _EVENT_FIELD_DECODERS: Mapping[str, Any] = {
     "owed_after": as_decimal,
     "replacement": as_decimal,
     "settles_at": lambda value, where: None if value is None else as_float(value, where),
+    # FxDealBooked (v4.3.0, ADR-0067): the two amounts a deal moved, and its cost.
+    "base_amount": as_decimal,
+    "quote_amount": as_decimal,
+    "commission": as_decimal,
 }
 
 

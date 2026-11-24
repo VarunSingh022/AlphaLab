@@ -10,6 +10,7 @@ from __future__ import annotations
 import decimal
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from datetime import date
 from decimal import ROUND_FLOOR, Decimal
 from enum import Enum, auto
 from types import MappingProxyType
@@ -32,7 +33,14 @@ from alphalab.common.evolve import evolve
 from alphalab.common.ids import IdStreamPosition, current_id_position, new_id
 from alphalab.common.order_terms import OrderTerms, TimeInForce
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.conventions.business_days import (
+    ValueDateRule,
+    forward_value_date,
+    is_business_day,
+    spot_value_date,
+)
 from alphalab.conventions.economics import InstrumentEconomics, SettlementModel
+from alphalab.conventions.exceptions import ConventionViolationError
 from alphalab.conventions.lot import LotSpecification
 from alphalab.conventions.tick import RoundingDirection, is_on_tick, round_to_tick
 from alphalab.core.contribution import StrategyContribution, split_by_contribution
@@ -41,7 +49,7 @@ from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
-from alphalab.data.calendar import MAX_SESSION_SEARCH_DAYS
+from alphalab.data.calendar import MAX_SESSION_SEARCH_DAYS, MarketCalendar
 from alphalab.data.feed import TradeAggressor
 from alphalab.execution.algorithms import ChildOrder
 from alphalab.execution.algorithms import _apportion as _largest_remainder
@@ -88,7 +96,7 @@ from alphalab.instrument.margin import (
 )
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
-from alphalab.instrument.terms import Deliverable, FutureTerms, FxTerms, OptionTerms
+from alphalab.instrument.terms import Deliverable, FutureTerms, FxKind, FxTerms, OptionTerms
 from alphalab.market.bar import Bar, IntervalUnit, TimeFrame
 from alphalab.market.engine import MarketEngine
 from alphalab.market.events import (
@@ -3337,6 +3345,19 @@ def _declared(state: ExecutionPipelineState, asset_id: str) -> InstrumentRecord 
     return None if registry is None else registry.record_for(asset_id)
 
 
+def _fx_record(state: ExecutionPipelineState, asset_id: str) -> InstrumentRecord | None:
+    """The record of ``asset_id`` when it declares an FX deal's terms, else ``None`` (ADR-0067).
+
+    Read through the registry's ``fx_pairs`` index, so a run declaring no FX
+    pair pays one emptiness check for it.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.fx_pairs or asset_id not in registry.fx_pairs:
+        return None
+    return registry.record_for(asset_id)
+
+
 def _declared_option(
     state: ExecutionPipelineState, asset_id: str, timestamp: float
 ) -> tuple[InstrumentRecord, OptionTerms, InstrumentEconomics, str]:
@@ -4037,8 +4058,13 @@ def _buying_power_charge(
     charge the notional, as always -- otherwise: a short sale, a fully paid
     purchase, an instrument declaring no margin terms; a registry declaring none
     costs one emptiness check.
+
+    An FX deal's sale (ADR-0067) spends none: it opens no short, and what it
+    pays is the base currency, which :func:`_fx_cash_refusal` holds it to.
     """
 
+    if not buying and _fx_record(state, asset_id) is not None:
+        return Decimal("0")
     registry = state.config.instruments
     if registry is None or not registry.margined or asset_id not in registry.margined:
         return None
@@ -4069,10 +4095,17 @@ def _currency_cash_refusal(
     the cash (FUT-017), nor one bought on margin (FUT-018). Its cost at the
     request's price must be within the currency's cash less what is reserved,
     less proceeds not yet received, less every buy already working in it; cash in
-    another currency is not converted to pay it (ADR-0035).
+    another currency is not converted to pay it (ADR-0035). An FX deal pays a
+    currency on either side, and is read by :func:`_fx_cash_refusal` (ADR-0067).
     """
 
-    if request.side is not CoreSide.BUY or len(state.config.settlement_currencies) < 2:
+    if len(state.config.settlement_currencies) < 2:
+        return None
+    fx = _fx_record(state, request.asset_id)
+    if fx is not None:
+        assert isinstance(fx.terms, FxTerms)  # the registry's fx_pairs says so
+        return _fx_cash_refusal(state, request, fx, fx.terms, at)
+    if request.side is not CoreSide.BUY:
         return None
     asset_id = request.asset_id
     economics = _economics_of(state, asset_id)
@@ -4106,6 +4139,63 @@ def _currency_cash_refusal(
         f"The purchase costs {cost} {currency} and the book can pay {max(available, Decimal(0))} "
         f"{currency}: a fill settles in its own currency, and cash in another is not converted "
         "to pay it. Fund the currency first (Funding, RunEngine.fund)."
+    )
+
+
+def _fx_cash_refusal(
+    state: ExecutionPipelineState,
+    request: OrderRequest,
+    record: InstrumentRecord,
+    terms: FxTerms,
+    at: float,
+) -> str | None:
+    """Why the currency an FX deal pays cannot pay it by its value date, or ``None`` (ADR-0067).
+
+    A purchase pays the quote, ``quantity x price``; a sale pays the base,
+    ``quantity``. Either is paid from that currency's cash, less what is
+    reserved, less every working order that pays in it -- a buy of what is
+    priced in it, a sale of a pair whose base it is -- and less credits not yet
+    received. A credit that arrives by the deal's own value date is counted: a
+    forward maturing that day delivers what the deal pays, which is how a
+    rollover's near leg is paid. Cash in another currency is not converted to
+    pay it (ADR-0035). A deal whose value date cannot be found is left to
+    :func:`_terms_refusal`, which says why.
+    """
+
+    try:
+        _, settles_at = _fx_value_date(state, record, terms, at)
+    except RuntimeValidationError:
+        return None
+    ctx = ACCOUNTING_CONTEXT
+    buying = request.side is CoreSide.BUY
+    currency = terms.quote if buying else terms.base
+    need = ctx.multiply(request.quantity, request.price) if buying else request.quantity
+    cash = state.portfolio.cash
+    available = ctx.subtract(cash.balance(currency), cash.reserved.get(currency, Decimal("0")))
+    for entry in state.portfolio.unsettled:
+        if entry.currency == currency and entry.cash > 0 and entry.settles_at > settles_at:
+            available = ctx.subtract(available, entry.cash)
+    for order_id in state.oms.active_orders:
+        order = state.oms.orders.find(order_id)
+        if order.side is OMSSide.BUY:
+            if _settlement_currency_for(state, order.asset_id) != currency:
+                continue
+            unit = _multiplier(_economics_of(state, order.asset_id))
+            price = order.limit_price or state.market_prices.get(order.asset_id, Decimal("0"))
+            available = ctx.subtract(
+                available, ctx.multiply(ctx.multiply(order.remaining_quantity, price), unit)
+            )
+            continue
+        other = _fx_record(state, order.asset_id)
+        if other is not None and isinstance(other.terms, FxTerms) and other.terms.base == currency:
+            available = ctx.subtract(available, order.remaining_quantity)
+    if need <= available:
+        return None
+    return (
+        f"{record.symbol} on {record.exchange} pays {need} {currency}, and the book can pay "
+        f"{max(available, Decimal(0))} {currency} by the deal's value date: an FX deal is paid "
+        "from the currency's own cash, and cash in another is not converted to pay it. Fund "
+        "the currency first (Funding, RunEngine.fund)."
     )
 
 
@@ -7393,9 +7483,25 @@ def _settlement_calendar(
     return record, state.config.calendars.calendar_for(record.exchange)
 
 
-def _settlement_calendar_refusal(state: ExecutionPipelineState, asset_id: str) -> str | None:
-    """Why an order in ``asset_id`` cannot settle, or ``None`` (FUT-015)."""
+def _settlement_calendar_refusal(
+    state: ExecutionPipelineState, asset_id: str, instant: float | None = None
+) -> str | None:
+    """Why an order in ``asset_id`` cannot settle, or ``None`` (FUT-015).
 
+    For an FX pair (ADR-0067), at ``instant``: why its value date cannot be
+    found, by the calendars the run declares.
+    """
+
+    fx = _fx_record(state, asset_id)
+    if fx is not None:
+        assert isinstance(fx.terms, FxTerms)  # the registry's fx_pairs says so
+        if instant is None:
+            return None
+        try:
+            _fx_value_date(state, fx, fx.terms, instant)
+        except RuntimeValidationError as exc:
+            return str(exc)
+        return None
     found = _settlement_calendar(state, asset_id)
     if found is None or found[1] is not None:
         return None
@@ -7426,6 +7532,155 @@ def _settles_at(state: ExecutionPipelineState, asset_id: str, timestamp: float) 
     return settles_at(calendar, record.settlement, day)
 
 
+def _calendars_by_id(state: ExecutionPipelineState) -> dict[str, MarketCalendar]:
+    """The calendars the run declares, by ``calendar_id``: how an FX deal names its own.
+
+    Every calendar :class:`~alphalab.runtime.calendars.VenueCalendars` holds, a
+    venue's or the default. One id names one calendar.
+    """
+
+    declared = state.config.calendars
+    found: dict[str, MarketCalendar] = {}
+    listed = [*declared.by_exchange.values()]
+    if declared.default is not None:
+        listed.append(declared.default)
+    for calendar in listed:
+        held = found.setdefault(calendar.calendar_id, calendar)
+        if held != calendar:
+            raise RuntimeValidationError(
+                f"Two different calendars are declared as {calendar.calendar_id}; an FX deal "
+                "names its calendars by id, so one id is one calendar."
+            )
+    return found
+
+
+def _fx_value_date(
+    state: ExecutionPipelineState, record: InstrumentRecord, terms: FxTerms, timestamp: float
+) -> tuple[date, float]:
+    """An FX deal struck at ``timestamp``: its value date and that date's instant (ADR-0067).
+
+    The trade day is the session of the listing venue's calendar the deal
+    belongs to -- the local date, outside one. The value date is counted by the
+    pair's declared rule, over the calendars it names, each found by its
+    ``calendar_id`` among those the run declares. The instant is the value
+    date's first open in the listing venue's calendar, as a T+n settlement's is
+    (FUT-015).
+
+    Raises:
+        RuntimeValidationError: If the venue's calendar or a calendar the rule
+            names is not declared; an outright date is before the trade day, or
+            is not a business day of every calendar the deal settles in; or the
+            venue does not trade on the value date.
+    """
+
+    named = f"{record.symbol} on {record.exchange}"
+    venue = state.config.calendars.calendar_for(record.exchange)
+    if venue is None:
+        raise RuntimeValidationError(
+            f"{named} settles at a value date counted from its trade day, and no calendar is "
+            f"declared for {record.exchange}: declare it on ExecutionPipelineConfig.calendars."
+        )
+    rule = terms.value_dates
+    declared = _calendars_by_id(state)
+    missing = [i for i in dict.fromkeys((*rule.counted, *rule.settles)) if i not in declared]
+    if missing:
+        raise RuntimeValidationError(
+            f"{named} counts its value date in {', '.join(missing)}, and the run declares no "
+            "calendar by that id; none is assumed open. Declare each on "
+            "ExecutionPipelineConfig.calendars."
+        )
+    dates = ValueDateRule(
+        rule.spot_lag,
+        tuple(declared[i] for i in rule.counted),
+        tuple(declared[i] for i in rule.settles),
+    )
+    day = venue.trading_day_of(timestamp) or venue.local_datetime(timestamp).date()
+    try:
+        if rule.outright is not None:
+            value = rule.outright
+            if value < day:
+                raise RuntimeValidationError(
+                    f"{named} is valued {value.isoformat()}, and a deal struck on "
+                    f"{day.isoformat()} cannot settle before it."
+                )
+            if not is_business_day(value, dates.settles):
+                raise RuntimeValidationError(
+                    f"{named} is valued {value.isoformat()}, which is not a business day of "
+                    f"every calendar it settles in ({', '.join(rule.settles)})."
+                )
+        elif rule.tenor is not None:
+            assert rule.convention is not None and rule.end_of_month is not None
+            value = forward_value_date(
+                day, dates, rule.tenor, rule.convention, end_of_month=rule.end_of_month
+            )
+        else:
+            value = spot_value_date(day, dates)
+    except ConventionViolationError as exc:
+        raise RuntimeValidationError(f"{named}'s value date cannot be found: {exc}") from exc
+    bounds = venue.session_bounds(value)
+    if bounds is None:
+        raise RuntimeValidationError(
+            f"{named} struck on {day.isoformat()} is valued {value.isoformat()}, which "
+            f"{venue.calendar_id} does not trade on; when on a closed day a deal settles is "
+            "not assumed."
+        )
+    return value, bounds[0]
+
+
+def _fx_refusal(state: ExecutionPipelineState, record: InstrumentRecord) -> str | None:
+    """Why a declared FX pair cannot be traded by this run at all, or ``None`` (ADR-0067)."""
+
+    terms = record.terms
+    assert isinstance(terms, FxTerms)
+    named = f"{record.symbol} on {record.exchange}"
+    if terms.kind is FxKind.NDF:
+        return (
+            f"{named} is a non-deliverable forward. It settles the difference from its "
+            "fixing in one currency, which is not booked here yet; a deliverable deal is."
+        )
+    if terms.base not in state.config.settlement_currencies:
+        return (
+            f"{named} exchanges {terms.base} for {terms.quote}, and this pipeline does not "
+            f"settle {terms.base}: an FX deal moves both currencies. Add {terms.base!r} to "
+            "ExecutionPipelineConfig.also_settles to trade it here."
+        )
+    return None
+
+
+def _book_fx_deal(
+    state: ExecutionPipelineState,
+    report: ExecutionReport,
+    record: InstrumentRecord,
+    terms: FxTerms,
+    signed_quantity: Decimal,
+) -> PortfolioState:
+    """An FX fill, booked as the two currencies it exchanges (ADR-0067).
+
+    Seam 2's counterpart for the base currency, beside
+    :func:`_require_settlement_currency`'s for the quote: a venue's fill is
+    refused rather than booked in a currency this pipeline does not settle.
+    """
+
+    refusal = _fx_refusal(state, record)
+    if refusal is not None:
+        raise RuntimeValidationError(
+            f"Execution report {report.execution_id} is not booked: {refusal}"
+        )
+    value_date, instant = _fx_value_date(state, record, terms, report.timestamp)
+    return PortfolioEngine.apply_fx_deal(
+        state.portfolio,
+        report.asset_id,
+        signed_quantity,
+        report.fill_price,
+        report.commission,
+        report.timestamp,
+        terms.base,
+        terms.quote,
+        value_date=value_date,
+        settles_at=instant,
+    )
+
+
 def _terms_refusal(
     state: ExecutionPipelineState, request: OrderRequest, instant: float
 ) -> str | None:
@@ -7445,7 +7700,7 @@ def _terms_refusal(
             f"The order would be placed at {instant!r}, and its terms expire it at "
             f"{terms.expire_at!r}."
         )
-    unsettleable = _settlement_calendar_refusal(state, request.asset_id)
+    unsettleable = _settlement_calendar_refusal(state, request.asset_id, instant)
     if unsettleable is not None:
         return unsettleable
     if state.config.routing is ExecutionRouting.EXTERNAL:
@@ -9246,18 +9501,24 @@ def _apply_report_to_portfolio(
     # sector parity across the four environments is structural rather than a
     # convention two call sites have to keep. See ADR-0027 decision 6.
     sector = _sector_for(state, report.asset_id)
-    portfolio = PortfolioEngine.apply_fill(
-        state.portfolio,
-        report.asset_id,
-        signed_quantity,
-        report.fill_price,
-        report.commission,
-        report.timestamp,
-        report.currency,
-        economics=_economics_of(state, report.asset_id),
-        settles_at=_settles_at(state, report.asset_id, report.timestamp),
-        financed=_purchased_on_margin(state, report.asset_id, signed_quantity),
-    )
+    fx = _fx_record(state, report.asset_id)
+    if fx is not None:
+        # ADR-0067: an FX deal books the two currencies it exchanges, and no position.
+        assert isinstance(fx.terms, FxTerms)  # the registry's fx_pairs says so
+        portfolio = _book_fx_deal(state, report, fx, fx.terms, signed_quantity)
+    else:
+        portfolio = PortfolioEngine.apply_fill(
+            state.portfolio,
+            report.asset_id,
+            signed_quantity,
+            report.fill_price,
+            report.commission,
+            report.timestamp,
+            report.currency,
+            economics=_economics_of(state, report.asset_id),
+            settles_at=_settles_at(state, report.asset_id, report.timestamp),
+            financed=_purchased_on_margin(state, report.asset_id, signed_quantity),
+        )
     risk = _sync_risk_from_portfolio(
         state.risk, portfolio, state.config.instruments, rates, as_of=report.timestamp
     )
@@ -9655,6 +9916,16 @@ def _settlement_refusal(
             ),
             timestamp=timestamp,
         )
+    if isinstance(record.terms, FxTerms):
+        refused = _fx_refusal(state, record)
+        if refused is not None:
+            return SettlementRefusal(
+                asset_id=asset_id,
+                instrument_currency=currency,
+                settlement_currency=settlement,
+                detail=f"{refused} The request was dropped before it reached the OMS.",
+                timestamp=timestamp,
+            )
     if currency in permitted:
         # Since v3.11 a request must also be one the book can be kept by: a
         # future or an option declaring no economics has a multiplier and a

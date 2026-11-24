@@ -202,6 +202,75 @@ date are all wrong, or absent.
    - **Tests.** `tests/unit/instrument/test_fx_terms.py` holds each kind on
      its record, every refusal, and the codec's and the registry snapshot's
      round trips.
+   - **Beside a corporate action.** A split or a holding exchange checks each
+     contract a book holds or works for a deliverable it changes. It passes
+     over an FX pair, which delivers none
+     (`tests/unit/runtime/test_fx_pairs_beside_corporate_actions.py`).
+3. **Two-currency booking** (`PortfolioEngine.apply_fx_deal`, the execution
+   pipeline).
+   - **What a deal books.** Two ledger transactions of a new type, `FX_LEG`,
+     one per currency, and one `FxDealBooked` event. It books no position and
+     realizes nothing. Each leg's quantity is its cash, rounded once to its
+     currency's minor unit. The commission is in the quote, the pair's price
+     currency, and moves with the quote leg. Both legs name the deal by its
+     base leg's transaction id (`FX_DEAL`) and carry its value date
+     (`VALUE_DATE`).
+   - **Trade-date cash, pending to the value date.** Both legs move
+     trade-date cash at the deal, as every fill does (FUT-015), and are
+     pending until the value date's instant. So the base currency received is
+     not cash to spend until then, and the quote paid is committed at once.
+     The pending index follows from the ledger, so a restore rebuilds it.
+   - **The value date in a run.**
+     - The trade day is the session of the listing venue's calendar the fill
+       belongs to, or the local date outside one.
+     - The rule's calendars are found by `calendar_id` among those
+       `VenueCalendars` declares, a venue's or the default. One id names one
+       calendar.
+     - The instant is the value date's first open in the venue's calendar,
+       as a T+n settlement's is.
+   - **Refused before an order exists**, and refused at a venue's fill:
+     - a pair whose base currency the run does not settle (`also_settles`);
+     - a calendar the rule names that the run does not declare;
+     - an outright date before the trade day, or not a business day of every
+       calendar the deal settles in;
+     - a value date the venue does not trade on;
+     - an NDF, until section 4's fixing is booked.
+   - **Funded, not financed.**
+     - A deal is refused before an order exists when the currency it pays
+       cannot cover it by its value date: the quote for a purchase, the base
+       for a sale. This is ACC-017's rule for a purchase in a book settling
+       several currencies, with one extension. The currency's cash counts,
+       less what is reserved, less working orders that pay in it, less
+       credits not yet received. A credit that arrives by the deal's own value
+       date counts: a forward maturing that day delivers what the deal pays,
+       which is how a rollover's near leg is paid.
+     - A venue's fill the cash cannot pay stops the run with
+       `InsufficientFundsError`, since a fill that happened cannot be
+       declined.
+     - A record declaring `FxTerms` may state a lot or a minimum notional. A
+       settlement rule, margin terms or borrow terms beside its FX terms are
+       refused: a deal settles by its own rule, and it leaves no position for
+       a margin model or a borrow to read.
+   - **Risk.** The gate judges an FX order as any order, on the notional it
+     projects, except that a sale spends no buying power: it opens no short,
+     and what it pays is the base, held by the rule above.
+   - **What it costs a run without FX.** `InstrumentRegistry` indexes its
+     pairs (`fx_pairs`), as it indexes its margined records. Every FX check
+     reads the index first, so a registry declaring no pair pays one
+     emptiness check for each.
+   - **Strategy books.** The allocation records each strategy's dealt amount
+     per pair, as it does for any instrument. So a sale in a pair a strategy
+     has not bought is a short under the allocation constraints.
+   - **Persisted.** `FX_LEG` and the `FxDealBooked` tag are pinned (ledger
+     PER-004). A book with no FX deal writes what it always wrote.
+   - **Tests.** `tests/unit/portfolio/test_fx_deals.py` holds the amounts,
+     the rounding, the pending legs, the ledger and the snapshot, the
+     identity per currency, and the refusals.
+     `tests/integration/test_fx_booking.py` holds GR-3's booking: a forward
+     three months from a spot the Fourth of July moved, cash per currency by
+     hand, the legs pending to the value date's open, the dollar valuation
+     at the supplied rate, a sale paid by the euros a forward delivers that
+     day and one valued earlier refused, and the other refusals.
 
 # Compatibility
 
@@ -215,6 +284,13 @@ date are all wrong, or absent.
 
 None is accepted at drafting. What implementation settles, or defers, is
 recorded below.
+
+1. **A financed FX deal** (settled point 3). An FX deal is paid from cash the
+   account holds. Margin terms on a declared pair are refused, because the
+   margin model reads positions and a deal leaves none, so a financed deal
+   would carry no requirement. Margining FX exposure by its pending legs is
+   not built in v4.3.0. A run that needs a currency it does not hold funds it
+   first, by `ExecutionPipeline.fund` or by a spot deal.
 
 # Consequences
 
