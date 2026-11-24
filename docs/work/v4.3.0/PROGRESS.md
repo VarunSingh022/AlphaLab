@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `695b2aa` |
+| Remote head | `ad622de` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M9's close pushed: its hosted CI and checkpoint benchmarks on the close commit, then M9 is Hosted CI passed, awaiting the owner's acceptance. Then M10: ADR-0065, ADR-0066 and ADR-0067 accepted under delegation, and WS-13, WS-27, WS-14 and WS-28 in turn. |
+| Next | M10 (WS-27 first): ADR-0067's FX booking -- FxTerms on the instrument record, a declared FX fill booked as two currency legs pending to the value date, swaps as packages, NDF fixings from a supplied rate -- toward GR-3 and S-05; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for ad622de and the next push is read once at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -281,6 +281,13 @@ Never:
 | `695b2aa` | Continuous Integration | 45001218740 | success: all six quality-gate cells, carrying 07763dd (the linear program's scaling, TD-76) and 695b2aa (S-01's construction end to end, TD-77); the end-to-end test's pinned experiment record agrees on Linux and macOS under CPython 3.12, 3.13 and 3.14 |
 | `695b2aa` | CodeQL | 45001218802 | success |
 | `695b2aa` | Optional Distributions | 45001218725 | success |
+| `5af8ba6` | Continuous Integration | 45096689685 | success: all six quality-gate cells (M9's close) |
+| `5af8ba6` | CodeQL | 45096689625 | success |
+| `5af8ba6` | Optional Distributions | 45096689706 | success |
+| `5af8ba6` | Benchmarks | 45096688085 | success: M9's checkpoint, all six cells -- Linux CPython 3.12, 3.13 and 3.14 (authoritative) and macOS 3.12, 3.13 and 3.14 (diagnostic), benchmark_construction_cvar's growth guard among them |
+| `5027760` | Continuous Integration | 45097781788 | success: all six quality-gate cells (M10's three ADRs) |
+| `5027760` | CodeQL | 45097781815 | success |
+| `5027760` | Optional Distributions | 45097781846 | success |
 
 ## Continuation log
 
@@ -399,6 +406,7 @@ Never:
 - **2026-11-23** M9's mutation series ran, CR01 to CR57. Its first failures needed reading: the end-to-end test's pinned experiment record is reached first and moves for any change of bits, so every catch it made was replayed against the focused tests. Two defects nothing focused caught -- CR02, a feasible point certified whatever its gap, and CR04, which survived, any positive Farkas margin taken as proof -- and six later survivors each gained the case that tells them apart. CR08, a floor in absolute terms, changes which iterate is certified and not whether it is right. The machine slept through hours of the run; it was stopped and resumed, and nothing it was stopped in was recorded. On the final tree all nine re-run were caught, and every catcher, replayed alone, fails by the defect's own effect. ef37b6d and 695b2aa passed hosted CI, all six cells each, with CodeQL and Optional Distributions, so the rebalancing package, the linear program's scaling and the exit gate's example are Hosted CI passed, and the experiment's pinned record holds on Linux and macOS.
 - **2026-11-23** WS-12's budget measured at its own size, alone: one construction at 1,000 assets with minimum CVaR over 2,520 scenarios took 10,265 s over 29 iterations, certified OPTIMAL at a vertex, 97 percent of it the normal equations' 2,521 rows formed and factored -- 171 times the budget, held for M11's compute backend as ADR-0063 section 7 provides. benchmarks/benchmark_construction_cvar.py repeats it with --budget and otherwise guards the method's growth. M9's close is recorded: its scope check (the ledger's OFE-002 narrowed, found open), the exit gate's evidence, the scenario mapping, AC-11 and AC-12 verified, and GAP-20 and GAP-37 closed. M9 is Local validation passed until the close's hosted CI; acceptance is the owner's.
 - **2026-11-23** M10 begun. Its entry needs ADR-0065, ADR-0066 and ADR-0067 accepted, and they are, under the owner's delegation (TD-78 to TD-80): a declared FX deal books two currencies, with value dates from both calendars and NDFs settled at a supplied fixing; a rates package whose curves are read by a required, named interpolation, bootstrapped to a stated tolerance, its instruments booked by declared terms -- BDY-014 reopened on its own reason, that the choice is the researcher's; and volatility models as estimates recording every choice, static arbitrage refused by name, local volatility and a seeded Monte Carlo pricer, continuous futures as identified transforms, and non-FX forwards -- BDY-015 reopened the same way. Each ADR's settled points are written as its commits land. M9's close commit 5af8ba6 passed the full gate (14,666 tests) and was pushed; its hosted CI and checkpoint benchmarks were running when this was written.
+- **2026-11-24** Resumed from the pause of 2026-11-23, as the owner directed, under the standing authorization. The host had restarted and the scratchpad was empty, so the venv was rebuilt from the dev extras on CPython 3.12.4 and gate.sh restored from the checkpoint's copy; the toolchain (ruff 0.17.6, mypy 2.4.1) checked clean on the checkout first. ad622de, whose full gate had passed before the pause (14,690 tests), was pushed. M9's close passed hosted CI on all six cells, with CodeQL and Optional Distributions, and its checkpoint benchmarks passed on all six cells, so M9 is Hosted CI passed and awaits the owner's acceptance. 5027760, M10's ADRs, passed all six cells too.
 
 ## Milestones
 
@@ -414,7 +422,7 @@ Never:
 | M6 | Hosted CI passed | WS-07, WS-25 | Known-DGP recovery; MacKinnon values; S-02 screening stage |
 | M7 | Hosted CI passed | WS-08, WS-09, WS-20 | S-07 with a boosting adapter; counterfactual tests |
 | M8 | Accepted | WS-11, WS-26, WS-10 | S-09; GR-4; leg atomicity; certificate unchanged for default runs |
-| M9 | Local validation passed | WS-12 | A rebalancing backtest with CVaR, certified |
+| M9 | Hosted CI passed | WS-12 | A rebalancing backtest with CVaR, certified |
 | M10 | In progress | WS-13, WS-27, WS-14, WS-28 | S-03, S-04, S-05, S-06, S-14; GR-1, GR-3, GR-6 |
 | M11 | Not started | WS-15, WS-09, WS-25, WS-21 | Benchmarks; the 500-asset × 10-year run ≤ 5 minutes with the same `result_id` |
 | M12 | Not started | WS-16, WS-18, WS-20 | S-08; a stress family reproduced |
@@ -1306,7 +1314,7 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 | WS-09 | Optional distributions and backends | M7, M11 | In progress |
 | WS-10 | Strategy authoring and safe extensibility | M8, M13 | In progress |
 | WS-11 | Execution realism: fills, partial fills, latency, plan+queue, combos | M8 | Accepted |
-| WS-12 | Portfolio construction and rebalancing | M9 | In progress |
+| WS-12 | Portfolio construction and rebalancing | M9 | Hosted CI passed |
 | WS-13 | Global conventions, reference data and historical universes | M2, M3, M10 | In progress |
 | WS-14 | Fixed income and rates | M10 | In progress |
 | WS-15 | Performance and scale | M11 | Not started |
@@ -1518,7 +1526,7 @@ Evidence:
 - [Hosted CI passed] M9: The rebalancing package (TD-75, ADR-0063 settled point 5, GAP-20, N19): RebalancingStrategy at a slice's close, its book its own share of fills and working orders, certified answers as lot-rounded TARGET_QUANTITY intents, calendar, threshold and drift triggers that state every parameter, capital rules, the execution order stated, every rebalance recorded and its state declared; its book its own beside another strategy (S-10's piece); portfolio_optimizer's standalone rules documented as superseded
 - [Hosted CI passed] M9: The linear program's normal equations scaled to a unit diagonal before their lift (TD-76, ADR-0063 settled point 2): a feasible CVaR program example 83 met, which jammed at NUMERICAL_FAILURE, certified; an infeasible one proven by its own margin; a direction past the floating-point range handed to Phase I
 - [Hosted CI passed] M9: S-01's construction end to end, M9's exit gate (TD-77): examples/83, a factor-neutral, sector-capped, CVaR-limited book rebalanced monthly for ten years as an experiment of two limits, every rebalance certified or proven infeasible and reconciled, its record pinned; the construction-in-runs guide, docs/REBALANCING.md
-- [Local validation passed] M9: M9's mutation series, CR01 to CR57 (WS-12, ADR-0063): the linear program, the objective protocol, scenario risk, cardinality and the rebalancing strategy, every first failure read and every catcher replayed alone; seven survivors and one defect only the end-to-end pin saw, each given its test
+- [Hosted CI passed] M9: M9's mutation series, CR01 to CR57 (WS-12, ADR-0063): the linear program, the objective protocol, scenario risk, cardinality and the rebalancing strategy, every first failure read and every catcher replayed alone; seven survivors and one defect only the end-to-end pin saw, each given its test
 
 ### WS-13: Global conventions, reference data and historical universes
 
@@ -1528,7 +1536,7 @@ Evidence:
 - [Hosted CI passed] M3: research.bias.membership_review, and GR-5: the point-in-time run clean, the survivorship control named, the bias measured exactly
 - [Hosted CI passed] M3: data.packs.ReferencePack: source, coverage, licence, typed entries, content digest; universe_from_pack
 - [Hosted CI passed] M3: Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught
-- [Local validation passed] M10: Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in
+- [Pushed] M10: Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in
 
 Evidence:
 
