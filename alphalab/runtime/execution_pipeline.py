@@ -4059,11 +4059,13 @@ def _buying_power_charge(
     purchase, an instrument declaring no margin terms; a registry declaring none
     costs one emptiness check.
 
-    An FX deal's sale (ADR-0067) spends none: it opens no short, and what it
-    pays is the base currency, which :func:`_fx_cash_refusal` holds it to.
+    An FX deal (ADR-0067) spends none, on either side: it opens no position, and
+    what it pays is one currency's cash by its value date, which
+    :func:`_fx_cash_refusal` holds it to -- with the credits that arrive by then,
+    which a base-currency sum of the book's cash cannot see.
     """
 
-    if not buying and _fx_record(state, asset_id) is not None:
+    if _fx_record(state, asset_id) is not None:
         return Decimal("0")
     registry = state.config.instruments
     if registry is None or not registry.margined or asset_id not in registry.margined:
@@ -4104,7 +4106,7 @@ def _currency_cash_refusal(
     fx = _fx_record(state, request.asset_id)
     if fx is not None:
         assert isinstance(fx.terms, FxTerms)  # the registry's fx_pairs says so
-        return _fx_cash_refusal(state, request, fx, fx.terms, at)
+        return _fx_cash_refusal(state, request, fx, at)
     if request.side is not CoreSide.BUY:
         return None
     asset_id = request.asset_id
@@ -4142,12 +4144,37 @@ def _currency_cash_refusal(
     )
 
 
+def _fx_flows(
+    state: ExecutionPipelineState, request: OrderRequest, at: float
+) -> tuple[tuple[str, Decimal], tuple[str, Decimal], float] | None:
+    """What an FX order pays and receives, and when: ``(paid, received, value instant)``.
+
+    ``None`` for an order that is not an FX deal, or whose value date cannot be
+    found. A purchase pays the quote, ``quantity x price``, and receives the
+    base; a sale pays the base and receives the quote (ADR-0067).
+    """
+
+    fx = _fx_record(state, request.asset_id)
+    if fx is None:
+        return None
+    terms = fx.terms
+    assert isinstance(terms, FxTerms)  # the registry's fx_pairs says so
+    try:
+        _, arrives = _fx_value_date(state, fx, terms, at)
+    except RuntimeValidationError:
+        return None
+    value = ACCOUNTING_CONTEXT.multiply(request.quantity, request.price)
+    if request.side is CoreSide.BUY:
+        return (terms.quote, value), (terms.base, request.quantity), arrives
+    return (terms.base, request.quantity), (terms.quote, value), arrives
+
+
 def _fx_cash_refusal(
     state: ExecutionPipelineState,
     request: OrderRequest,
     record: InstrumentRecord,
-    terms: FxTerms,
     at: float,
+    siblings: Sequence[OrderRequest] = (),
 ) -> str | None:
     """Why the currency an FX deal pays cannot pay it by its value date, or ``None`` (ADR-0067).
 
@@ -4160,16 +4187,17 @@ def _fx_cash_refusal(
     rollover's near leg is paid. Cash in another currency is not converted to
     pay it (ADR-0035). A deal whose value date cannot be found is left to
     :func:`_terms_refusal`, which says why.
+
+    ``siblings`` are the other legs of the deal's package (ADR-0062): what they
+    pay in the currency is committed with it, and what they receive in it by
+    the deal's value date pays it -- a swap's near leg pays its far leg.
     """
 
-    try:
-        _, settles_at = _fx_value_date(state, record, terms, at)
-    except RuntimeValidationError:
+    flows = _fx_flows(state, request, at)
+    if flows is None:
         return None
+    (currency, need), _, settles_at = flows
     ctx = ACCOUNTING_CONTEXT
-    buying = request.side is CoreSide.BUY
-    currency = terms.quote if buying else terms.base
-    need = ctx.multiply(request.quantity, request.price) if buying else request.quantity
     cash = state.portfolio.cash
     available = ctx.subtract(cash.balance(currency), cash.reserved.get(currency, Decimal("0")))
     for entry in state.portfolio.unsettled:
@@ -4189,6 +4217,15 @@ def _fx_cash_refusal(
         other = _fx_record(state, order.asset_id)
         if other is not None and isinstance(other.terms, FxTerms) and other.terms.base == currency:
             available = ctx.subtract(available, order.remaining_quantity)
+    for sibling in siblings:
+        moved = _fx_flows(state, sibling, at)
+        if moved is None:
+            continue
+        (pays, paid), (gets, received), arrives = moved
+        if pays == currency:
+            available = ctx.subtract(available, paid)
+        if gets == currency and arrives <= settles_at:
+            available = ctx.add(available, received)
     if need <= available:
         return None
     return (
@@ -6294,6 +6331,11 @@ def _place_package(
             + "."
         )
     current = evolve(state, allocation=allocation)
+    for request in requests:
+        unbookable = _fx_leg_refusal(current, request, timestamp, requests)
+        if unbookable is not None:
+            return refuse(f"Leg {request.asset_id}: {unbookable}")
+    requests = _in_settlement_order(current, requests, timestamp)
     routes: list[tuple[str, str] | None] = []
     for request in requests:
         venue = _venue_for(current, request, event, timestamp)
@@ -6332,6 +6374,52 @@ def _place_package(
     return evolve(current, id_position=current_id_position()), _Routed(
         decisions=tuple(decisions), orders=held
     )
+
+
+def _fx_leg_refusal(
+    state: ExecutionPipelineState,
+    request: OrderRequest,
+    at: float,
+    legs: Sequence[OrderRequest],
+) -> str | None:
+    """Why a package's FX leg cannot be booked, or ``None`` (ADR-0067, ADR-0062).
+
+    What a single FX order is refused for before it exists: a pair this run
+    cannot trade, a value date it cannot find, and a currency that cannot pay
+    the deal by its value date -- here with the package's other legs counted,
+    so a swap's near leg pays its far leg. Any other leg is ``None``.
+    """
+
+    fx = _fx_record(state, request.asset_id)
+    if fx is None:
+        return None
+    refused = _settlement_refusal(state, request.asset_id, at)
+    if refused is not None:
+        return refused.detail
+    unvalued = _settlement_calendar_refusal(state, request.asset_id, at)
+    if unvalued is not None:
+        return unvalued
+    siblings = tuple(leg for leg in legs if leg is not request)
+    return _fx_cash_refusal(state, request, fx, at, siblings)
+
+
+def _in_settlement_order(
+    state: ExecutionPipelineState, requests: Sequence[OrderRequest], at: float
+) -> tuple[OrderRequest, ...]:
+    """A package's legs in the order they settle: an FX leg at its value date, any other at once.
+
+    A package's legs are booked at its fill in the order it places them, each
+    paying from the cash the legs before it left. So a swap's near leg, which
+    delivers what its far leg is paid with, is booked first (ADR-0067). A
+    package with no FX leg keeps its order: every key is ``at``, and the sort
+    is stable.
+    """
+
+    def settles(request: OrderRequest) -> float:
+        flows = _fx_flows(state, request, at)
+        return at if flows is None else flows[2]
+
+    return tuple(sorted(requests, key=settles))
 
 
 def _packages_working(state: ExecutionPipelineState, assets: Iterable[str]) -> bool:

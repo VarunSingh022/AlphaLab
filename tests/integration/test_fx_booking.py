@@ -31,6 +31,8 @@ from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from typing import Any
 
+from alphalab.backtesting import BacktestEngine, BacktestResult, MarketDataset, RunSchedule
+from alphalab.common.order_terms import MARKET
 from alphalab.conventions.business_days import BusinessDayConvention, Tenor, TenorUnit
 from alphalab.core.enums import AssetType
 from alphalab.data.calendar import MarketCalendar, SessionWindow
@@ -50,9 +52,10 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineState,
 )
 from alphalab.strategy.context import StrategyContext
-from alphalab.strategy.events import Intent
+from alphalab.strategy.events import Intent, IntentKind, Leg, PackageRefused
 from alphalab.strategy.protocol import BaseStrategy
 from tests.integration.harness import (
+    backtest_config,
     context_factory,
     permissive_risk_limits,
     pipeline_config,
@@ -165,7 +168,7 @@ def deal(
     return ExecutionPipeline.process_quote(state, priced, context_factory, rates=RATES), trader
 
 
-def legs(result: ExecutionPipelineResult) -> list[Any]:
+def legs(result: ExecutionPipelineResult | BacktestResult) -> list[Any]:
     return [
         t for t in result.state.portfolio.ledger.transactions if t.type is TransactionType.FX_LEG
     ]
@@ -288,3 +291,121 @@ def test_euros_a_forward_delivers_pay_a_sale_valued_the_same_day_and_no_earlier_
             assert euros == D("1000000.00")
             (reason,) = trader.rejections
             assert "pays 1000000" in reason and "EUR" in reason
+
+
+# --------------------------------------------------------------------------- #
+# A rollover, as a swap (GR-3)
+# --------------------------------------------------------------------------- #
+
+#: Friday 3 October: spot is Tuesday 7 October, the forward's own value date.
+FRI = utc(3, 10)
+NEAR_FAR = (Leg(SPOT.asset_id, D("-1")), Leg(FORWARD.asset_id, D("1")))
+
+
+class Roller(BaseStrategy):
+    """Buys the forward on 2 July; on 3 October, once both legs are priced, rolls it as a swap."""
+
+    def __init__(self, legs: tuple[Leg, ...]) -> None:
+        self._legs = legs
+
+    def on_quote(self, context: StrategyContext, event: Any) -> Iterable[Intent]:
+        quote_ = event.quote
+        if (quote_.timestamp, quote_.asset_id) == (WED, FORWARD.asset_id):
+            return (Intent("S", FORWARD.asset_id, D("1000000"), timestamp=WED),)
+        if quote_.timestamp == FRI and quote_.asset_id == max(SPOT.asset_id, FORWARD.asset_id):
+            roll = Intent(
+                "S",
+                "ROLL",
+                D("1000000"),
+                terms=MARKET,
+                timestamp=FRI,
+                kind=IntentKind.PACKAGE,
+                legs=self._legs,
+            )
+            return (roll,)
+        return ()
+
+
+def rolled(legs: tuple[Leg, ...] = NEAR_FAR) -> BacktestResult:
+    base = backtest_config(
+        "S",
+        starting_cash=CASH,
+        simulator=ExecutionSimulator(commission_model=FixedCommission(D("25.00"))),
+        risk_limits=permissive_risk_limits(D("10000000")),
+    )
+    # The allocation's ceiling is the gross notional a batch may commit; the
+    # swap's two legs commit 2.2 million together.
+    budget = replace(
+        base.pipeline.budget.in_currency("USD"),
+        global_capital=D("5000000"),
+        maximum_exposure=D("50000000"),
+        strategy_budgets={"S": D("5000000")},
+    )
+    pipeline = replace(
+        base.pipeline,
+        budget=budget,
+        instruments=registry_of(SPOT, FORWARD),
+        calendars=CALENDARS,
+        also_settles=frozenset({"EUR"}),
+    )
+    quotes = [
+        quote(FORWARD.asset_id, WED, D("1.0912")),
+        quote(SPOT.asset_id, FRI, D("1.1000")),
+        quote(FORWARD.asset_id, FRI, D("1.1040")),
+    ]
+    return BacktestEngine.run(
+        replace(base, pipeline=pipeline),
+        MarketDataset.of("ROLL", sorted(quotes, key=lambda q: (q.timestamp, q.asset_id))),
+        running_strategy_state("S", Roller(legs)),
+        context_factory,
+        schedule=RunSchedule.of(rates=[FxRate("EUR", "USD", D("1.0900"), WED, "test")]),
+    )
+
+
+def test_a_forward_rolled_as_a_swap_moves_each_currency_as_its_legs_say() -> None:
+    result = rolled()
+    portfolio = result.state.portfolio
+    assert not [e for e in result.state.strategy.events if isinstance(e, PackageRefused)]
+    # Bought forward at 1.0912; at the roll, the near leg sells the euros at spot
+    # for 7 October, 1.1000, and the far leg buys them back three months on,
+    # 1.1040 for 7 January. Each fill pays 25.00.
+    assert [(f.asset_id, f.side.value, f.quantity, f.price) for f in result.fills] == [
+        (FORWARD.asset_id, "buy", D("1000000"), D("1.0912")),
+        (SPOT.asset_id, "sell", D("1000000"), D("1.1000")),
+        (FORWARD.asset_id, "buy", D("1000000"), D("1.1040")),
+    ]
+    assert portfolio.cash.balance("EUR") == D("1000000.00")
+    assert portfolio.cash.balance("USD") == (
+        CASH - D("1091225.00") + D("1099975.00") - D("1104025.00")
+    )
+    assert portfolio.positions == {}
+    value_dates = [leg.metadata[VALUE_DATE] for leg in legs(result)]
+    assert value_dates == ["2025-10-07"] * 4 + ["2026-01-07"] * 2
+
+    # The far leg cost more dollars than the book held after the first forward
+    # (908,775.00): the near leg's proceeds, arriving 7 October, paid it.
+    october, january = (
+        datetime(2025, 10, 7, tzinfo=UTC).timestamp(),
+        datetime(2026, 1, 7, tzinfo=UTC).timestamp(),
+    )
+    euro = PortfolioEngine.cash_position(portfolio, "EUR", october - 1)
+    assert (euro.unsettled_credits, euro.unsettled_debits) == (D("2000000.00"), D("1000000.00"))
+    # On 7 October the first forward and the near leg settle together: the
+    # euros arrive and leave, and the roll's gain arrives in dollars.
+    euro, dollar = (PortfolioEngine.cash_position(portfolio, c, october) for c in ("EUR", "USD"))
+    assert euro.settled == D("0.00")
+    assert dollar.settled == CASH - D("1091225.00") + D("1099975.00")
+    # On 7 January the far leg settles: the euros are held again.
+    euro = PortfolioEngine.cash_position(portfolio, "EUR", january)
+    assert euro.settled == euro.trade_date == D("1000000.00")
+    assert pending_from(portfolio.ledger.transactions) == portfolio.unsettled
+
+
+def test_a_swap_settles_its_near_leg_first_whatever_order_it_names_them_in() -> None:
+    forward_first = rolled((NEAR_FAR[1], NEAR_FAR[0]))
+    assert [f.asset_id for f in forward_first.fills] == [
+        FORWARD.asset_id,
+        SPOT.asset_id,
+        FORWARD.asset_id,
+    ]
+    assert forward_first.state.portfolio.cash.balances == rolled().state.portfolio.cash.balances

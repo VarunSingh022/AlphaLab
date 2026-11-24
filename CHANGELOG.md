@@ -1497,8 +1497,17 @@ entry below says otherwise.
       euros a maturing forward delivers pay a sale valued that day, which is
       how a rollover's near leg is paid. A venue's fill its cash cannot pay
       stops the run with `InsufficientFundsError`.
-    * Risk judges an FX order as any order, except that a sale spends no
-      buying power: it opens no short.
+    * Risk judges an FX order as any order, except that it spends no buying
+      power on either side: it opens no position, and what it pays is held
+      by the per-currency rule above.
+  * **Rollover as a swap.** A swap is a package of two FX deals
+    (`IntentKind.PACKAGE`), placed whole or refused whole.
+    * Each FX leg is refused as a single FX order is. The package's other
+      legs count: what they receive in a currency by the leg's value date
+      pays it. So a fully invested roll's far leg is paid by its near leg's
+      proceeds.
+    * The legs are placed and booked in settlement order, so the near leg is
+      booked first, whatever order the strategy names them in.
     * `InstrumentRegistry` indexes its pairs (`fx_pairs`), so a run declaring
       none pays one emptiness check for all of this.
   * **Beside corporate actions.** A split or a holding exchange checks each

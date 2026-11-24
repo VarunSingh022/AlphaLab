@@ -272,6 +272,40 @@ date are all wrong, or absent.
      at the supplied rate, a sale paid by the euros a forward delivers that
      day and one valued earlier refused, and the other refusals.
 
+4. **Rollover as a swap** (the execution pipeline, ADR-0062's packages).
+   - **A swap is a package of two FX deals.** It is placed whole or refused
+     whole, and each leg books as section 1 books a deal.
+   - **Each FX leg is refused as a single FX order is**, before any leg
+     exists: a pair the run cannot trade, a value date it cannot find, and a
+     currency that cannot pay the leg by its value date. The package's other
+     legs count: what they pay in the currency is committed with the leg, and
+     what they receive in it by the leg's value date pays it. So a fully
+     invested roll's far leg is paid by its near leg's proceeds.
+   - **Legs are placed in settlement order.** A package's legs are booked at
+     its fill in the order it places them, each paying from the cash the
+     legs before it left. An FX leg is placed by its value date, and any
+     other leg first, at once. So a swap's near leg is booked first, whatever
+     order the strategy names the legs in. A package with no FX leg keeps its
+     order.
+   - **An FX deal spends no buying power, on either side.** Settled point 3
+     exempted a sale. A purchase is exempted too: the buying-power gate is a
+     base-currency sum of the book's cash, and it cannot see a credit that
+     arrives by the deal's value date. What a deal pays is held by the
+     per-currency rule instead, which can. The gate's other limits still
+     judge the order's notional.
+   - **Tests.** In `tests/integration/test_fx_booking.py`, GR-3's rollover:
+     - a forward bought on 2 July is rolled on 3 October, its near leg at
+       spot for 7 October and its far leg for 7 January;
+     - cash in each currency is checked by hand;
+     - on 7 October the euros arrive and leave, and the roll's gain arrives
+       in dollars;
+     - the far leg costs more dollars than the book held, and the near
+       leg's proceeds pay it;
+     - named far leg first, the swap still books its near leg first.
+
+     Each of the three rules above was removed in turn, and the tests failed
+     each time.
+
 # Compatibility
 
 - Additive. A new terms kind, value-date rules and business-day conventions

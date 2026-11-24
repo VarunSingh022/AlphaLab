@@ -1341,6 +1341,19 @@
       "compatibility": "Additive: TransactionType gains FX_LEG and InstrumentRegistry a derived fx_pairs index (both manifest bindings change, named in the CHANGELOG), the portfolio snapshot reads FxDealBooked, and both are pinned (PER-004). No identity, digest or persisted byte moves for a run, registry or book that declares no FX terms. A FOREX record that declares FxTerms is refused margin, borrow and a settlement rule, which no released record could have declared with them.",
       "record": "docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 3, known limitation 1); CHANGELOG; the settlement module's docstring; test_persisted_enum_names (FX_LEG, FxDealBooked).",
       "tests": "tests/unit/portfolio/test_fx_deals.py (13): both legs and the commission, a sale reversing them, half-even rounding to each minor unit (JPY's none), the legs pending to the value date and settled after, each leg's ledger metadata and the index the ledger implies, the snapshot round trip, cash per currency as deposits plus exchanged less commission, and six refusals that move nothing. tests/integration/test_fx_booking.py (6): GR-3's booking -- a EUR/USD forward three months from a spot the Fourth of July moved, cash per currency by hand with the commission, the legs pending to 7 October's open, the dollar valuation at the supplied rate; a spot deal valued 7 July, and a sale of euros not held refused before an order exists; a sale valued 7 October paid by the euros the forward delivers that day, and one valued 1 October refused; and the refusals of an unsettled base, an undeclared calendar and an NDF. tests/unit/instrument/test_fx_terms.py gains the record refusals, a pair's lot, and the registry's fx_pairs index, derived and restored. test_sector_classification_reaches_attribution's table of the pipeline's registry reads records the one keyed read _fx_record adds, behind the fx_pairs index (nine record_for reads, two of the index)."
+    },
+    {
+      "id": "TD-84",
+      "date": "2026-11-24",
+      "workstream": "WS-27",
+      "title": "Rollover as a swap: an FX package's legs refused as single FX orders are, with the other legs counted, placed in settlement order, and spending no buying power (ADR-0067 settled point 4)",
+      "problem": "ADR-0067 section 3 makes a rollover a swap, a package of a near and a far deal (ADR-0062), and a carry book (S-05) rolls fully invested: the far leg is paid by the near leg's proceeds. Three things stood in the way. A package's legs bypassed the refusals a single order passes, so an FX leg the run could not book reached its fill. Each leg's cash was judged alone, without the sibling that pays it. And the legs were booked in the order the strategy named them, each paying from trade-date cash, so naming the far leg first failed at the fill; the base-currency buying-power gate, which cannot see a credit arriving by a value date, refused the far leg too.",
+      "alternatives": "(a) Net the package's cash per currency across all legs regardless of date: a far leg's credit would pay a near leg's debit due earlier. (b) Book package legs as obligations, unchecked at the fill: a price moving between placement and fill would leave an overdraft. (c) Judge each FX leg by the per-currency rule with the other legs counted -- their debits committed, their credits arriving by the leg's value date paying it -- place the legs by value date so the booking order is the settlement order, and exempt FX deals from the buying-power charge, which the per-currency rule replaces.",
+      "decision": "(c). _place_package refuses an FX leg, before any leg exists, as a single FX order is refused: Seam 1, the value date, and _fx_cash_refusal with the package's other legs as siblings. _in_settlement_order places the legs by value date (any other leg first, at once; a package with no FX leg keeps its order). _buying_power_charge is zero for an FX deal on either side.",
+      "rationale": "Counting only what arrives by the leg's own value date keeps the rule FUT-015's: nothing is spent before it arrives. Placing by value date makes the fill's booking order the order the money actually moves in, so the fill-time funds check stays the last line of defence rather than being switched off. The buying-power gate sums cash in the base currency and cannot see value dates; the per-currency rule holds every FX debit to its own currency's cash by its value date, which is stricter per currency.",
+      "compatibility": "No public API changes. A package with no FX leg is placed, refused and booked exactly as before; an FX order outside a package is judged as before except that a purchase no longer spends buying power.",
+      "record": "docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 4); CHANGELOG.",
+      "tests": "tests/integration/test_fx_booking.py (8): GR-3's rollover -- a forward bought 2 July and rolled 3 October, its near leg at spot for 7 October and its far leg for 7 January, cash in each currency by hand, the euros arriving and leaving on 7 October with the roll's gain in dollars, the far leg paid by the near leg's proceeds in a fully invested book; and a swap naming its far leg first still booking its near leg first. Each rule was removed in turn and the tests failed: without the siblings the package is refused, without the settlement order the reversed swap fails at its fill, and with buying power charged risk refuses the far leg."
     }
   ],
   "plan_changes": [
@@ -2835,6 +2848,11 @@
         {
           "milestone": "M10",
           "item": "Two-currency booking (TD-83, ADR-0067 settled point 3): PortfolioEngine.apply_fx_deal books FX_LEG legs pending to the value date and an FxDealBooked event, no position; in a run, value dates from the venue's trade day over calendars declared by id, refusals before an order exists, funded and not financed",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M10",
+          "item": "Rollover as a swap (TD-84, ADR-0067 settled point 4): an FX package's legs refused as single FX orders are with the other legs counted, placed in settlement order, and no buying power spent; GR-3's rollover by hand",
           "status": "Local validation passed"
         }
       ],
@@ -3728,7 +3746,7 @@
   },
   "state": {
     "updated": "2026-11-24",
-    "remote_head": "f33ee56",
+    "remote_head": "8737a71",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -5182,10 +5200,28 @@
         "workflow": "Optional Distributions",
         "run": 45384267015,
         "result": "success"
+      },
+      {
+        "sha": "f33ee56",
+        "workflow": "Continuous Integration",
+        "run": 45392560317,
+        "result": "success: all six quality-gate cells (FX terms on the record)"
+      },
+      {
+        "sha": "f33ee56",
+        "workflow": "CodeQL",
+        "run": 45392560412,
+        "result": "success"
+      },
+      {
+        "sha": "f33ee56",
+        "workflow": "Optional Distributions",
+        "run": 45392560654,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M10, WS-27: rollover as a swap -- a near and a far deal as one package (ADR-0062) -- and NDF settlement at a supplied fixing, completing GR-3; then S-05's carry book and an FX guide; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for f33ee56 and the next push is read at the next boundary.",
+    "next": "M10, WS-27: NDF settlement at a supplied fixing, then S-05's carry book and an FX guide; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for 8737a71 and the next push is read at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -5660,6 +5696,10 @@
     {
       "date": "2026-11-24",
       "entry": "f33ee56 pushed: ADR-0067's FX terms on the record (TD-82). Its full gate found two defects first, each fixed before the push: the split and holding-exchange checks narrowed a record's terms to an option's once a future's were excluded, and would have read an option's adjustments from FX terms (two tests fail without the fix); and the amendment had not re-certified the engine source. 30ced8d passed hosted CI on all six cells. Two-currency booking (TD-83) is validated locally: FX_LEG legs pending to the value date, FxDealBooked, no position, value dates from the declared calendars by id, and an FX deal funded from cash held -- a financed deal is ADR-0067's known limitation 1."
+    },
+    {
+      "date": "2026-11-24",
+      "entry": "8737a71 pushed: two-currency booking (TD-83), after its gate found the pipeline's table of registry reads needed the one keyed read the FX index guards. f33ee56 passed hosted CI on all six cells. Rollover as a swap (TD-84) is validated locally: an FX package's legs are refused as single FX orders are with the other legs counted, placed in settlement order, and spend no buying power; GR-3's rollover is checked by hand, and each of the three rules was removed in turn to see the tests fail."
     }
   ]
 }
