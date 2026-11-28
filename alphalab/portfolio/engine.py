@@ -52,7 +52,7 @@ from itertools import pairwise
 from typing import Any, Final, cast
 
 from alphalab.common.append_log import AppendOnlyLog
-from alphalab.common.arithmetic import in_accounting_context, require_finite
+from alphalab.common.arithmetic import ACCOUNTING_CONTEXT, in_accounting_context, require_finite
 from alphalab.common.evolve import evolve
 from alphalab.common.ids import new_id
 from alphalab.conventions.economics import CASH_EQUITY, InstrumentEconomics
@@ -69,6 +69,8 @@ from alphalab.portfolio.events import (
     DeliveryAmended,
     FxDealBooked,
     MarketValueUpdated,
+    NdfDealt,
+    NdfFixed,
     PaymentAmended,
     PortfolioEvent,
     PositionClosed,
@@ -94,6 +96,13 @@ from alphalab.portfolio.settlement import (
     DELIVERY_TERMS,
     ENTITLEMENT,
     FX_DEAL,
+    NDF_FIXED_AS_OF,
+    NDF_FIXES_ON,
+    NDF_FIXING,
+    NDF_NOTIONAL,
+    NDF_RATE,
+    NDF_SETTLES_IN,
+    NDF_SOURCE,
     PAYMENT_CHANGE,
     SETTLEMENT_CASH,
     SETTLES_AT,
@@ -104,6 +113,7 @@ from alphalab.portfolio.settlement import (
     PendingSettlement,
     amend_pending,
     entitlement_key,
+    fixed_pending,
     payment_chain,
     settle_pending,
 )
@@ -769,6 +779,237 @@ class PortfolioEngine:
             state.events.append(event),
             state.realized_pnl,
             state.commission_paid.add(commission, quote),
+            state.pending_marks,
+            unsettled,
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def apply_ndf_deal(
+        state: PortfolioState,
+        asset_id: str,
+        quantity: Decimal,
+        price: Decimal,
+        commission: Decimal,
+        timestamp: float,
+        base: str,
+        quote: str,
+        settlement_currency: str,
+        *,
+        value_date: date,
+        settles_at: float,
+        fixes_on: date,
+    ) -> PortfolioState:
+        """Book an NDF at its trade: no currency moves but the commission (ADR-0067).
+
+        ``quantity`` units of ``base`` are bought (positive) or sold forward at
+        ``price``, ``quote`` per unit, to be settled at the deal's fixing by
+        the difference, in ``settlement_currency`` (:meth:`fix_ndf`). The trade
+        delivers nothing. Its commission is in ``quote``, the pair's price
+        currency, as every fill's is, and is pending with the deal.
+
+        The deal is one ledger transaction (``FX_LEG``), with no cash of its own,
+        recording what its fixing needs: the notional, the rate, the fixing
+        date and the settlement currency. It stays on the pending index until
+        its fixing is booked, so a restore finds it, and a deal that reaches its
+        value date unfixed is still there for the run to refuse.
+
+        Raises:
+            InvalidTransactionError: If the two currencies are one, the
+                settlement currency is neither, the quantity is zero, the price
+                is not positive, or a figure is not finite.
+            InsufficientFundsError: If ``quote``'s cash cannot pay the commission.
+        """
+
+        if base == quote or settlement_currency not in (base, quote):
+            raise InvalidTransactionError(
+                f"An NDF on {base}/{quote} is settled in one of its two currencies, not "
+                f"{settlement_currency}."
+            )
+        for label, value in (("quantity", quantity), ("price", price), ("commission", commission)):
+            require_finite(value, f"An NDF's {label}", exception_type=InvalidTransactionError)
+        if quantity == 0:
+            raise InvalidTransactionError("An NDF must have a non-zero notional.")
+        if price <= 0:
+            raise InvalidTransactionError(
+                f"An NDF in {asset_id} at {price} is refused: a rate is positive."
+            )
+        commission = to_money(commission, quote, state.account.currency_units)
+        cash = state.cash
+        if commission > 0:
+            cash = cash.withdraw(commission, quote)
+        elif commission < 0:
+            cash = cash.deposit(-commission, quote)
+        account_id = state.account.account_id
+        deal_id = str(new_id())
+        deal = Transaction(
+            deal_id,
+            timestamp,
+            account_id,
+            TransactionType.FX_LEG,
+            asset_id,
+            ZERO_MONEY,
+            price,
+            commission,
+            quote,
+            {
+                SETTLES_AT: settles_at,
+                VALUE_DATE: value_date.isoformat(),
+                FX_DEAL: deal_id,
+                SETTLEMENT_CASH: str(-commission),
+                NDF_NOTIONAL: str(quantity),
+                NDF_RATE: str(price),
+                NDF_FIXES_ON: fixes_on.isoformat(),
+                NDF_SETTLES_IN: settlement_currency,
+            },
+        )
+        unsettled = settle_pending(
+            state.unsettled,
+            timestamp,
+            PendingSettlement(
+                deal_id,
+                asset_id,
+                quote,
+                -commission,
+                Decimal("0"),
+                timestamp,
+                settles_at,
+                fixes_on=fixes_on,
+            ),
+        )
+        event = NdfDealt(
+            timestamp,
+            account_id,
+            asset_id,
+            deal_id,
+            base,
+            quote,
+            quantity,
+            price,
+            commission,
+            settlement_currency,
+            fixes_on.isoformat(),
+            value_date.isoformat(),
+            settles_at,
+        )
+        return PortfolioState(
+            state.account,
+            cash,
+            state.positions,
+            state.ledger.append(deal),
+            state.events.append(event),
+            state.realized_pnl,
+            state.commission_paid.add(commission, quote),
+            state.pending_marks,
+            unsettled,
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def fix_ndf(
+        state: PortfolioState,
+        deal: Transaction,
+        fixing: Decimal,
+        source: str,
+        fixing_as_of: float,
+        timestamp: float,
+    ) -> PortfolioState:
+        """Fix an NDF: the difference from its rate, owed at its value date (ADR-0067).
+
+        A deal of ``q`` units of the base (bought positive) at rate ``p``,
+        fixed at ``f``, is owed ``q x (f - p)`` of its quote currency: a buyer
+        of the base gains when it is fixed dearer. Paid in the quote, that is
+        the amount. Paid in the base, it is that divided by the fixing,
+        ``q x (1 - p / f)``. It is rounded once, half-even, to the settlement
+        currency's minor unit (AC-18), and realized in that currency.
+
+        A gain is credited and a loss debited as the obligation it is, whether
+        or not cash covers it, as a variation margin is. The amount moves
+        trade-date cash now and is pending until the deal's value date; from
+        now on the deal settles then (:func:`~alphalab.portfolio.settlement.fixed_pending`).
+
+        Raises:
+            InvalidTransactionError: If ``deal`` is not an NDF's deal still
+                awaiting its fixing, or the fixing is not a positive finite rate.
+        """
+
+        meta = deal.metadata
+        open_ = any(
+            entry.transaction_id == deal.transaction_id and entry.fixes_on is not None
+            for entry in state.unsettled
+        )
+        if deal.type is not TransactionType.FX_LEG or NDF_NOTIONAL not in meta or not open_:
+            raise InvalidTransactionError(
+                f"Transaction {deal.transaction_id} is not an NDF's deal awaiting its fixing."
+            )
+        require_finite(fixing, "An NDF's fixing", exception_type=InvalidTransactionError)
+        if fixing <= 0:
+            raise InvalidTransactionError(f"An NDF's fixing is a positive rate, got {fixing}.")
+        ctx = ACCOUNTING_CONTEXT
+        notional = Decimal(str(meta[NDF_NOTIONAL]))
+        rate = Decimal(str(meta[NDF_RATE]))
+        currency = str(meta[NDF_SETTLES_IN])
+        difference = ctx.multiply(notional, ctx.subtract(fixing, rate))
+        # The deal's own currency is its quote: paid there, the difference is
+        # the amount; paid in the base, it is converted at the fixing itself.
+        owed = difference if currency == deal.currency else ctx.divide(difference, fixing)
+        amount = to_money(owed, currency, state.account.currency_units)
+        settles_at = float(meta[SETTLES_AT])
+        account_id = state.account.account_id
+        leg = Transaction(
+            str(new_id()),
+            timestamp,
+            account_id,
+            TransactionType.FX_LEG,
+            deal.asset_id,
+            amount,
+            fixing,
+            ZERO_MONEY,
+            currency,
+            {
+                SETTLES_AT: settles_at,
+                VALUE_DATE: meta[VALUE_DATE],
+                FX_DEAL: deal.transaction_id,
+                SETTLEMENT_CASH: str(amount),
+                NDF_FIXING: str(fixing),
+                NDF_SOURCE: source,
+                NDF_FIXED_AS_OF: fixing_as_of,
+            },
+        )
+        unsettled = settle_pending(
+            fixed_pending(state.unsettled, deal.transaction_id),
+            timestamp,
+            PendingSettlement(
+                leg.transaction_id,
+                deal.asset_id,
+                currency,
+                amount,
+                Decimal("0"),
+                timestamp,
+                settles_at,
+            ),
+        )
+        event = NdfFixed(
+            timestamp,
+            account_id,
+            deal.asset_id,
+            deal.transaction_id,
+            fixing,
+            source,
+            fixing_as_of,
+            amount,
+            currency,
+            str(meta[VALUE_DATE]),
+            settles_at,
+        )
+        return PortfolioState(
+            state.account,
+            state.cash.settle(amount, currency),
+            state.positions,
+            state.ledger.append(leg),
+            state.events.append(event),
+            state.realized_pnl.add(amount, currency),
+            state.commission_paid,
             state.pending_marks,
             unsettled,
         )

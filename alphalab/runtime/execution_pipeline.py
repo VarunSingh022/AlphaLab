@@ -38,6 +38,7 @@ from alphalab.conventions.business_days import (
     forward_value_date,
     is_business_day,
     spot_value_date,
+    subtract_business_days,
 )
 from alphalab.conventions.economics import InstrumentEconomics, SettlementModel
 from alphalab.conventions.exceptions import ConventionViolationError
@@ -1383,6 +1384,8 @@ class ExecutionPipeline:
         # then the account's margin, after everything the step did (FUT-017).
         current, bought_in = _buy_ins(current, event, rates)
         current, liquidation = _margin_call(current, event, rates)
+        # An NDF no fixing was booked for by its value date stops the run (ADR-0067).
+        _require_ndfs_fixed(current, event.timestamp)
         routed = routed.then(bought_in).then(liquidation)
         if queue is not None:
             queue = _queue_after_step(queue, current, event, update, resting_before)
@@ -2800,6 +2803,95 @@ class ExecutionPipeline:
 
     @staticmethod
     @in_accounting_context
+    def fix_ndf(
+        state: ExecutionPipelineState,
+        asset_id: str,
+        fixing: FxRate,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Fix every open NDF in ``asset_id`` that fixes on ``fixing``'s day (v4.3.0, ADR-0067).
+
+        The fixing is a supplied rate with its provenance. It is quoted base to
+        quote, as the pair is, and never inverted or crossed (AC-17). It comes
+        from the source the deals name, true at an instant of their fixing date
+        by the listing venue's calendar, and no later than ``timestamp``. Each
+        deal it fixes is owed the difference from its rate, in its settlement
+        currency, pending to its value date
+        (:meth:`~alphalab.portfolio.engine.PortfolioEngine.fix_ndf`).
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event;
+                ``asset_id`` is not a declared NDF; the rate is of another pair,
+                from another source, or true after ``timestamp``; no open deal
+                fixes on its day; or a deal it would fix has reached its value
+                date.
+        """
+
+        _require_not_before_last_event(state, timestamp, "An NDF's fixing")
+        record = _fx_record(state, asset_id)
+        terms = None if record is None else record.terms
+        if record is None or not isinstance(terms, FxTerms) or terms.kind is not FxKind.NDF:
+            raise RuntimeValidationError(
+                f"{asset_id} is not an NDF this run's registry declares: nothing says how a "
+                "fixing settles it."
+            )
+        assert terms.fixing is not None  # FxTerms requires an NDF's
+        named = f"{record.symbol} on {record.exchange}"
+        if (fixing.base, fixing.quote) != (terms.base, terms.quote):
+            raise RuntimeValidationError(
+                f"{named} fixes {terms.base}/{terms.quote}, and the rate supplied is "
+                f"{fixing.base}/{fixing.quote}: a fixing is never inverted or crossed (AC-17)."
+            )
+        if fixing.source != terms.fixing.source:
+            raise RuntimeValidationError(
+                f"{named} fixes at {terms.fixing.source!r}, and the rate supplied is from "
+                f"{fixing.source!r}: a fixing comes from the source the deal names."
+            )
+        if fixing.as_of > timestamp:
+            raise RuntimeValidationError(
+                f"The fixing supplied for {named} is true at {fixing.as_of!r}, after "
+                f"{timestamp!r}: a fixing is not known before it is made."
+            )
+        venue = state.config.calendars.calendar_for(record.exchange)
+        if venue is None:
+            raise RuntimeValidationError(
+                f"No calendar is declared for {record.exchange}, so no day can be read from "
+                f"the fixing supplied for {named}."
+            )
+        day = venue.trading_day_of(fixing.as_of) or venue.local_datetime(fixing.as_of).date()
+        portfolio = state.portfolio
+        due = [e for e in portfolio.unsettled if e.asset_id == asset_id and e.fixes_on == day]
+        if not due:
+            raise RuntimeValidationError(
+                f"No open NDF in {named} fixes on {day.isoformat()}, the day the rate supplied "
+                "is true: a fixing is a rate of its deals' fixing date, and one of another day "
+                "is refused."
+            )
+        wanted = {entry.transaction_id for entry in due}
+        deals = {
+            t.transaction_id: t
+            for t in portfolio.ledger.by_asset(asset_id)
+            if t.transaction_id in wanted
+        }
+        for entry in due:
+            if entry.settles_at <= timestamp:
+                raise RuntimeValidationError(
+                    f"{named}'s NDF deal {entry.transaction_id} reached its value date at "
+                    f"{entry.settles_at!r} unfixed, and is not fixed after it."
+                )
+            portfolio = PortfolioEngine.fix_ndf(
+                portfolio,
+                deals[entry.transaction_id],
+                fixing.rate,
+                fixing.source,
+                fixing.as_of,
+                timestamp,
+            )
+        return _after_book_change(state, portfolio, timestamp, rates)
+
+    @staticmethod
+    @in_accounting_context
     def expire_option(
         state: ExecutionPipelineState,
         expiry: OptionExpiry,
@@ -4159,6 +4251,8 @@ def _fx_flows(
         return None
     terms = fx.terms
     assert isinstance(terms, FxTerms)  # the registry's fx_pairs says so
+    if terms.kind is FxKind.NDF:
+        return None  # an NDF exchanges nothing at its trade: its difference is owed at its fixing
     try:
         _, arrives = _fx_value_date(state, fx, terms, at)
     except RuntimeValidationError:
@@ -7712,7 +7806,29 @@ def _fx_value_date(
             f"{venue.calendar_id} does not trade on; when on a closed day a deal settles is "
             "not assumed."
         )
+    if terms.kind is FxKind.NDF and _ndf_fixes_on(state, terms, value) < day:
+        raise RuntimeValidationError(
+            f"{named} struck on {day.isoformat()} would fix on "
+            f"{_ndf_fixes_on(state, terms, value).isoformat()}, before it is struck."
+        )
     return value, bounds[0]
+
+
+def _ndf_fixes_on(state: ExecutionPipelineState, terms: FxTerms, value_date: date) -> date:
+    """An NDF's fixing date: its stated lag before its value date, in the calendars it settles in.
+
+    ADR-0067 section 4. The calendars are the run's, found by ``calendar_id``,
+    which :func:`_fx_value_date` has checked are declared.
+    """
+
+    assert terms.fixing is not None  # FxTerms requires an NDF's
+    declared = _calendars_by_id(state)
+    try:
+        return subtract_business_days(
+            value_date, terms.fixing.fixing_lag, [declared[i] for i in terms.value_dates.settles]
+        )
+    except ConventionViolationError as exc:
+        raise RuntimeValidationError(f"An NDF's fixing date cannot be found: {exc}") from exc
 
 
 def _fx_refusal(state: ExecutionPipelineState, record: InstrumentRecord) -> str | None:
@@ -7722,9 +7838,14 @@ def _fx_refusal(state: ExecutionPipelineState, record: InstrumentRecord) -> str 
     assert isinstance(terms, FxTerms)
     named = f"{record.symbol} on {record.exchange}"
     if terms.kind is FxKind.NDF:
+        assert terms.fixing is not None  # FxTerms requires an NDF's
+        settles = terms.fixing.settlement_currency
+        if settles in state.config.settlement_currencies:
+            return None
         return (
-            f"{named} is a non-deliverable forward. It settles the difference from its "
-            "fixing in one currency, which is not booked here yet; a deliverable deal is."
+            f"{named} settles the difference from its fixing in {settles}, and this pipeline "
+            f"does not settle {settles}. Add {settles!r} to "
+            "ExecutionPipelineConfig.also_settles to trade it here."
         )
     if terms.base not in state.config.settlement_currencies:
         return (
@@ -7733,6 +7854,31 @@ def _fx_refusal(state: ExecutionPipelineState, record: InstrumentRecord) -> str 
             "ExecutionPipelineConfig.also_settles to trade it here."
         )
     return None
+
+
+def _require_ndfs_fixed(state: ExecutionPipelineState, at: float) -> None:
+    """Stop a step that finds an NDF at its value date unfixed (ADR-0067 section 4).
+
+    An NDF's fixing is a rate supplied from the source the deal names, and none
+    is invented: a deal no fixing was booked for by its value date stops the
+    run, with the reason. A registry declaring no FX pair costs one emptiness
+    check.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.fx_pairs:
+        return
+    for entry in state.portfolio.unsettled:
+        if entry.fixes_on is None or entry.settles_at > at:
+            continue
+        record = _fx_record(state, entry.asset_id)
+        named = entry.asset_id if record is None else f"{record.symbol} on {record.exchange}"
+        raise RuntimeValidationError(
+            f"{named}'s NDF deal {entry.transaction_id} fixes on {entry.fixes_on.isoformat()} "
+            f"and reached its value date at {entry.settles_at!r} with no fixing booked. A fixing "
+            "is a rate supplied from the source the deal names, and none is invented: supply "
+            "it (ScheduledFixing, ExecutionPipeline.fix_ndf)."
+        )
 
 
 def _book_fx_deal(
@@ -7755,6 +7901,22 @@ def _book_fx_deal(
             f"Execution report {report.execution_id} is not booked: {refusal}"
         )
     value_date, instant = _fx_value_date(state, record, terms, report.timestamp)
+    if terms.kind is FxKind.NDF:
+        assert terms.fixing is not None  # FxTerms requires an NDF's
+        return PortfolioEngine.apply_ndf_deal(
+            state.portfolio,
+            report.asset_id,
+            signed_quantity,
+            report.fill_price,
+            report.commission,
+            report.timestamp,
+            terms.base,
+            terms.quote,
+            terms.fixing.settlement_currency,
+            value_date=value_date,
+            settles_at=instant,
+            fixes_on=_ndf_fixes_on(state, terms, value_date),
+        )
     return PortfolioEngine.apply_fx_deal(
         state.portfolio,
         report.asset_id,

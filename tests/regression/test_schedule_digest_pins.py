@@ -12,7 +12,10 @@ The golden values are what v4.2.1 computed, and what v4.2.0 computes. Each is
 the digest of a schedule holding the entries of one kind: eight built here from
 the public API alone, and twelve taken from the schedule of the frozen workload
 that has them (``tests/regression/v4_2_1_workloads.py``), whose paused replays
-recorded the whole schedule's digest -- which these tests hold too.
+recorded the whole schedule's digest -- which these tests hold too. A kind added
+since is pinned from the release that adds it, built here: v4.3.0's ``fixing``
+(ADR-0067). The digest of every kind's entries together is v4.2.1's kinds',
+as v4.2.1 computed it.
 
 ``RUN_SCHEDULE_DIGEST_SCHEME``, the constant that will name the formula without
 entering it, waits for ADR-0053's acceptance (G0 item 6); the formula itself is
@@ -34,6 +37,7 @@ from alphalab.backtesting.schedule import (
     RunSchedule,
     ScheduledAssignment,
     ScheduledCashFlow,
+    ScheduledFixing,
     ScheduledFundingRate,
     ScheduledSettlement,
     ScheduledSplit,
@@ -77,7 +81,12 @@ PERSISTED_KINDS = {
     "RECORD": "record",
     "SURFACE": "surface",
     "AUCTION": "auction",
+    # v4.3.0 (ADR-0067): an NDF's fixing.
+    "FIXING": "fixing",
 }
+
+#: The kinds added since v4.2.1, by the release that added each.
+ADDED_SINCE = {ScheduleKind.FIXING: "4.3.0"}
 
 #: The frozen workload each kind no hand-built entry covers is taken from.
 FROM_WORKLOADS = {
@@ -117,12 +126,14 @@ GOLDEN: dict[str, str] = {
     "record": "75b92e1e7c8a4ff25885e69c691e96f48a4ea576df68a6436db7cce71cddb3de",
     "surface": "fb03fcad629c9267ce1fdeffef8a11d91d47d5803adf50f7d602ff4d625a4e32",
     "auction": "240dff21f4b268e2b6b0d651b7aaba4aa20f15b6dad730c73382d3bbb85316af",
+    # What v4.3.0 computed, the release that added it.
+    "fixing": "ec61b3f2af060200132068e68f155084ab5a2ad218adeba272c3a99a3e72c869",
 }
 
 #: An empty schedule, and one stating only a maximum rate age: the age enters the digest.
 EMPTY = "dc937b59892604f5a86ac96936cd7ff09e25f18ae6b758e8014a24c7fa039e91"
 AGED = "1ba0363418c0b5c15b34817fcbd25ff7b1d43036f0635f81bf4f21a01b2ada60"
-#: Every kind's entries in one schedule, ordered by their keys.
+#: Every v4.2.1 kind's entries in one schedule, ordered by their keys.
 EVERY_KIND = "bf07e14067f406fb5f05845a6f6af98270312699a4915657d64e5b2c2bcb92b7"
 
 
@@ -155,6 +166,11 @@ def built() -> dict[ScheduleKind, RunSchedule]:
         ),
         ScheduleKind.SETTLEMENT: RunSchedule.of(
             settlements=[ScheduledSettlement(ContractSettlement(ASSET, Decimal("104")), 4.0)]
+        ),
+        ScheduleKind.FIXING: RunSchedule.of(
+            fixings=[
+                ScheduledFixing(ASSET, FxRate("USD", "INR", Decimal("84.00"), 4.0, "RBI"), 4.0)
+            ]
         ),
     }
 
@@ -204,7 +220,7 @@ def test_the_digest_is_the_formula_it_documents(
 ) -> None:
     """SHA-256 over the rate age's ``repr``, then ``kind|instant|JSON`` per entry, in order."""
 
-    combined = every_kind(schedules)
+    combined = every_kind({k: s for k, s in schedules.items() if k not in ADDED_SINCE})
     digest = hashlib.sha256(repr(combined.rate_max_age_seconds).encode(DEFAULT_ENCODING))
     for entry in combined.entries:
         line = f"{entry.kind.value}|{entry.at!r}|{serialize(entry.item)}\n"

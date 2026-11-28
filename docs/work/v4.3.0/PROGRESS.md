@@ -41,14 +41,14 @@ Never:
 - Deleting Git history or force-pushing.
 - Disabling security controls or rulesets to bypass a failure.
 
-## Current state (2026-11-24)
+## Current state (2026-11-28)
 
 | | |
 | --- | --- |
-| Remote head | `8737a71` |
+| Remote head | `0315467` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M10, WS-27: NDF settlement at a supplied fixing, then S-05's carry book and an FX guide; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for 8737a71 and the next push is read at the next boundary. |
+| Next | M10, WS-27: S-05's carry book of forwards rolled as swaps, as an example and an E2E, and an FX guide; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for the next push is read at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -297,6 +297,12 @@ Never:
 | `f33ee56` | Continuous Integration | 45392560317 | success: all six quality-gate cells (FX terms on the record) |
 | `f33ee56` | CodeQL | 45392560412 | success |
 | `f33ee56` | Optional Distributions | 45392560654 | success |
+| `8737a71` | Continuous Integration | 45397985654 | success: all six quality-gate cells (two-currency booking) |
+| `8737a71` | CodeQL | 45397985578 | success |
+| `8737a71` | Optional Distributions | 45397985700 | success |
+| `0315467` | Continuous Integration | 45400179598 | success: all six quality-gate cells (rollover as a swap) |
+| `0315467` | CodeQL | 45400179724 | success |
+| `0315467` | Optional Distributions | 45400179275 | success |
 
 ## Continuation log
 
@@ -419,6 +425,7 @@ Never:
 - **2026-11-24** ad622de passed hosted CI on all six cells, with CodeQL and Optional Distributions, so WS-13's business-day conventions are Hosted CI passed. ADR-0067's FX terms are declared on the record (TD-82): FxTerms, FxKind, FxValueDateRule with its calendars named by id, and an NDF's NdfFixing, refused where malformed and persisted with the registry by name only when declared. Booking such a deal in two currencies is the next step; until it lands a declared deal books as a cash equity, as the CHANGELOG states.
 - **2026-11-24** f33ee56 pushed: ADR-0067's FX terms on the record (TD-82). Its full gate found two defects first, each fixed before the push: the split and holding-exchange checks narrowed a record's terms to an option's once a future's were excluded, and would have read an option's adjustments from FX terms (two tests fail without the fix); and the amendment had not re-certified the engine source. 30ced8d passed hosted CI on all six cells. Two-currency booking (TD-83) is validated locally: FX_LEG legs pending to the value date, FxDealBooked, no position, value dates from the declared calendars by id, and an FX deal funded from cash held -- a financed deal is ADR-0067's known limitation 1.
 - **2026-11-24** 8737a71 pushed: two-currency booking (TD-83), after its gate found the pipeline's table of registry reads needed the one keyed read the FX index guards. f33ee56 passed hosted CI on all six cells. Rollover as a swap (TD-84) is validated locally: an FX package's legs are refused as single FX orders are with the other legs counted, placed in settlement order, and spend no buying power; GR-3's rollover is checked by hand, and each of the three rules was removed in turn to see the tests fail.
+- **2026-11-28** Resumed after the usage limit; the scratch had survived, the tree was clean at 0315467, and 8737a71 and 0315467 had passed hosted CI on all six cells with CodeQL and Optional Distributions. NDF settlement (TD-85) is validated locally: the deal recorded at its trade, the fixing a supplied FxRate from the deal's source booked by ExecutionPipeline.fix_ndf or a ScheduledFixing, the difference pending to the value date, and a deal unfixed at its value date stopping the run. An NDF is in the book at nothing before its fixing, recorded as ADR-0067's known limitation 2.
 
 ## Milestones
 
@@ -1327,6 +1334,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 4); CHANGELOG.
 - **Tests:** tests/integration/test_fx_booking.py (8): GR-3's rollover -- a forward bought 2 July and rolled 3 October, its near leg at spot for 7 October and its far leg for 7 January, cash in each currency by hand, the euros arriving and leaving on 7 October with the roll's gain in dollars, the far leg paid by the near leg's proceeds in a fully invested book; and a swap naming its far leg first still booking its near leg first. Each rule was removed in turn and the tests failed: without the siblings the package is refused, without the settlement order the reversed swap fails at its fill, and with buying power charged risk refuses the far leg.
 
+### TD-85: NDFs settled at a supplied fixing: the deal recorded at its trade, the difference booked at its fixing, and a deal unfixed at its value date stopping the run (ADR-0067 settled point 5) (WS-27, 2026-11-28)
+
+- **Problem:** ADR-0067 section 4 settles an NDF at a fixing date a stated lag before its value date, by the difference from its rate in a declared currency, at a supplied rate from a named source, refusing a missing, stale or future-dated one so that the run stops rather than settle at an invented rate. An NDF delivers no base, so nothing of section 1's booking applies, and the pending index dropped an entry by the clock alone: a deal reaching its value date unfixed would have left the book silently.
+- **Alternatives:** (a) Read the fixing from the run's rate table at the first event after the fixing date: the table holds one rate per pair, so a fixing from one source could be overwritten by a valuation rate from another before any event read it. (b) Hold the NDF as a position marked at a forward rate: a position the account cannot hold, which section 1's 'currencies, not pairs' rules out. (c) Record the deal at its trade as an FX_LEG with no cash; take the fixing as an explicit supplied FxRate (ExecutionPipeline.fix_ndf, a ScheduledFixing in a backtest), as an option's expiry takes its settlement value; and keep an unfixed deal pending past its value date, so the step that finds it refuses.
+- **Decision:** (c). PortfolioEngine.apply_ndf_deal books the commission in the quote and one FX_LEG recording the notional, rate, fixing date and settlement currency. PendingSettlement gains fixes_on: an unfixed deal is pending whatever the clock says, and fixed_pending clears it live and on a rebuild. ExecutionPipeline.fix_ndf takes an FxRate -- the pair's own, never inverted (AC-17), from the deal's source, true on its fixing date by the venue's calendar, no later than the call -- and fixes every open deal in the record that fixes that day; PortfolioEngine.fix_ndf books notional x (fixing - rate) in the quote, or that divided by the fixing in the base, rounded once half-even, realized, owed as a variation margin is, pending to the value date. Every market step refuses an NDF found at or past its value date unfixed. conventions gains subtract_business_days for the fixing date; backtesting gains ScheduledFixing.
+- **Rationale:** An explicit fixing keeps the rate's provenance whole and makes a wrong source, day or pair a refusal rather than a silent read. Keeping the deal pending until it is fixed is what lets the run see a missing fixing at all, with the index still derived from the ledger. Section 4's formula is the quote-currency case; the base-currency case divides by the fixing, which is the market's settlement amount, and the ADR's settled point says so.
+- **Compatibility:** Additive: ScheduledFixing and subtract_business_days exported (3,154); PendingSettlement's binding gains fixes_on, named in the CHANGELOG; the NdfDealt and NdfFixed tags pinned (PER-004). No identity, digest or persisted byte moves for a run without an NDF; the per-step check is one emptiness test of the registry's fx_pairs index.
+- **Recorded in:** docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 5, known limitation 2: an NDF is in the book at nothing before its fixing); CHANGELOG; the settlement module's docstring; test_persisted_enum_names; test_sector_classification_reaches_attribution's table of registry reads; test_schedule_digest_pins.
+- **Tests:** tests/unit/portfolio/test_ndf_deals.py (12): the deal moving only its commission and recording its fixing's inputs; pending past its value date until fixed; a buyer's and a seller's difference in dollars; the quote's case rounded half-even (1.225 to 1.22); the difference pending to the value date and the deal settling then; the rebuilt index and the snapshot before and after the fixing; the refusals. tests/integration/test_ndf_settlement.py (6): a USD/INR NDF by hand -- struck 2 July, spot moved by the Fourth of July, fixed on 5 August at a scheduled 84.00, 5,952.38 USD settled on 7 August -- and a fixing from another source, of another day, of the inverted pair or supplied before it is true, and a deal reaching its value date unfixed, each stopping the run. tests/unit/conventions/test_business_days.py gains subtract_business_days. test_schedule_digest_pins pins the new fixing kind's digest from v4.3.0, the release that adds it, and keeps the digest of every kind's entries together over v4.2.1's twenty kinds, as v4.2.1 computed it.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1657,7 +1674,8 @@ Evidence:
 
 - [Pushed] M10: An FX deal's terms on its record (TD-82, ADR-0067 settled point 2): FxTerms with its FxKind, FxValueDateRule (calendars by id) and an NDF's NdfFixing, refused where malformed, persisted with the registry by name and only when declared
 - [Pushed] M10: Two-currency booking (TD-83, ADR-0067 settled point 3): PortfolioEngine.apply_fx_deal books FX_LEG legs pending to the value date and an FxDealBooked event, no position; in a run, value dates from the venue's trade day over calendars declared by id, refusals before an order exists, funded and not financed
-- [Local validation passed] M10: Rollover as a swap (TD-84, ADR-0067 settled point 4): an FX package's legs refused as single FX orders are with the other legs counted, placed in settlement order, and no buying power spent; GR-3's rollover by hand
+- [Pushed] M10: Rollover as a swap (TD-84, ADR-0067 settled point 4): an FX package's legs refused as single FX orders are with the other legs counted, placed in settlement order, and no buying power spent; GR-3's rollover by hand
+- [Local validation passed] M10: NDF settlement (TD-85, ADR-0067 settled point 5): the deal recorded at its trade, a supplied fixing (ExecutionPipeline.fix_ndf, ScheduledFixing) booking the difference pending to the value date, and a deal unfixed at its value date stopping the run
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 

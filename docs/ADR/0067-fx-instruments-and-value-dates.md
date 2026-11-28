@@ -306,6 +306,55 @@ date are all wrong, or absent.
      Each of the three rules above was removed in turn, and the tests failed
      each time.
 
+5. **NDF settlement** (`PortfolioEngine.apply_ndf_deal` and `fix_ndf`,
+   `ExecutionPipeline.fix_ndf`, a backtest's `ScheduledFixing`).
+   - **At its trade** an NDF moves no currency but its commission. The
+     commission is in the quote, the pair's price currency, as every fill's
+     is. Its deal is one `FX_LEG` with no cash of its own, recording what its
+     fixing needs: the notional, the rate, the fixing date and the
+     settlement currency.
+   - **The fixing date** is the fixing lag, in business days, before the
+     value date, in the calendars the deal settles in
+     (`subtract_business_days`). A deal struck after its own fixing date is
+     refused.
+   - **The fixing is supplied**, as an `FxRate`. It must be:
+     - the pair's own rate, base to quote, never inverted or crossed
+       (AC-17);
+     - from the source the deal names;
+     - true on the deal's fixing date, by the venue's calendar;
+     - no later than the instant it is booked.
+
+     Every open deal in the record that fixes that day is fixed by it. A
+     rate of another day is refused.
+   - **The amount.** It is `notional x (fixing - rate)` in the quote. Paid in
+     the base, it is divided by the fixing: the market's
+     `notional x (1 - rate / fixing)`. Section 4's formula is the quote's
+     case. It is rounded once, half-even, to the settlement currency's minor
+     unit, and realized in that currency. A gain is credited, and a loss is
+     owed whether or not cash covers it, as a variation margin is. It is
+     pending until the value date.
+   - **A missing fixing stops the run.** An unfixed deal stays on the
+     pending index past its value date (`PendingSettlement.fixes_on`). The
+     market step that finds one at or past its value date refuses, with the
+     reason, and a fixing after the value date is refused too. Nothing
+     settles at an invented rate.
+   - **Settled currencies.** An NDF needs its settlement currency settled,
+     not its base. Its quote is settled as its record's currency, for its
+     price and its commission.
+   - **Persisted.** The `NdfDealt` and `NdfFixed` tags are pinned (ledger
+     PER-004). `fixes_on` is derived from the ledger, and a restore rebuilds
+     it.
+   - **Tests.**
+     - `tests/unit/portfolio/test_ndf_deals.py` holds the deal, the fixing
+       paid in the base and in the quote with half-even rounding, the
+       pending amounts, the rebuilt index and the snapshot, and the
+       refusals.
+     - `tests/integration/test_ndf_settlement.py` holds a USD/INR NDF by
+       hand. It is struck on 2 July, spot is moved by the Fourth of July, it
+       fixes on 5 August at a scheduled 84.00, and it settles 5,952.38 USD on
+       7 August. It also holds each refused fixing, and a deal that reaches
+       its value date unfixed.
+
 # Compatibility
 
 - Additive. A new terms kind, value-date rules and business-day conventions
@@ -325,6 +374,12 @@ recorded below.
    would carry no requirement. Margining FX exposure by its pending legs is
    not built in v4.3.0. A run that needs a currency it does not hold funds it
    first, by `ExecutionPipeline.fund` or by a spot deal.
+2. **An NDF before its fixing** (settled point 5). An NDF is in the book at
+   nothing until it is fixed: no position holds it, and nothing of it is
+   pending but its commission. Its gain or loss enters the book at the
+   fixing, so the equity curve does not show it from day to day before then.
+   A deliverable forward is valued throughout, by its two pending amounts
+   (section 3).
 
 # Consequences
 

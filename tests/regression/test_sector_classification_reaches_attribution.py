@@ -703,9 +703,10 @@ def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -
     # `_fx_record`, for a fill, an order or an FX check of an instrument the
     # registry's `fx_pairs` index holds: the index is read first -- an
     # emptiness test and a membership test -- so a run declaring no FX pair
-    # reads no record for it.
+    # reads no record for it. And once per market step, an emptiness test of
+    # the same index before any NDF is checked for a missing fixing.
     assert source.count("record_for(") == 9
-    assert source.count(".fx_pairs") == 2
+    assert source.count(".fx_pairs") == 3
     assert source.count(".expiring") == 2
     assert source.count(".margined") == 10
     assert source.count(".controls") == 6

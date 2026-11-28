@@ -54,6 +54,7 @@ __all__ = [
     "forward_value_date",
     "is_business_day",
     "spot_value_date",
+    "subtract_business_days",
 ]
 
 
@@ -177,6 +178,22 @@ def add_business_days(day: date, count: int, calendars: Sequence[TradingDayCalen
     cursor = day
     for _ in range(count):
         cursor = _step(cursor, 1, calendars)
+    return cursor
+
+
+def subtract_business_days(day: date, count: int, calendars: Sequence[TradingDayCalendar]) -> date:
+    """The ``count``-th business day before ``day`` (``day`` itself when ``count`` is zero).
+
+    What an NDF's fixing date is: a stated number of business days before its
+    value date (ADR-0067 section 4).
+    """
+
+    if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+        raise ConventionInputError(f"A business-day count is {count!r}; a non-negative integer.")
+    _require_calendars(calendars, "Counting business days")
+    cursor = day
+    for _ in range(count):
+        cursor = _step(cursor, -1, calendars)
     return cursor
 
 

@@ -82,7 +82,7 @@ from alphalab.portfolio.corporate_actions import (
     OptionExpiry,
     Split,
 )
-from alphalab.portfolio.fx import NO_RATES, FxRates
+from alphalab.portfolio.fx import NO_RATES, FxRate, FxRates
 from alphalab.portfolio.settlement import DeliveryConvention, PaymentChange
 from alphalab.risk.surfaces import ObservedSurface
 from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
@@ -1115,6 +1115,27 @@ class RunEngine:
 
         clock = state.current_timestamp if timestamp is None else timestamp
         pipeline = ExecutionPipeline.expire_option(state.pipeline, expiry, clock, rates)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def fix_ndf(
+        state: RunState,
+        asset_id: str,
+        fixing: FxRate,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Fix every open NDF in ``asset_id`` that fixes on ``fixing``'s day (v4.3.0, ADR-0067).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.fix_ndf`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.fix_ndf(state.pipeline, asset_id, fixing, clock, rates)
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )

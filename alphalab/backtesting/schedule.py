@@ -135,6 +135,7 @@ __all__ = [
     "ScheduledExchange",
     "ScheduledExercise",
     "ScheduledExpiry",
+    "ScheduledFixing",
     "ScheduledFundingRate",
     "ScheduledInterest",
     "ScheduledSettlement",
@@ -207,6 +208,9 @@ class ScheduleKind(StrEnum):
     #: data -- before the instant's records, so the uncross and the strategies
     #: at the instant read it, as a live session delivers it before its next event.
     AUCTION = "auction"
+    #: v4.3.0 (ADR-0067): an NDF's fixing, a supplied rate -- after the
+    #: instant's records, as an expiry is resolved against its settlement value.
+    FIXING = "fixing"
 
 
 _PLACE: Final = {
@@ -230,6 +234,7 @@ _PLACE: Final = {
     ScheduleKind.RECORD: SchedulePlace.AFTER_RECORDS,
     ScheduleKind.SURFACE: SchedulePlace.BEFORE_RECORDS,
     ScheduleKind.AUCTION: SchedulePlace.BEFORE_RECORDS,
+    ScheduleKind.FIXING: SchedulePlace.AFTER_RECORDS,
 }
 _RANK: Final = {kind: rank for rank, kind in enumerate(ScheduleKind)}
 
@@ -1070,6 +1075,21 @@ class ScheduledExpiry:
 
 
 @dataclass(frozen=True, slots=True)
+class ScheduledFixing:
+    """An NDF's fixing, a supplied rate, booked at ``at`` (v4.3.0, ADR-0067).
+
+    ``fixing`` is the rate with its provenance: quoted base to quote, from the
+    source the deals name, true on their fixing date. Every open deal in
+    ``asset_id`` that fixes that day is fixed by it
+    (:meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.fix_ndf`).
+    """
+
+    asset_id: str
+    fixing: FxRate
+    at: float
+
+
+@dataclass(frozen=True, slots=True)
 class ScheduleEntry:
     """One timed input, placed.
 
@@ -1181,6 +1201,7 @@ class RunSchedule:
         payments: Iterable[PaymentAmendment | DeliveryAmendment] = (),
         surfaces: Iterable[ObservedSurface] = (),
         auctions: Iterable[DeliveredAuction] = (),
+        fixings: Iterable[ScheduledFixing] = (),
     ) -> RunSchedule:
         """A schedule of the inputs given, placed and ordered.
 
@@ -1224,6 +1245,8 @@ class RunSchedule:
                 for a in assignments
             ),
             *(_entry(ScheduleKind.EXPIRY, x.at, x.expiry.asset_id, x) for x in expiries),
+            # An NDF's fixing (ADR-0067): one record's deals fixed once at an instant.
+            *(_entry(ScheduleKind.FIXING, f.at, f.asset_id, f) for f in fixings),
             *(
                 _entry(ScheduleKind.INTEREST, i.at, f"{i.currency}:{i.reference}", i)
                 for i in interest
@@ -1629,6 +1652,8 @@ def _apply(
         return rates, RunEngine.assign(state, item.assignment, item.at, rates)
     if kind is ScheduleKind.EXPIRY:
         return rates, RunEngine.expire_option(state, item.expiry, item.at, rates)
+    if kind is ScheduleKind.FIXING:
+        return rates, RunEngine.fix_ndf(state, item.asset_id, item.fixing, item.at, rates)
     if kind is ScheduleKind.ACCRUAL:
         return rates, _accrue_day(state, item, entry.at)
     if kind is ScheduleKind.INTEREST and isinstance(item, DailyInterest):

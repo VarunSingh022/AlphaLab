@@ -48,6 +48,7 @@ from alphalab.conventions.business_days import (
     forward_value_date,
     is_business_day,
     spot_value_date,
+    subtract_business_days,
 )
 from alphalab.conventions.daycount import (
     DayCount,
@@ -133,6 +134,7 @@ __all__ = [
     "round_to_tick",
     "settlement_date",
     "spot_value_date",
+    "subtract_business_days",
     "tick_value",
     "year_fraction",
 ]

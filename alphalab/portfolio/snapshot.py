@@ -88,6 +88,8 @@ from alphalab.portfolio.events import (
     DeliveryAmended,
     FxDealBooked,
     MarketValueUpdated,
+    NdfDealt,
+    NdfFixed,
     PaymentAmended,
     PortfolioEvent,
     PortfolioValuationUpdated,
@@ -182,8 +184,10 @@ _EVENT_TYPES: Mapping[str, type[PortfolioEvent]] = {
         PaymentAmended,
         # Phase 5 (FUT-037): written only by a run whose delivery was amended.
         DeliveryAmended,
-        # v4.3.0 (ADR-0067): written only by a run that books an FX deal.
+        # v4.3.0 (ADR-0067): written only by a run that books an FX deal, or an NDF.
         FxDealBooked,
+        NdfDealt,
+        NdfFixed,
     )
 }
 
@@ -220,6 +224,10 @@ _EVENT_FIELD_DECODERS: Mapping[str, Any] = {
     "base_amount": as_decimal,
     "quote_amount": as_decimal,
     "commission": as_decimal,
+    # NdfDealt and NdfFixed (v4.3.0, ADR-0067): a deal's notional and its fixing.
+    "notional": as_decimal,
+    "fixing": as_decimal,
+    "fixing_as_of": as_float,
 }
 
 

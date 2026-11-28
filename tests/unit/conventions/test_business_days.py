@@ -36,6 +36,7 @@ from alphalab.conventions.business_days import (
     forward_value_date,
     is_business_day,
     spot_value_date,
+    subtract_business_days,
 )
 from alphalab.data.calendar import MarketCalendar, SessionWindow
 
@@ -95,6 +96,15 @@ def test_business_days_are_counted_past_weekends_and_holidays() -> None:
     holiday = Weekdays(frozenset({date(2025, 1, 6)}))
     assert add_business_days(date(2025, 1, 3), 2, [holiday]) == date(2025, 1, 8)
     assert add_business_days(date(2025, 1, 4), 0, [PLAIN]) == date(2025, 1, 4)
+
+
+def test_business_days_are_counted_back_past_weekends_and_holidays() -> None:
+    # Two business days before Tuesday 7 January 2025 is Friday the 3rd; with
+    # Monday the 6th a holiday, Thursday the 2nd.
+    assert subtract_business_days(date(2025, 1, 7), 2, [PLAIN]) == date(2025, 1, 3)
+    holiday = Weekdays(frozenset({date(2025, 1, 6)}))
+    assert subtract_business_days(date(2025, 1, 7), 2, [holiday]) == date(2025, 1, 2)
+    assert subtract_business_days(date(2025, 1, 4), 0, [PLAIN]) == date(2025, 1, 4)
 
 
 # --------------------------------------------------------------------------- #
@@ -216,6 +226,8 @@ def test_a_market_calendar_is_a_calendar_here() -> None:
         (lambda: adjust(date(2025, 1, 4), "following", [PLAIN]), "not a BusinessDayConvention"),  # type: ignore[arg-type]
         (lambda: adjust(date(2025, 1, 4), FOLLOWING, []), "at least one calendar"),
         (lambda: add_business_days(date(2025, 1, 4), -1, [PLAIN]), "non-negative"),
+        (lambda: subtract_business_days(date(2025, 1, 4), -1, [PLAIN]), "non-negative"),
+        (lambda: subtract_business_days(date(2025, 1, 4), 1, []), "at least one calendar"),
         (
             lambda: add_tenor(
                 date(2025, 1, 4),
@@ -238,6 +250,8 @@ def test_a_market_calendar_is_a_calendar_here() -> None:
         "convention",
         "no-calendar",
         "business-days",
+        "back-count",
+        "back-calendar",
         "end-of-month",
     ],
 )

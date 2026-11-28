@@ -20,7 +20,8 @@ exists:
   euros a forward delivers on 7 October pay a sale valued that day;
 * a pair whose base the run does not settle;
 * a calendar the rule names that the run does not declare;
-* an NDF, whose settlement at a fixing is not booked yet.
+* an NDF settling its difference in a currency the run does not settle (its
+  fixing is ``test_ndf_settlement.py``'s).
 """
 
 from __future__ import annotations
@@ -101,17 +102,18 @@ FORWARD = InstrumentRecord(
     "USD",
     terms=FxTerms("EUR", "USD", FxKind.FORWARD, THREE_MONTHS),
 )
+#: A EUR/USD NDF settled in euros, in a run that settles dollars alone.
 NDF = InstrumentRecord(
-    "USDINR1M",
+    "EURUSDNDF1M",
     AssetType.FOREX,
     "XFXV",
-    "INR",
+    "USD",
     terms=FxTerms(
+        "EUR",
         "USD",
-        "INR",
         FxKind.NDF,
         replace(THREE_MONTHS, tenor=Tenor(1, TenorUnit.MONTHS)),
-        NdfFixing("USD", 2, "the run's INR reference rate"),
+        NdfFixing("EUR", 2, "the run's EUR reference rate"),
     ),
 )
 WED = utc(2, 7)
@@ -252,10 +254,10 @@ def test_a_calendar_the_rule_names_and_the_run_does_not_declare_is_refused() -> 
     assert "USNY" in reason and "none is assumed open" in reason
 
 
-def test_an_ndf_is_not_booked_until_its_fixing_is() -> None:
-    result, _ = deal(NDF, "1000", "85.40")
+def test_an_ndf_settled_in_a_currency_the_run_does_not_settle_is_refused() -> None:
+    result, _ = deal(NDF, "1000", "1.0912", settles=frozenset())
     (refusal,) = result.settlement_refusals
-    assert "non-deliverable forward" in refusal.detail
+    assert "settles the difference from its fixing in EUR" in refusal.detail
     assert legs(result) == []
 
 

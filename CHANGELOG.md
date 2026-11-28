@@ -1487,8 +1487,8 @@ entry below says otherwise.
       calendar.
     * Refused before an order exists: a pair whose base the run does not
       settle (`also_settles`), a calendar the rule names that the run does
-      not declare, an outright date before the trade or off a business day,
-      and an NDF, until its fixing is booked.
+      not declare, and an outright date before the trade or off a business
+      day.
     * **Funded, not financed.** A deal is refused before an order exists when
       the currency it pays cannot cover it by its value date: the quote for a
       purchase, the base for a sale. That currency's cash counts, less what is
@@ -1508,6 +1508,23 @@ entry below says otherwise.
       proceeds.
     * The legs are placed and booked in settlement order, so the near leg is
       booked first, whatever order the strategy names them in.
+  * **NDFs, settled at a supplied fixing.**
+    * An NDF moves no currency at its trade but its commission. It fixes a
+      stated number of business days before its value date
+      (`subtract_business_days`).
+    * Its fixing is supplied: `ExecutionPipeline.fix_ndf` takes an
+      `FxRate`, and a backtest's schedule a `ScheduledFixing`. The rate must
+      be the pair's own, never inverted, from the source the deal names,
+      true on its fixing date, and known by then.
+    * The fixing books `notional x (fixing - rate)` in the quote, or that
+      divided by the fixing in the base. The amount is rounded once and
+      realized, and it is pending to the value date.
+    * A deal that reaches its value date unfixed stops the run: an unfixed
+      deal stays pending (`PendingSettlement` gains `fixes_on`). The
+      `NdfDealt` and `NdfFixed` events record each step.
+    * An NDF needs its settlement currency settled, not its base.
+    * Before its fixing an NDF is in the book at nothing (ADR-0067's known
+      limitation 2).
     * `InstrumentRegistry` indexes its pairs (`fx_pairs`), so a run declaring
       none pays one emptiness check for all of this.
   * **Beside corporate actions.** A split or a holding exchange checks each

@@ -48,12 +48,21 @@ An FX deal (v4.3.0, ADR-0067) moves two currencies and no position: each
 currency's leg is a ledger transaction of its own (``FX_LEG``), its cash
 pending until the deal's value date, and both legs name the deal
 (:data:`FX_DEAL`) and its value date (:data:`VALUE_DATE`).
+
+A non-deliverable forward moves no currency at its trade but its commission.
+Its deal is one ``FX_LEG`` recording what its fixing needs -- the notional,
+the rate, the fixing date and the settlement currency -- and it stays pending,
+whatever the clock says, until its fixing is booked: a second ``FX_LEG``, the
+difference in the settlement currency, pending to the value date
+(:func:`fixed_pending`). So a deal that reaches its value date unfixed is still
+on the index, for the run to refuse.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import date
 from decimal import Decimal
 from enum import Enum, auto
 from typing import Final
@@ -70,6 +79,13 @@ __all__ = [
     "DELIVERY_TERMS",
     "ENTITLEMENT",
     "FX_DEAL",
+    "NDF_FIXED_AS_OF",
+    "NDF_FIXES_ON",
+    "NDF_FIXING",
+    "NDF_NOTIONAL",
+    "NDF_RATE",
+    "NDF_SETTLES_IN",
+    "NDF_SOURCE",
     "PAYMENT_CHANGE",
     "SETTLEMENT_CASH",
     "SETTLES_AT",
@@ -83,6 +99,7 @@ __all__ = [
     "amend_pending",
     "entitlement_key",
     "entitlements",
+    "fixed_pending",
     "payment_chain",
     "pending_from",
     "settle_pending",
@@ -117,6 +134,20 @@ DELIVERY_TERMS: Final = "delivery_terms"
 FX_DEAL: Final = "fx_deal"
 #: The metadata key of an FX deal's value date, ISO 8601, on both legs.
 VALUE_DATE: Final = "value_date"
+#: An NDF's deal: its notional, signed, a purchase of the base positive.
+NDF_NOTIONAL: Final = "ndf_notional"
+#: An NDF's deal: its contract rate, quote per unit of base.
+NDF_RATE: Final = "ndf_rate"
+#: An NDF's deal: its fixing date, ISO 8601.
+NDF_FIXES_ON: Final = "ndf_fixes_on"
+#: An NDF's deal: the one currency its difference is paid in.
+NDF_SETTLES_IN: Final = "ndf_settles_in"
+#: An NDF's fixing: the supplied rate it was fixed at.
+NDF_FIXING: Final = "ndf_fixing"
+#: An NDF's fixing: the named source of that rate.
+NDF_SOURCE: Final = "ndf_source"
+#: An NDF's fixing: when the rate was true, in Unix seconds.
+NDF_FIXED_AS_OF: Final = "ndf_fixed_as_of"
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +273,9 @@ class PendingSettlement:
         delivery: For an exchange's units delivered later (FUT-037), its
             convention's terms -- "" for neither sellable nor collateral; ``None``
             for a fill's or a payment's settlement.
+        fixes_on: For a non-deliverable forward not yet fixed, its fixing date
+            (v4.3.0, ADR-0067). It stays pending until its fixing is booked,
+            whatever the clock says. ``None`` for anything else.
     """
 
     transaction_id: str
@@ -252,11 +286,12 @@ class PendingSettlement:
     traded_at: float
     settles_at: float
     delivery: str | None = None
+    fixes_on: date | None = None
 
     def pending_at(self, at: float) -> bool:
-        """Whether it is still unsettled at ``at``."""
+        """Whether it is still unsettled at ``at``: an unfixed NDF always is."""
 
-        return self.settles_at > at
+        return self.fixes_on is not None or self.settles_at > at
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,6 +338,21 @@ def settle_pending(
     return kept
 
 
+def fixed_pending(
+    pending: tuple[PendingSettlement, ...], deal: str
+) -> tuple[PendingSettlement, ...]:
+    """``pending`` with the NDF ``deal`` fixed: from now on it settles at its value date.
+
+    The one rule an NDF's fixing keeps the index by, live and on a rebuild, so a
+    restored index equals the one a run kept (ADR-0067).
+    """
+
+    return tuple(
+        replace(entry, fixes_on=None) if entry.transaction_id == deal else entry
+        for entry in pending
+    )
+
+
 #: The ledger entries a pending settlement is booked by: a fill, an
 #: exchange's cash paid after its instant (FUT-025), and an FX deal's legs.
 _PENDING_TYPES: Final = frozenset(
@@ -322,6 +372,7 @@ def _entry_of(transaction: Transaction, settles_at: float) -> PendingSettlement:
 
     exchange = transaction.type in _CASH_ONLY
     cash = transaction.metadata.get(SETTLEMENT_CASH)
+    fixes_on = transaction.metadata.get(NDF_FIXES_ON)
     delivered = transaction.metadata.get(DELIVERS)
     if delivered is not None:
         # Units an exchange delivers later (FUT-037): no cash, the units owed.
@@ -345,6 +396,7 @@ def _entry_of(transaction: Transaction, settles_at: float) -> PendingSettlement:
         Decimal("0") if exchange else transaction.quantity,
         transaction.timestamp,
         settles_at,
+        fixes_on=None if fixes_on is None else date.fromisoformat(str(fixes_on)),
     )
 
 
@@ -393,6 +445,9 @@ def pending_from(transactions: Iterable[Transaction]) -> tuple[PendingSettlement
                 )
                 if transaction.metadata[PAYMENT_CHANGE] == PaymentChange.DELAYED.name:
                     continue  # a delay moves no cash of its own
+        if NDF_FIXING in transaction.metadata:
+            # An NDF's fixing: its deal settles at its value date from now on.
+            pending = fixed_pending(pending, str(transaction.metadata[FX_DEAL]))
         settles = transaction.metadata.get(SETTLES_AT)
         entry = None if settles is None else _entry_of(transaction, float(settles))
         pending = settle_pending(pending, transaction.timestamp, entry)
