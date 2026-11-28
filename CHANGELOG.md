@@ -1533,6 +1533,29 @@ entry below says otherwise.
 
   A record, registry or book that declares no FX terms writes what it always
   wrote.
+* **FX carry, end to end, and the FX guide** [plan S-05, WS-27, ADR-0067].
+  `examples/84_carry_a_book_of_fx_forwards.py` is S-05's book. A dollar
+  account holds a million Australian and a million New Zealand dollars a month
+  forward through 2025. It rolls each forward as a swap on the day the pair's
+  spot reaches the forward's value date. Its book is `examples/_fx_carry_book.py`'s,
+  which states the calendars, the pairs' rules, the synthetic prices and the
+  interest rates that set the forwards. `tests/integration/test_fx_carry_end_to_end.py`
+  holds:
+  * that every deal is booked as two currencies, with no position: 46 deals,
+    92 legs;
+  * that each value date follows both calendars. For example, the New Zealand
+    forward struck on 2 January is valued 7 February, because Waitangi Day
+    moved it;
+  * that each roll settles with the forward it closes, and the dollars it
+    gains arrive that day;
+  * that each currency's cash equals a tally of the fills;
+  * that the forwards' discount and spot's moves add up to what the book
+    gained.
+
+  `docs/FX.md` sets out FX deals. It covers the terms and value dates, what a
+  deal books, cash trade-date, settled and available, forwards valued, a
+  rollover as a swap, NDFs, S-05, and what is not here. The example also joins
+  the installed smoke test.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

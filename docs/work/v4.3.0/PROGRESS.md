@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `0315467` |
+| Remote head | `5416d36` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M10, WS-27: S-05's carry book of forwards rolled as swaps, as an example and an E2E, and an FX guide; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for the next push is read at the next boundary. |
+| Next | M10: WS-27's records at the close (GR-3, S-05, GAP-23); then WS-13's lot relief (GAP-50), fund and ETF types and GR-1's packs, WS-14's rates (ADR-0065, GR-6, S-06), WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for 5416d36 and the next push is read at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -426,6 +426,7 @@ Never:
 - **2026-11-24** f33ee56 pushed: ADR-0067's FX terms on the record (TD-82). Its full gate found two defects first, each fixed before the push: the split and holding-exchange checks narrowed a record's terms to an option's once a future's were excluded, and would have read an option's adjustments from FX terms (two tests fail without the fix); and the amendment had not re-certified the engine source. 30ced8d passed hosted CI on all six cells. Two-currency booking (TD-83) is validated locally: FX_LEG legs pending to the value date, FxDealBooked, no position, value dates from the declared calendars by id, and an FX deal funded from cash held -- a financed deal is ADR-0067's known limitation 1.
 - **2026-11-24** 8737a71 pushed: two-currency booking (TD-83), after its gate found the pipeline's table of registry reads needed the one keyed read the FX index guards. f33ee56 passed hosted CI on all six cells. Rollover as a swap (TD-84) is validated locally: an FX package's legs are refused as single FX orders are with the other legs counted, placed in settlement order, and spend no buying power; GR-3's rollover is checked by hand, and each of the three rules was removed in turn to see the tests fail.
 - **2026-11-28** Resumed after the usage limit; the scratch had survived, the tree was clean at 0315467, and 8737a71 and 0315467 had passed hosted CI on all six cells with CodeQL and Optional Distributions. NDF settlement (TD-85) is validated locally: the deal recorded at its trade, the fixing a supplied FxRate from the deal's source booked by ExecutionPipeline.fix_ndf or a ScheduledFixing, the difference pending to the value date, and a deal unfixed at its value date stopping the run. An NDF is in the book at nothing before its fixing, recorded as ADR-0067's known limitation 2.
+- **2026-11-28** 5416d36 pushed: NDF settlement (TD-85), after its gate found the schedule-digest pins needed the new fixing kind pinned from v4.3.0, the release that adds it; the digest of every kind's entries together stays v4.2.1's over its twenty kinds. S-05 is validated locally: example 84 carries a book of AUD and NZD forwards rolled as swaps through 2025, and its E2E reconciles cash per currency to the tally of the fills, checks every value date against both calendars -- three holidays by hand -- and adds up what the book earned. docs/FX.md is the FX guide. WS-27's acceptance, GR-3 and S-05, is ready for M10's close.
 
 ## Milestones
 
@@ -1675,7 +1676,8 @@ Evidence:
 - [Pushed] M10: An FX deal's terms on its record (TD-82, ADR-0067 settled point 2): FxTerms with its FxKind, FxValueDateRule (calendars by id) and an NDF's NdfFixing, refused where malformed, persisted with the registry by name and only when declared
 - [Pushed] M10: Two-currency booking (TD-83, ADR-0067 settled point 3): PortfolioEngine.apply_fx_deal books FX_LEG legs pending to the value date and an FxDealBooked event, no position; in a run, value dates from the venue's trade day over calendars declared by id, refusals before an order exists, funded and not financed
 - [Pushed] M10: Rollover as a swap (TD-84, ADR-0067 settled point 4): an FX package's legs refused as single FX orders are with the other legs counted, placed in settlement order, and no buying power spent; GR-3's rollover by hand
-- [Local validation passed] M10: NDF settlement (TD-85, ADR-0067 settled point 5): the deal recorded at its trade, a supplied fixing (ExecutionPipeline.fix_ndf, ScheduledFixing) booking the difference pending to the value date, and a deal unfixed at its value date stopping the run
+- [Pushed] M10: NDF settlement (TD-85, ADR-0067 settled point 5): the deal recorded at its trade, a supplied fixing (ExecutionPipeline.fix_ndf, ScheduledFixing) booking the difference pending to the value date, and a deal unfixed at its value date stopping the run
+- [Local validation passed] M10: S-05 end to end: example 84 carries a book of AUD and NZD forwards rolled as swaps through 2025 (examples/_fx_carry_book.py); its E2E holds every deal as two currencies, each value date by both calendars, each roll settling with the forward it closes, cash per currency equal to the tally of the fills, and what the book earned adding up; the FX guide, docs/FX.md
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 

@@ -2871,6 +2871,11 @@
         {
           "milestone": "M10",
           "item": "NDF settlement (TD-85, ADR-0067 settled point 5): the deal recorded at its trade, a supplied fixing (ExecutionPipeline.fix_ndf, ScheduledFixing) booking the difference pending to the value date, and a deal unfixed at its value date stopping the run",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M10",
+          "item": "S-05 end to end: example 84 carries a book of AUD and NZD forwards rolled as swaps through 2025 (examples/_fx_carry_book.py); its E2E holds every deal as two currencies, each value date by both calendars, each roll settling with the forward it closes, cash per currency equal to the tally of the fills, and what the book earned adding up; the FX guide, docs/FX.md",
           "status": "Local validation passed"
         }
       ],
@@ -3764,7 +3769,7 @@
   },
   "state": {
     "updated": "2026-11-28",
-    "remote_head": "0315467",
+    "remote_head": "5416d36",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -5275,7 +5280,7 @@
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
-    "next": "M10, WS-27: S-05's carry book of forwards rolled as swaps, as an example and an E2E, and an FX guide; then WS-13's lot relief, fund and ETF types and GR-1, WS-14's rates and WS-28's volatility and futures. Hosted CI for the next push is read at the next boundary.",
+    "next": "M10: WS-27's records at the close (GR-3, S-05, GAP-23); then WS-13's lot relief (GAP-50), fund and ETF types and GR-1's packs, WS-14's rates (ADR-0065, GR-6, S-06), WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for 5416d36 and the next push is read at the next boundary.",
     "open_questions": []
   },
   "log": [
@@ -5758,6 +5763,10 @@
     {
       "date": "2026-11-28",
       "entry": "Resumed after the usage limit; the scratch had survived, the tree was clean at 0315467, and 8737a71 and 0315467 had passed hosted CI on all six cells with CodeQL and Optional Distributions. NDF settlement (TD-85) is validated locally: the deal recorded at its trade, the fixing a supplied FxRate from the deal's source booked by ExecutionPipeline.fix_ndf or a ScheduledFixing, the difference pending to the value date, and a deal unfixed at its value date stopping the run. An NDF is in the book at nothing before its fixing, recorded as ADR-0067's known limitation 2."
+    },
+    {
+      "date": "2026-11-28",
+      "entry": "5416d36 pushed: NDF settlement (TD-85), after its gate found the schedule-digest pins needed the new fixing kind pinned from v4.3.0, the release that adds it; the digest of every kind's entries together stays v4.2.1's over its twenty kinds. S-05 is validated locally: example 84 carries a book of AUD and NZD forwards rolled as swaps through 2025, and its E2E reconciles cash per currency to the tally of the fills, checks every value date against both calendars -- three holidays by hand -- and adds up what the book earned. docs/FX.md is the FX guide. WS-27's acceptance, GR-3 and S-05, is ready for M10's close."
     }
   ]
 }
