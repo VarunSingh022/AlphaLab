@@ -279,7 +279,7 @@ def test_the_terms_persist_and_read_back_equal() -> None:
     for terms in (swap, fra):
         written = json.loads(json.dumps(rates_terms_to_primitives(terms)))
         assert rates_terms_from_primitives(written) == terms
-    with pytest.raises(RatesInputError, match="not swap or fra"):
+    with pytest.raises(RatesInputError, match="not one of swap, fra, floater, linker, repo"):
         rates_terms_from_primitives({"kind": "cap"})
     broken = rates_terms_to_primitives(swap)
     broken["fixed"]["day_count"] = "ACT_999"

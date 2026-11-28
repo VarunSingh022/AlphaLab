@@ -55,7 +55,10 @@ class AssetType(StrEnum):
     CASH = "cash"
     #: v4.1.1 (ledger FUT-010): a fixed-income instrument. Declares its
     #: economics -- a unit's multiplier on the quoted price -- and its maturity
-    #: as its last trading instant; redeemed by a contract settlement.
+    #: as its last trading instant; redeemed by a contract settlement. Since
+    #: v4.3.0 (ADR-0065) a floater or a linker is a bond declaring its coupon
+    #: terms (:class:`~alphalab.rates.terms.FloaterTerms`,
+    #: :class:`~alphalab.rates.terms.LinkerTerms`).
     BOND = "bond"
     #: v4.1.1 (ledger FUT-013): a reference value -- a benchmark index level a
     #: cash-settled contract settles against. Valued one unit of price per
@@ -74,6 +77,10 @@ class AssetType(StrEnum):
     #: v4.3.0 (ADR-0065): a forward rate agreement, booked by its declared
     #: :class:`~alphalab.rates.terms.FraTerms`.
     FRA = "fra"
+    #: v4.3.0 (ADR-0065): a repurchase agreement -- cash lent or borrowed
+    #: against collateral -- booked by its declared
+    #: :class:`~alphalab.rates.terms.RepoTerms`.
+    REPO = "repo"
 
 
 @unique

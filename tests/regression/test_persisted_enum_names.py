@@ -71,6 +71,8 @@ NAMED: dict[str, tuple[str, ...]] = {
     # v4.3.0 (ADR-0067): an FX deal's declared terms, by name -- its kind and,
     # for a tenor, the business-day convention its value date lands by.
     "alphalab.instrument.terms.FxKind": ("SPOT", "FORWARD", "NDF"),
+    # v4.3.0 (ADR-0065): a linker's declared terms, by how its reference index is read.
+    "alphalab.rates.terms.Indexation": ("MONTHLY", "DAILY_INTERPOLATED"),
     "alphalab.conventions.business_days.BusinessDayConvention": (
         "FOLLOWING",
         "MODIFIED_FOLLOWING",
@@ -222,9 +224,10 @@ VALUES: dict[str, tuple[str, ...]] = {
         # v4.3.0 (ADR-0076): an ETF and an open-ended fund.
         "etf",
         "fund",
-        # v4.3.0 (ADR-0065): a swap and an FRA, booked by their declared terms.
+        # v4.3.0 (ADR-0065): a swap, an FRA and a repo, booked by their declared terms.
         "swap",
         "fra",
+        "repo",
     ),
     "alphalab.core.enums.OrderStatus": (
         "new",

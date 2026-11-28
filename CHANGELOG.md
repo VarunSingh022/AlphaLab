@@ -1687,6 +1687,36 @@ entry below says otherwise.
   * A split or a holding exchange now passes over any terms but an option's.
     With a swap working at the venue, the check had read an option's
     adjustments from it, and the action failed.
+* **Floaters, linkers, repos and credit** [plan WS-14, GAP-24, GAP-51,
+  ADR-0065 sections 4 and 6].
+  * `AssetType` gains `REPO`, appended, and so does `BrokerAssetClass`. A
+    repo's record must declare `RepoTerms`: its collateral, rate, start, end,
+    day count and haircut, settled as `cash_equity`.
+  * A floater or a linker is a bond declaring its coupon terms:
+    * `FloaterTerms`: a floating leg and its redemption;
+    * `LinkerTerms`: a real fixed leg, the index, its lag in months, an
+      `Indexation` (`MONTHLY` or `DAILY_INTERPOLATED`), the base and whether
+      the principal is floored at par.
+
+    A bond declaring neither is a fixed-rate bond, as before.
+    `RATES_TERMS_KINDS` lists the kinds the codec writes.
+  * `value_floater` values a floater, its fixed periods read as supplied.
+    `value_repo` values a repo, and its par rate before it starts.
+    `value_linker` values a linker off a real curve: today's index ratio
+    times its real flows. Its floor's option value is not modelled.
+  * `reference_index` reads a linker's reference index from the index's
+    monthly prints (`IndexPrints`) in `Decimal`, a missing print refused.
+    `linker_principal` floors the principal when the terms say so.
+    `floater_maturity` and `repo_repayment` state what the terms pay.
+  * Credit:
+    * `spread_curve` builds a spread curve from quoted spreads, and
+      `spread_value` prices flows over it;
+    * `hazard_curve` builds a `CreditCurve` from quoted hazards and a stated
+      recovery, and `risky_value` prices flows on a notional, with the
+      recovery on the payment grid.
+
+    Default events are not simulated.
+  * `Valuation.par_rate` is `None` where an instrument has none.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

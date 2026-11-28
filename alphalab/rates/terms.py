@@ -11,6 +11,13 @@ leg's day count was assumed would accrue a different coupon in every market.
 * :class:`FraTerms`: a forward rate agreement. One unit held receives the
   period's fixing and pays the contract rate on its notional, settled at the
   period's start, discounted at the fixing.
+* :class:`FloaterTerms`: a floating-rate note -- a bond whose coupons are a
+  floating leg's -- and its redemption.
+* :class:`LinkerTerms`: an inflation-linked bond -- real coupons and principal
+  scaled by an index's ratio to its base -- read from the index's monthly
+  prints by a stated lag and :class:`Indexation`, floored at par or not.
+* :class:`RepoTerms`: a repurchase agreement -- cash lent or borrowed from a
+  start to an end at a rate, against collateral less a haircut.
 
 Calendars are named by ``calendar_id``. Terms ride on an instrument's record
 and are persisted with it, so a calendar is supplied where the terms are used
@@ -28,7 +35,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from enum import Enum
+from typing import Any, Final
 
 from alphalab.conventions.business_days import BusinessDayConvention, Tenor
 from alphalab.conventions.daycount import DayCount
@@ -39,11 +47,16 @@ from alphalab.rates.exceptions import RatesInputError
 from alphalab.rates.schedule import tenor_months
 
 __all__ = [
+    "RATES_TERMS_KINDS",
     "FixedLeg",
+    "FloaterTerms",
     "FloatingLeg",
     "FraTerms",
+    "Indexation",
     "LegSchedule",
+    "LinkerTerms",
     "RatesTerms",
+    "RepoTerms",
     "SwapTerms",
     "rates_terms_from_primitives",
     "rates_terms_to_primitives",
@@ -209,15 +222,11 @@ class SwapTerms:
     def __post_init__(self) -> None:
         require_currency(self.currency, "A swap's currency")
         require_day(self.start, "A swap's start")
-        months = tenor_months(self.length)
+        tenor_months(self.length)
         if not isinstance(self.fixed, FixedLeg) or not isinstance(self.floating, FloatingLeg):
             raise RatesInputError("A swap states a FixedLeg and a FloatingLeg.")
         for leg in (self.fixed, self.floating):
-            if months % tenor_months(leg.schedule.step):
-                raise RatesInputError(
-                    f"A swap of {self.length.label} is not a whole number of "
-                    f"{leg.schedule.step.label} periods; a stub is refused, not placed."
-                )
+            _whole(self.length, leg.schedule, "A swap")
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,8 +271,153 @@ class FraTerms:
         require_line(self.fixing_source, "An FRA's fixing source")
 
 
+class Indexation(Enum):
+    """How a linker's reference index is read for a date, from monthly prints (ADR-0065 s. 4)."""
+
+    #: The print of the month ``lag_months`` before the date's month.
+    MONTHLY = "monthly"
+    #: Interpolated by the day of the month between the prints of the months
+    #: ``lag_months`` and ``lag_months - 1`` before the date's: on day ``d`` of a
+    #: month of ``D`` days, ``I(m - lag) + (d - 1) / D * (I(m - lag + 1) - I(m - lag))``.
+    #: The method of US TIPS and of index-linked gilts issued since 2005.
+    DAILY_INTERPOLATED = "daily_interpolated"
+
+
+@dataclass(frozen=True, slots=True)
+class FloaterTerms:
+    """A floating-rate note's coupon terms: a bond whose coupons are fixings plus a spread.
+
+    One unit held receives each period's ``notional * (fixing + spread) *
+    tau``, its fixing as its leg states, and ``redemption`` at maturity: the
+    end of ``length`` from ``start``.
+
+    Raises:
+        RatesInputError: If a field is malformed, or ``length`` is not a whole
+            number of the leg's steps.
+    """
+
+    currency: str
+    start: date
+    length: Tenor
+    leg: FloatingLeg
+    redemption: Decimal
+
+    def __post_init__(self) -> None:
+        require_currency(self.currency, "A floater's currency")
+        require_day(self.start, "A floater's start")
+        if not isinstance(self.leg, FloatingLeg):
+            raise RatesInputError(f"A floater's leg is a FloatingLeg, got {self.leg!r}.")
+        _whole(self.length, self.leg.schedule, "A floater")
+        _decimal(self.redemption, "A floater's redemption", positive=True)
+
+
+@dataclass(frozen=True, slots=True)
+class LinkerTerms:
+    """An inflation-linked bond's coupon terms: real coupons scaled by an index ratio.
+
+    Each coupon pays ``notional * rate * tau * I(t) / base``, where ``I(t)`` is
+    the reference index for its payment date by ``indexation`` and
+    ``lag_months``, read from the index's monthly prints. At maturity the
+    principal pays ``notional * I(T) / base``, or the notional itself when
+    ``floored`` and the ratio is below one.
+
+    Attributes:
+        leg: The real coupon: its notional, rate, day count and schedule.
+        index: The index's name, as its supplied prints name it.
+        lag_months: How many months before a date its reference print is.
+        indexation: How a date's reference index is read from the prints.
+        base: The reference index the bond was issued against.
+        floored: Whether the principal is paid at no less than par.
+
+    Raises:
+        RatesInputError: If a field is malformed, or ``length`` is not a whole
+            number of the leg's steps.
+    """
+
+    currency: str
+    start: date
+    length: Tenor
+    leg: FixedLeg
+    index: str
+    lag_months: int
+    indexation: Indexation
+    base: Decimal
+    floored: bool
+
+    def __post_init__(self) -> None:
+        require_currency(self.currency, "A linker's currency")
+        require_day(self.start, "A linker's start")
+        if not isinstance(self.leg, FixedLeg):
+            raise RatesInputError(f"A linker's leg is a FixedLeg, got {self.leg!r}.")
+        _whole(self.length, self.leg.schedule, "A linker")
+        require_line(self.index, "A linker's index")
+        if (
+            isinstance(self.lag_months, bool)
+            or not isinstance(self.lag_months, int)
+            or self.lag_months < 1
+        ):
+            raise RatesInputError(
+                f"A linker's lag is {self.lag_months!r}; a positive number of months, since an "
+                "index is printed after the month it measures."
+            )
+        if not isinstance(self.indexation, Indexation):
+            raise RatesInputError(f"indexation is an Indexation, got {self.indexation!r}.")
+        _decimal(self.base, "A linker's base index", positive=True)
+        if not isinstance(self.floored, bool):
+            raise RatesInputError(f"floored is True or False, got {self.floored!r}.")
+
+
+@dataclass(frozen=True, slots=True)
+class RepoTerms:
+    """A repurchase agreement's terms: cash lent from its start to its end against collateral.
+
+    One unit held is one unit of cash lent at ``rate`` -- a reverse repo -- and
+    repaid at ``end`` with ``rate * tau`` of interest under ``day_count``; a
+    negative quantity is cash borrowed, a repo. ``collateral`` names the
+    instrument that secures it, and ``haircut`` the fraction of its value that
+    lends nothing: cash of ``q`` needs collateral worth ``q / (1 - haircut)``.
+
+    Raises:
+        RatesInputError: If a field is malformed, the period is not one, or the
+            haircut is not in ``[0, 1)``.
+    """
+
+    currency: str
+    collateral: str
+    rate: Decimal
+    start: date
+    end: date
+    day_count: DayCount
+    haircut: Decimal
+
+    def __post_init__(self) -> None:
+        require_currency(self.currency, "A repo's currency")
+        require_line(self.collateral, "A repo's collateral")
+        _decimal(self.rate, "A repo's rate")
+        require_day(self.start, "A repo's start")
+        require_day(self.end, "A repo's end")
+        if self.end <= self.start:
+            raise RatesInputError(f"A repo runs from {self.start} to a later date, not {self.end}.")
+        require_basis(self.day_count, "A repo's day count", terms_free=True)
+        _decimal(self.haircut, "A repo's haircut")
+        if not 0 <= self.haircut < 1:
+            raise RatesInputError(
+                f"A repo's haircut is {self.haircut}; a fraction of the collateral's value, at "
+                "least zero and below one."
+            )
+
+
+def _whole(length: Tenor, schedule: LegSchedule, what: str) -> None:
+    months = tenor_months(length)  # refuses a length that is not a Tenor in months or years
+    if months % tenor_months(schedule.step):
+        raise RatesInputError(
+            f"{what} of {length.label} is not a whole number of {schedule.step.label} periods; "
+            "a stub is refused, not placed."
+        )
+
+
 #: A rates instrument's terms.
-RatesTerms = SwapTerms | FraTerms
+RatesTerms = SwapTerms | FraTerms | FloaterTerms | LinkerTerms | RepoTerms
 
 
 # --------------------------------------------------------------------------- #
@@ -289,31 +443,92 @@ def _schedule_in(value: Mapping[str, Any]) -> LegSchedule:
     )
 
 
+def _fixed_out(leg: FixedLeg) -> dict[str, Any]:
+    return {
+        "notional": str(leg.notional),
+        "rate": str(leg.rate),
+        "day_count": leg.day_count.name,
+        "schedule": _schedule_out(leg.schedule),
+    }
+
+
+def _fixed_in(value: Mapping[str, Any]) -> FixedLeg:
+    return FixedLeg(
+        Decimal(value["notional"]),
+        Decimal(value["rate"]),
+        DayCount[value["day_count"]],
+        _schedule_in(value["schedule"]),
+    )
+
+
+def _floating_out(leg: FloatingLeg) -> dict[str, Any]:
+    return {
+        "notional": str(leg.notional),
+        "index": leg.index,
+        "spread": str(leg.spread),
+        "day_count": leg.day_count.name,
+        "schedule": _schedule_out(leg.schedule),
+        "reset_lag": leg.reset_lag,
+        "fixing_source": leg.fixing_source,
+    }
+
+
+def _floating_in(value: Mapping[str, Any]) -> FloatingLeg:
+    return FloatingLeg(
+        Decimal(value["notional"]),
+        str(value["index"]),
+        Decimal(value["spread"]),
+        DayCount[value["day_count"]],
+        _schedule_in(value["schedule"]),
+        value["reset_lag"],
+        str(value["fixing_source"]),
+    )
+
+
 def rates_terms_to_primitives(terms: RatesTerms) -> dict[str, Any]:
     """The terms as plain primitives: enum members by name, amounts and dates as text."""
 
     if isinstance(terms, SwapTerms):
-        fixed, floating = terms.fixed, terms.floating
         return {
             "kind": "swap",
             "currency": terms.currency,
             "start": terms.start.isoformat(),
             "length": terms.length.label,
-            "fixed": {
-                "notional": str(fixed.notional),
-                "rate": str(fixed.rate),
-                "day_count": fixed.day_count.name,
-                "schedule": _schedule_out(fixed.schedule),
-            },
-            "floating": {
-                "notional": str(floating.notional),
-                "index": floating.index,
-                "spread": str(floating.spread),
-                "day_count": floating.day_count.name,
-                "schedule": _schedule_out(floating.schedule),
-                "reset_lag": floating.reset_lag,
-                "fixing_source": floating.fixing_source,
-            },
+            "fixed": _fixed_out(terms.fixed),
+            "floating": _floating_out(terms.floating),
+        }
+    if isinstance(terms, FloaterTerms):
+        return {
+            "kind": "floater",
+            "currency": terms.currency,
+            "start": terms.start.isoformat(),
+            "length": terms.length.label,
+            "leg": _floating_out(terms.leg),
+            "redemption": str(terms.redemption),
+        }
+    if isinstance(terms, LinkerTerms):
+        return {
+            "kind": "linker",
+            "currency": terms.currency,
+            "start": terms.start.isoformat(),
+            "length": terms.length.label,
+            "leg": _fixed_out(terms.leg),
+            "index": terms.index,
+            "lag_months": terms.lag_months,
+            "indexation": terms.indexation.name,
+            "base": str(terms.base),
+            "floored": terms.floored,
+        }
+    if isinstance(terms, RepoTerms):
+        return {
+            "kind": "repo",
+            "currency": terms.currency,
+            "collateral": terms.collateral,
+            "rate": str(terms.rate),
+            "start": terms.start.isoformat(),
+            "end": terms.end.isoformat(),
+            "day_count": terms.day_count.name,
+            "haircut": str(terms.haircut),
         }
     return {
         "kind": "fra",
@@ -330,6 +545,10 @@ def rates_terms_to_primitives(terms: RatesTerms) -> dict[str, Any]:
     }
 
 
+#: The kinds :func:`rates_terms_to_primitives` writes.
+RATES_TERMS_KINDS: Final = ("swap", "fra", "floater", "linker", "repo")
+
+
 def rates_terms_from_primitives(value: Mapping[str, Any]) -> RatesTerms:
     """Read terms :func:`rates_terms_to_primitives` wrote.
 
@@ -342,26 +561,12 @@ def rates_terms_from_primitives(value: Mapping[str, Any]) -> RatesTerms:
     try:
         kind = value["kind"]
         if kind == "swap":
-            fixed, floating = value["fixed"], value["floating"]
             return SwapTerms(
                 currency=str(value["currency"]),
                 start=date.fromisoformat(value["start"]),
                 length=Tenor.parse(str(value["length"])),
-                fixed=FixedLeg(
-                    Decimal(fixed["notional"]),
-                    Decimal(fixed["rate"]),
-                    DayCount[fixed["day_count"]],
-                    _schedule_in(fixed["schedule"]),
-                ),
-                floating=FloatingLeg(
-                    Decimal(floating["notional"]),
-                    str(floating["index"]),
-                    Decimal(floating["spread"]),
-                    DayCount[floating["day_count"]],
-                    _schedule_in(floating["schedule"]),
-                    floating["reset_lag"],
-                    str(floating["fixing_source"]),
-                ),
+                fixed=_fixed_in(value["fixed"]),
+                floating=_floating_in(value["floating"]),
             )
         if kind == "fra":
             return FraTerms(
@@ -376,6 +581,38 @@ def rates_terms_from_primitives(value: Mapping[str, Any]) -> RatesTerms:
                 calendars=tuple(str(i) for i in value["calendars"]),
                 fixing_source=str(value["fixing_source"]),
             )
+        if kind == "floater":
+            return FloaterTerms(
+                currency=str(value["currency"]),
+                start=date.fromisoformat(value["start"]),
+                length=Tenor.parse(str(value["length"])),
+                leg=_floating_in(value["leg"]),
+                redemption=Decimal(value["redemption"]),
+            )
+        if kind == "linker":
+            return LinkerTerms(
+                currency=str(value["currency"]),
+                start=date.fromisoformat(value["start"]),
+                length=Tenor.parse(str(value["length"])),
+                leg=_fixed_in(value["leg"]),
+                index=str(value["index"]),
+                lag_months=value["lag_months"],
+                indexation=Indexation[value["indexation"]],
+                base=Decimal(value["base"]),
+                floored=value["floored"],
+            )
+        if kind == "repo":
+            return RepoTerms(
+                currency=str(value["currency"]),
+                collateral=str(value["collateral"]),
+                rate=Decimal(value["rate"]),
+                start=date.fromisoformat(value["start"]),
+                end=date.fromisoformat(value["end"]),
+                day_count=DayCount[value["day_count"]],
+                haircut=Decimal(value["haircut"]),
+            )
     except (KeyError, TypeError, ValueError, InvalidOperation, ConventionInputError) as exc:
         raise RatesInputError(f"These are not rates terms: {exc}.") from exc
-    raise RatesInputError(f"Rates terms are of kind {value.get('kind')!r}, not swap or fra.")
+    raise RatesInputError(
+        f"Rates terms are of kind {value.get('kind')!r}, not one of {', '.join(RATES_TERMS_KINDS)}."
+    )

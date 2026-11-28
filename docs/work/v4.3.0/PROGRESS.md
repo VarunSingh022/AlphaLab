@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `3cae814` |
+| Remote head | `c709ad0` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M10: WS-14's rates -- instruments by declared terms (SwapTerms, FraTerms, FloaterTerms, LinkerTerms, RepoTerms; AssetType SWAP, FRA, REPO), on-path cash-flow booking with fixings as observations, credit curves, S-06 and the rates guide -- then WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for the next push is read at the next boundary. |
@@ -451,6 +451,7 @@ Never:
 - **2026-11-28** ad5a88e pushed: pack citations in provenance (TD-88), and PR #22's description brought up to date with M10's commits, still a Draft. ADR-0076 accepted under delegation and implemented (TD-89): an ETF trades as a share, and an open-ended fund deals at the NAV after its dealing day's close, by the calendar and the hold that exist. GAP-51's other classes are WS-14's and WS-28's.
 - **2026-11-28** 049d1c3 pushed. 689a1aa, ca73c49, ad5a88e and 049d1c3 passed hosted CI: all six quality-gate cells, CodeQL and the optional distributions. Release Preflight skipped by design. WS-13's M10 items are recorded as Hosted CI passed. WS-14 began: the rates package's curves and bootstrap (TD-90). GR-6 reproduces Hull's Tables 4.3 and 4.4 to the decimals published, and his two-year swap rate.
 - **2026-11-28** 3cae814 pushed: the rates package's curves and bootstrap, GR-6 reproduced (TD-90). Swaps and FRAs by declared terms followed (TD-91). A split or a holding exchange beside a working swap read an option's adjustments from it and failed. Both checks now pass over any terms but an option's.
+- **2026-11-28** 9c67eb3's gate failed one test of 14,893: an option-lifecycle test used "swap" as its unknown terms kind, which swap terms made known. The unpushed commit was amended to use "cap" (c709ad0) and gated again. Floaters, linkers, repos and credit followed (TD-92).
 
 ## Milestones
 
@@ -1429,6 +1430,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0065-fixed-income-and-rates.md (settled points 11 to 17); CHANGELOG; docs/ARCHITECTURE.md.
 - **Tests:** tests/unit/rates/test_swaps_and_fras.py (12) and tests/unit/instrument/test_rates_records.py (4).
 
+### TD-92: Floaters, linkers and repos by declared terms, and credit by spread and hazard curves: a linker valued off a real curve from monthly index prints, a repo as cash lent against collateral, recovery on the payment grid (ADR-0065 sections 4 and 6) (WS-14, 2026-11-28)
+
+- **Problem:** ADR-0065 asks for floaters, inflation-linked bonds and repos by declared terms -- a floating leg's fixings, a linker's index, lag and base, a repo's collateral, rate, dates and haircut -- and for basic credit: a spread curve over a discount curve, or a hazard-rate curve with a stated recovery.
+- **Alternatives:** (a) A linker valued under a projected inflation curve: a second model with its own interpolation and seasonality, not asked for at M10. (b) A linker valued off a real curve at today's index ratio, its floor applied where a principal is paid. (c) Recovery paid at the default instant by integrating over the hazard: a quadrature with its own grid to state. (d) Recovery on the payment grid, stated.
+- **Decision:** (b) and (d). FloaterTerms and LinkerTerms are a bond's coupon terms; AssetType.REPO is appended for RepoTerms. A linker's reference index is read from monthly prints by its lag and an Indexation, in Decimal, a missing print refused. value_floater, value_linker and value_repo return Valuations. spread_curve, hazard_curve, CreditCurve, spread_value and risky_value price credit.
+- **Rationale:** Each choice is a stated, standard convention: the TIPS and post-2005 gilt indexation, the real-yield valuation, a recovery discretised on the flows' own dates. None hides a model behind a default.
+- **Compatibility:** Additive: AssetType and BrokerAssetClass gain REPO, pinned; Indexation is pinned as a decoder-read enum. A bond declaring neither coupon terms is booked as before. Valuation.par_rate is None where an instrument has none.
+- **Recorded in:** docs/ADR/0065-fixed-income-and-rates.md (settled points 18 to 23, known limitation 3); CHANGELOG.
+- **Tests:** tests/unit/rates/test_securities_and_credit.py (14) and tests/unit/instrument/test_rates_records.py (5).
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1693,12 +1704,14 @@ Evidence:
 ### WS-14: Fixed income and rates
 
 - [Pushed] M10: The rates package's curves and bootstrap (TD-90, ADR-0065 settled points 1 to 10, N13, GR-6): DiscountCurve under a required Interpolation (log-linear discount factors, linear zero rates), extrapolation refused unless stated; bootstrap_curve from deposits, FRAs, futures with a stated convexity adjustment, par swaps and bonds, each pillar solved by Brent's method to a stated tolerance, OIS discounting by a stated discount curve; GR-6 reproduces Hull's Tables 4.3 and 4.4 and his two-year swap rate
-- [Local validation passed] M10: Swaps and FRAs by declared terms (TD-91, ADR-0065 settled points 11 to 17, GAP-51 in part): AssetType.SWAP and FRA; SwapTerms and FraTerms on the record, outside its identity key; value_swap and value_fra off a stated discount and projection curve, a known fixing read as supplied and refused when absent; swap parity at inception; accrual by convention; the FRA's settlement in Decimal
+- [Pushed] M10: Swaps and FRAs by declared terms (TD-91, ADR-0065 settled points 11 to 17, GAP-51 in part): AssetType.SWAP and FRA; SwapTerms and FraTerms on the record, outside its identity key; value_swap and value_fra off a stated discount and projection curve, a known fixing read as supplied and refused when absent; swap parity at inception; accrual by convention; the FRA's settlement in Decimal
+- [Local validation passed] M10: Floaters, linkers, repos and credit (TD-92, ADR-0065 settled points 18 to 23, known limitation 3, GAP-51 in part): AssetType.REPO and RepoTerms; FloaterTerms and LinkerTerms as a bond's coupon terms; value_floater, value_linker off a real curve, value_repo; a linker's reference index from monthly prints by lag and indexation in Decimal; spread and hazard curves with a stated recovery
 
 Evidence:
 
 - alphalab.rates (imports common and conventions only): curve.py, quotes.py, schedule.py, bootstrap.py. tests/unit/rates (46): each interpolation held to its definition, a pillar read back bit for bit, extrapolation refused unless stated and each kind by its definition, a parallel shift exact under every method; GR-6 -- Hull, Options, Futures, and Other Derivatives, 8th ed., Tables 4.3 and 4.4 to the three decimals published under both interpolations, and the two-year swap zero rate of 4.953%; every quote type repriced to 1e-11; a projection curve against a stated OIS curve checked by hand; refusals; identity the problem's. benchmarks/benchmark_rates.py: a 30-instrument curve in 0.008 CPU s against the plan's 1 s.
 - alphalab.rates.terms (SwapTerms, FraTerms, FixedLeg, FloatingLeg, LegSchedule, the codec) and alphalab.rates.pricing (leg_periods, value_swap, value_fra, swap_accrued, fra_settlement); instrument carries the terms (record validation, the terms codec). tests/unit/rates/test_swaps_and_fras.py (12): parity at inception on one curve for each quoted tenor and against a stated OIS curve; a known fixing read as supplied, a basis point costing one basis point of the period's discounted accrual, and refused when absent; accrual by convention by hand; a receiver's DV01 near its annuity; an FRA at its forward worth nothing and settled by its formula. tests/unit/instrument/test_rates_records.py (4): what a rates record must declare, terms outside the identity key, the registry's round trip, and a split and an exchange passing over a working swap, which failed on the unfixed check with an AttributeError.
+- alphalab.rates.securities and alphalab.rates.credit. tests/unit/rates/test_securities_and_credit.py (14), by hand: a floater at its reset worth par and a spread adding its annuity; a fixed floater worth its coupon and par at the period's end; a coupon paid on the valuation date paid, not valued; a reference index monthly and interpolated by the day of the month in Decimal, a missing print refused; the floor at par; a linker at today's index ratio times its real flows; a repo's repayment, and a forward repo at par worth nothing; hazards to survival; a risky bond's surviving flows and recovery; at zero recovery a hazard pricing as the same spread. Five faults were tried by hand; the boundary of a coupon paid on the valuation date survived until its test was added. tests/unit/instrument/test_rates_records.py gains the repo and the coupon-bond records.
 
 ### WS-15: Performance and scale
 

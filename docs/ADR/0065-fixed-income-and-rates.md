@@ -259,6 +259,44 @@ Building section 4 for swaps and FRAs settled seven more points.
     check had read an option's adjustments from it, and the action failed
     (`tests/unit/instrument/test_rates_records.py`).
 
+# Settled at implementation (2026-11-28): floaters, linkers, repos and credit
+
+18. **A floater and a linker are bonds.** `FloaterTerms` and `LinkerTerms`
+    ride on a `BOND` record as its coupon terms, settled as `cash_equity`. A
+    bond declaring neither is a fixed-rate bond, as it always was.
+    `AssetType.REPO` is appended for `RepoTerms`, which a repo's record must
+    declare, settled as `cash_equity`.
+19. **A linker's reference index.** It is read from the index's monthly
+    prints, each by the first day of the month it measures, in `Decimal`:
+    - `MONTHLY`: the print of the month `lag_months` before the date's;
+    - `DAILY_INTERPOLATED`: from that print towards the next month's by the
+      day of the month, `I(m - lag) + (d - 1) / D * (I(m - lag + 1) -
+      I(m - lag))`, the method of US TIPS and of gilts issued since 2005.
+
+    A print it needs and nobody supplies is refused. Its principal is
+    `notional * I(T) / base`, or the notional when `floored` and the ratio
+    is below one.
+20. **A linker is valued off a real curve**: today's index ratio times its
+    real coupons and principal at real rates. Projecting the index under an
+    inflation curve is another model, not built at M10. The floor's option
+    value is not modelled (known limitation 3).
+21. **A repo.** One unit held is one unit of cash lent, repaid `1 + rate *
+    tau` at its end, in `Decimal`. Its haircut is in `[0, 1)`: cash of `q`
+    needs collateral worth `q / (1 - haircut)`. Before it starts, its par rate
+    is the rate that values it at zero.
+22. **Credit, by the curve kinds that exist.** A spread curve is a curve of
+    factors `exp(-s * t)`, read by the interpolation it states. A hazard
+    curve's survival probabilities come from hazards held constant between
+    its dates, so it is read log-linearly. A `CreditCurve` refuses a survival
+    probability that rises and a recovery outside `[0, 1)`. `risky_value`
+    recovers `R` of the notional at the date of the flow in whose interval a
+    default falls: a recovery on the payment grid, stated. At zero recovery a
+    hazard prices exactly as the same spread does.
+23. **A coupon paid on the valuation date is paid, not valued**, for every
+    instrument: a period paying on or before the curves' date is left out.
+    A floater valued on a payment date is worth par again
+    (`tests/unit/rates/test_securities_and_credit.py`).
+
 # Compatibility
 
 - Additive. A package, terms, appended `AssetType` members, and cash-flow
@@ -281,6 +319,10 @@ recorded below.
    point 7). A reset lag, and an index tenor that differs from the period, are
    not modelled in a quote. They are the instrument's declared terms when it is
    booked (section 4).
+3. **A linker's floor has no option value here** (settled point 20). A
+   linker is valued as its real flows at real rates, and its deflation floor
+   is applied only where a principal is paid. Pricing the floor needs an
+   inflation volatility model, which is not built at M10.
 
 # Consequences
 

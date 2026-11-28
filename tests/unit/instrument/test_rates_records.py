@@ -35,7 +35,15 @@ from alphalab.instrument.snapshot import capture, from_primitives, restore
 from alphalab.instrument.terms import terms_from_primitives, terms_to_primitives
 from alphalab.persistence.serializer import deserialize, serialize
 from alphalab.portfolio.corporate_actions import HoldingExchange, Split
-from alphalab.rates import FixedLeg, FloatingLeg, FraTerms, LegSchedule, SwapTerms
+from alphalab.rates import (
+    FixedLeg,
+    FloaterTerms,
+    FloatingLeg,
+    FraTerms,
+    LegSchedule,
+    RepoTerms,
+    SwapTerms,
+)
 from alphalab.runtime.calendars import VenueCalendars
 from alphalab.runtime.execution_pipeline import (
     ExecutionPipeline,
@@ -155,8 +163,42 @@ def test_the_registry_persists_rates_terms() -> None:
     broken = terms_to_primitives(swap_terms())
     assert broken is not None
     broken["fixed"]["schedule"]["convention"] = "NEAREST"
-    with pytest.raises(InstrumentInputError, match="not a swap's or an FRA's terms"):
+    with pytest.raises(InstrumentInputError, match="not a rates instrument's terms"):
         terms_from_primitives(broken)
+
+
+def test_a_repo_and_a_bond_with_coupon_terms_declare_what_they_are() -> None:
+    repo = RepoTerms(
+        "USD",
+        "UST-2035",
+        D("0.043"),
+        date(2025, 1, 15),
+        date(2025, 1, 22),
+        DayCount.ACT_360,
+        D("0.02"),
+    )
+    paid = InstrumentEconomics(D("1"), SettlementModel.CASH_EQUITY)
+    record = InstrumentRecord(
+        "USD-REPO-1W", AssetType.REPO, "XOTC", "USD", economics=paid, terms=repo
+    )
+    assert record.terms == repo
+    floater = FloaterTerms(
+        "USD", date(2025, 1, 15), Tenor.parse("2Y"), swap_terms().floating, D("1")
+    )
+    bond = InstrumentRecord(
+        "FRN-2027", AssetType.BOND, "XOTC", "USD", economics=paid, terms=floater
+    )
+    assert bond.terms == floater
+    # A bond declaring no coupon terms is a fixed-rate bond, as before.
+    assert InstrumentRecord("UST-2035", AssetType.BOND, "XNYS", "USD", economics=paid).terms is None
+    with pytest.raises(InstrumentInputError, match="declares none"):
+        InstrumentRecord("R", AssetType.REPO, "XOTC", "USD", economics=paid)
+    with pytest.raises(InstrumentInputError, match="a bond's terms"):
+        InstrumentRecord("R", AssetType.REPO, "XOTC", "USD", economics=paid, terms=floater)
+    with pytest.raises(InstrumentInputError, match="settles as cash_equity"):
+        InstrumentRecord("R", AssetType.REPO, "XOTC", "USD", economics=CLEARED, terms=repo)
+    registry = register_instruments(InstrumentRegistry(), (record, bond))
+    assert restore(from_primitives(deserialize(serialize(capture(registry))))) == registry
 
 
 STRATEGY_ID = str(uuid.uuid4())

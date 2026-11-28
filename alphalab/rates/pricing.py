@@ -47,7 +47,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -67,6 +67,7 @@ from alphalab.rates.terms import (
     FixedLeg,
     FloatingLeg,
     FraTerms,
+    RatesTerms,
     SwapTerms,
     rates_terms_to_primitives,
     resolve_calendars,
@@ -160,7 +161,9 @@ class Valuation:
         legs: Each leg's value, by name, to the side that receives it.
         accrued: What one unit has accrued in the current periods.
         par_rate: For a swap, the fixed rate that values it at zero; for an
-            FRA, the forward its period is fixed or projected at.
+            FRA, the forward its period is fixed or projected at; for a repo
+            not yet started, the rate that values it at zero. ``None`` where
+            an instrument has none.
         annuity: For a swap, ``sum(notional * tau_i * D(t_i))`` over the
             fixed periods still to pay; ``None`` otherwise.
         canonical_key: The problem, as the module docstring states it.
@@ -171,7 +174,7 @@ class Valuation:
     value: float
     legs: tuple[tuple[str, float], ...]
     accrued: float
-    par_rate: float
+    par_rate: float | None
     annuity: float | None
     canonical_key: str
 
@@ -242,19 +245,20 @@ def _floating_rate(
 
 def _key(
     kind: str,
-    terms: SwapTerms | FraTerms,
+    terms: RatesTerms,
     as_of: date,
-    curves: tuple[DiscountCurve, DiscountCurve],
+    curves: Sequence[tuple[str, DiscountCurve]],
     periods: tuple[tuple[str, tuple[CouponPeriod, ...]], ...],
     read: Mapping[tuple[str, date], Decimal],
+    stated: Sequence[str] = (),
 ) -> str:
     lines = [
         VALUATION_KEY_SCHEME,
         f"kind={kind}",
         f"terms={json.dumps(rates_terms_to_primitives(terms), sort_keys=True)}",
         f"as_of={as_of.isoformat()}",
-        f"discount={curves[0].curve_id}",
-        f"projection={curves[1].curve_id}",
+        *(f"{role}={curve.curve_id}" for role, curve in curves),
+        *stated,
     ]
     for name, leg in periods:
         lines += [
@@ -386,7 +390,7 @@ def value_swap(
         "swap",
         terms,
         as_of,
-        curves,
+        (("discount", curves[0]), ("projection", curves[1])),
         (("fixed", fixed_periods), ("floating", floating_periods)),
         read,
     )
@@ -396,7 +400,7 @@ def value_swap(
         fixed_value - floating_value,
         (("fixed", fixed_value), ("floating", floating_value)),
         accrued,
-        floating_value / annuity if annuity else math.nan,
+        floating_value / annuity if annuity else None,
         annuity,
         key,
     )
@@ -440,7 +444,14 @@ def value_fra(
     value = (
         float(terms.notional) * (forward - float(terms.rate)) * tau * discount.discount(terms.end)
     )
-    key = _key("fra", terms, as_of, curves, (("period", (period,)),), read)
+    key = _key(
+        "fra",
+        terms,
+        as_of,
+        (("discount", curves[0]), ("projection", curves[1])),
+        (("period", (period,)),),
+        read,
+    )
     return Valuation(
         as_of, terms.currency, value, (("difference", value),), 0.0, forward, None, key
     )

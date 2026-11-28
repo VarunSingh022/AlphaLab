@@ -58,10 +58,11 @@ What is supported, and what is refused
   tenor from spot -- and a non-deliverable forward settled at a fixing. Each
   states its two currencies and the calendars, by id, that its value date is
   counted and settled in; the run supplies the calendars.
-* Swaps and FRAs (v4.3, ADR-0065): :class:`~alphalab.rates.terms.SwapTerms`
-  and :class:`~alphalab.rates.terms.FraTerms`, declared in ``alphalab.rates``
-  beside what values them. They ride here, and are written and read through
-  this module's codec, as every contract's terms are.
+* Rates instruments (v4.3, ADR-0065): a swap's, an FRA's and a repo's terms,
+  and a floater's or a linker's coupon terms on a bond
+  (:mod:`alphalab.rates.terms`), declared in ``alphalab.rates`` beside what
+  values them. They ride here, and are written and read through this module's
+  codec, as every contract's terms are.
 
 Refused, each where it would be needed: a basket or a cash component valued
 against one underlying value (each component's value is stated instead); a
@@ -87,7 +88,11 @@ from alphalab.options.enums import ExerciseStyle, OptionType
 from alphalab.options.expiration import SettlementStyle
 from alphalab.rates.exceptions import RatesInputError
 from alphalab.rates.terms import (
+    RATES_TERMS_KINDS,
+    FloaterTerms,
     FraTerms,
+    LinkerTerms,
+    RepoTerms,
     SwapTerms,
     rates_terms_from_primitives,
     rates_terms_to_primitives,
@@ -797,7 +802,16 @@ class FxTerms:
             )
 
 
-type ContractTerms = OptionTerms | FutureTerms | FxTerms | SwapTerms | FraTerms
+type ContractTerms = (
+    OptionTerms
+    | FutureTerms
+    | FxTerms
+    | SwapTerms
+    | FraTerms
+    | FloaterTerms
+    | LinkerTerms
+    | RepoTerms
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -816,7 +830,7 @@ def terms_to_primitives(terms: ContractTerms | None) -> dict[str, Any] | None:
 
     if terms is None:
         return None
-    if isinstance(terms, SwapTerms | FraTerms):
+    if isinstance(terms, SwapTerms | FraTerms | FloaterTerms | LinkerTerms | RepoTerms):
         return rates_terms_to_primitives(terms)
     if isinstance(terms, FxTerms):
         dates = terms.value_dates
@@ -970,12 +984,12 @@ def terms_from_primitives(value: Any, where: str = "terms") -> ContractTerms | N
         raise InstrumentInputError(f"{where} are not contract terms: {value!r}.")
     try:
         kind = value["kind"]
-        if kind in ("swap", "fra"):
+        if kind in RATES_TERMS_KINDS:
             try:
                 return rates_terms_from_primitives(value)
             except RatesInputError as exc:
                 raise InstrumentInputError(
-                    f"{where} are not a swap's or an FRA's terms: {exc}"
+                    f"{where} are not a rates instrument's terms: {exc}"
                 ) from exc
         if kind == "fx":
             return _fx_terms_in(value)
@@ -1020,5 +1034,6 @@ def terms_from_primitives(value: Any, where: str = "terms") -> ContractTerms | N
     except (KeyError, TypeError, ValueError, InvalidOperation) as exc:
         raise InstrumentInputError(f"{where} are not contract terms: {exc}.") from exc
     raise InstrumentInputError(
-        f"{where} are of kind {value.get('kind')!r}, not option, future, fx, swap or fra."
+        f"{where} are of kind {value.get('kind')!r}, not option, future, fx, "
+        f"{', '.join(RATES_TERMS_KINDS)}."
     )
