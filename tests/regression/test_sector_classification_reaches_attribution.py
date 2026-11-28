@@ -699,14 +699,17 @@ def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -
     # an order's turn reads them once more for an auction-reopened halt, by its
     # own indexed lookup -- a test that none are declared, then the halt; and
     # (phase 4, FUT-033) every auction check reads them through `_controls`,
-    # once, where FUT-027's reopening read them twice. (v4.3.0, ADR-0067) One in
-    # `_fx_record`, for a fill, an order or an FX check of an instrument the
-    # registry's `fx_pairs` index holds: the index is read first -- an
-    # emptiness test and a membership test -- so a run declaring no FX pair
-    # reads no record for it. And once per market step, an emptiness test of
-    # the same index before any NDF is checked for a missing fixing.
+    # once, where FUT-027's reopening read them twice. (v4.3.0) One in
+    # `_indexed_record`, for an instrument one of the registry's own indexes
+    # holds: `fx_pairs` for an FX deal (ADR-0067), read by `_fx_record`, and
+    # `funds` for an open-ended fund (ADR-0076), read by `_fund_record`. The
+    # index is read first -- an emptiness test and a membership test -- so a
+    # run declaring no FX pair and no fund reads no record for either. And once
+    # per market step, an emptiness test of `fx_pairs` before any NDF is
+    # checked for a missing fixing.
     assert source.count("record_for(") == 9
-    assert source.count(".fx_pairs") == 3
+    assert source.count(".fx_pairs") == 2
+    assert source.count(".funds") == 1
     assert source.count(".expiring") == 2
     assert source.count(".margined") == 10
     assert source.count(".controls") == 6

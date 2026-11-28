@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `ca73c49` |
+| Remote head | `ad5a88e` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M10: WS-27's records at the close (GR-3, S-05, GAP-23); then WS-13's lot relief (GAP-50), fund and ETF types and GR-1's packs, WS-14's rates (ADR-0065, GR-6, S-06), WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for 5416d36 and the next push is read at the next boundary. |
@@ -436,6 +436,7 @@ Never:
 - **2026-11-28** 5093723 pushed: S-05 end to end and the FX guide. Lot relief (TD-86, GAP-50) is validated locally: relieve_lots reads an asset's gains and open lots from the book's own record by a stated method, average cost reproducing the book's relief to the cent, and Section 104's later matches exact because they are read rather than booked. The book is unchanged.
 - **2026-11-28** 689a1aa pushed: lot relief (TD-86). 5416d36 passed hosted CI. GR-1 is validated locally (TD-87): a reference pack now states a venue's sessions, holidays and settlement cycle; a calendar read from one holds the pack's range as its coverage and refuses a day outside it, inside a run too; and the loader reads a pack's JSON with its digest checked first. Citing a pack in RunProvenance (plan G.1.3, R53-5) needs the stored record's schema step and follows.
 - **2026-11-28** ca73c49 pushed: GR-1 (TD-87). 5093723 passed hosted CI. A run's provenance now cites the reference packs it read (TD-88), written and hashed only when cited, so no stored record or provenance_id moves.
+- **2026-11-28** ad5a88e pushed: pack citations in provenance (TD-88), and PR #22's description brought up to date with M10's commits, still a Draft. ADR-0076 accepted under delegation and implemented (TD-89): an ETF trades as a share, and an open-ended fund deals at the NAV after its dealing day's close, by the calendar and the hold that exist. GAP-51's other classes are WS-14's and WS-28's.
 
 ## Milestones
 
@@ -1384,6 +1385,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0053-run-and-input-provenance.md (section 8); CHANGELOG.
 - **Tests:** tests/unit/backtesting/test_provenance_cites_packs.py (4): a cited pack a line of the canonical key, in order, the id moved; the citations read back with the stored record; a record citing none storing no packs field and no pack line; a citation given twice, or a value that is not one, refused. The existing provenance suites pass unchanged.
 
+### TD-89: ADR-0076 accepted under delegation, and implemented: an ETF is a share, and an open-ended fund deals at the NAV after its dealing day's close, held there by ADR-0060's hold (GAP-51) (WS-13, 2026-11-28)
+
+- **Problem:** GAP-51 asks for funds and ETFs as booking classes, each booking by declared terms with tests, and AssetType additions by ADR. An ETF had no class of its own, and an open-ended fund is dealt at a NAV not known when its order is placed (forward pricing), which no fill rule expressed.
+- **Alternatives:** (a) FundTerms on the record stating a cutoff time and a NAV schedule: a second statement of what the venue's calendar already states. (b) Fill a fund's order at the next event under NEXT_EVENT timing: an order after the cutoff would deal at that evening's NAV, and the run's timing is not the fund's to change. (c) The fund's listing venue calendar is its dealing window; its order is held until the dealing day's close by the hold ADR-0060 already gives a latency, and filled in full at the fund's first price after it.
+- **Decision:** (c), recorded as ADR-0076 and accepted under the owner's delegation (ADR-0056). AssetType.ETF and AssetType.FUND appended, fully paid by default; an ETF trades as a share; a fund's order is a GTC market order, held until MarketCalendar.day_order_expiry and dealt in full at the next price; refused: other terms, algorithmic routing, a package leg, an undeclared calendar, a redemption beyond units held. Charges are the venue's cost model, precision the record's lot. InstrumentRegistry.funds indexes the funds.
+- **Rationale:** The calendar already states when a venue deals, and the hold already makes an order meet the market only from an instant, so forward pricing needs no new mechanism. Refusing a day order, rather than reinterpreting it, keeps an order's terms meaning what they say.
+- **Compatibility:** Additive: AssetType's binding gains two members, and InstrumentRegistry's a derived index, named in the CHANGELOG; the persisted values pinned (PER-004). No record's identity, and no run's behaviour without a fund, moves.
+- **Recorded in:** docs/ADR/0076-funds-and-etfs-as-booking-classes.md (settled points 1 to 5); CHANGELOG.
+- **Tests:** tests/integration/test_funds_and_etfs.py (5): an ETF at its own quote; a fund's order before the cutoff dealt at that evening's NAV, one after it at the next day's; a redemption beyond units held refused; a day order, a limit order, a package leg and an undeclared calendar refused; both types fully paid. tests/unit/instrument/test_fx_terms.py gains the funds index, derived and restored. The registry-read table restates its index reads.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1638,7 +1649,8 @@ Evidence:
 - [Hosted CI passed] M10: Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in
 - [Pushed] M10: Lot relief (TD-86, GAP-50): relieve_lots reads an asset's gains and open lots by a stated LotRelief -- average cost as the book relieves it, FIFO, LIFO, highest and lowest cost, Section 104's same-day, 30-day and pool rules -- the book unchanged
 - [Pushed] M10: A venue from a reference pack, and the loader (TD-87, ADR-0059 settled points 6 to 10, GR-1): VenueSession, Holiday and SettlementCycle entries; calendar_from_pack with coverage refused outside; settlement_from_pack; load_pack; GR-1's three venues in three zones from a synthetic pack
-- [Local validation passed] M10: A run cites the reference packs it read (TD-88, ADR-0053 section 8, plan G.1.3): RunProvenance.packs, a pack line of the canonical key per citation, written only when cited
+- [Pushed] M10: A run cites the reference packs it read (TD-88, ADR-0053 section 8, plan G.1.3): RunProvenance.packs, a pack line of the canonical key per citation, written only when cited
+- [Local validation passed] M10: Funds and ETFs as booking classes (TD-89, ADR-0076, GAP-51 in part): AssetType.ETF and FUND; an ETF trades as a share; a fund deals at the NAV after its dealing day's close
 
 Evidence:
 
@@ -1824,3 +1836,4 @@ Numbers are final (G0 item 16): the plan's, with plan 0054A as ADR-0054 and plan
 | ADR-0073 | Validation over backtests: designs, folds, a declared warm-up and selection-aware evidence | WS-24 | Before M5 | Accepted (2026-11-15) |
 | ADR-0074 | Econometrics: time-series estimation with an identity, and the fitted half-life (OFE-007 reopened) | WS-07 | Before M6 | Accepted (2026-11-16) |
 | ADR-0075 | Statistical regime models: hidden Markov and Markov-switching estimation with an identity (OFE-010 reopened) | WS-07 | Before M6 | Accepted (2026-11-16) |
+| ADR-0076 | Funds and ETFs as booking classes (GAP-51) | WS-13 | M10 | Accepted (2026-11-28) |

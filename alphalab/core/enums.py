@@ -62,6 +62,12 @@ class AssetType(StrEnum):
     #: point unless it declares otherwise, and never traded: a request in it is
     #: refused before an order exists.
     INDEX = "index"
+    #: v4.3.0 (ADR-0076): an exchange-traded fund -- a share in every rule it
+    #: trades by, classified apart.
+    ETF = "etf"
+    #: v4.3.0 (ADR-0076): an open-ended fund, dealt at its NAV by forward
+    #: pricing: at the fund's first price after its dealing day's close.
+    FUND = "fund"
 
 
 @unique

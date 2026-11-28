@@ -293,3 +293,13 @@ def test_the_registry_indexes_its_fx_pairs_as_it_indexes_its_margined_records() 
     restored = restore(from_primitives(deserialize(serialize(capture(registry)))))
     assert restored.fx_pairs == registry.fx_pairs
     assert not register_instruments(InstrumentRegistry(), (plain,)).fx_pairs
+
+
+def test_the_registry_indexes_its_funds_as_it_indexes_its_fx_pairs() -> None:
+    fund = InstrumentRecord("GLOBAL", AssetType.FUND, "XFND", "USD")
+    etf = InstrumentRecord("SPYX", AssetType.ETF, "XNYS", "USD")
+    registry = register_instruments(InstrumentRegistry(), (fund, etf))
+    assert registry.funds is not None and dict(registry.funds) == {fund.asset_id: None}
+    assert InstrumentRegistry(instruments=registry.instruments).funds == registry.funds
+    restored = restore(from_primitives(deserialize(serialize(capture(registry)))))
+    assert restored.funds == registry.funds

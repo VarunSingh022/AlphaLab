@@ -1406,6 +1406,19 @@
       "compatibility": "RunProvenance, run_provenance and payload_provenance gain a field and a parameter, named in the CHANGELOG. No stored record, provenance_id or schema version moves.",
       "record": "docs/ADR/0053-run-and-input-provenance.md (section 8); CHANGELOG.",
       "tests": "tests/unit/backtesting/test_provenance_cites_packs.py (4): a cited pack a line of the canonical key, in order, the id moved; the citations read back with the stored record; a record citing none storing no packs field and no pack line; a citation given twice, or a value that is not one, refused. The existing provenance suites pass unchanged."
+    },
+    {
+      "id": "TD-89",
+      "date": "2026-11-28",
+      "workstream": "WS-13",
+      "title": "ADR-0076 accepted under delegation, and implemented: an ETF is a share, and an open-ended fund deals at the NAV after its dealing day's close, held there by ADR-0060's hold (GAP-51)",
+      "problem": "GAP-51 asks for funds and ETFs as booking classes, each booking by declared terms with tests, and AssetType additions by ADR. An ETF had no class of its own, and an open-ended fund is dealt at a NAV not known when its order is placed (forward pricing), which no fill rule expressed.",
+      "alternatives": "(a) FundTerms on the record stating a cutoff time and a NAV schedule: a second statement of what the venue's calendar already states. (b) Fill a fund's order at the next event under NEXT_EVENT timing: an order after the cutoff would deal at that evening's NAV, and the run's timing is not the fund's to change. (c) The fund's listing venue calendar is its dealing window; its order is held until the dealing day's close by the hold ADR-0060 already gives a latency, and filled in full at the fund's first price after it.",
+      "decision": "(c), recorded as ADR-0076 and accepted under the owner's delegation (ADR-0056). AssetType.ETF and AssetType.FUND appended, fully paid by default; an ETF trades as a share; a fund's order is a GTC market order, held until MarketCalendar.day_order_expiry and dealt in full at the next price; refused: other terms, algorithmic routing, a package leg, an undeclared calendar, a redemption beyond units held. Charges are the venue's cost model, precision the record's lot. InstrumentRegistry.funds indexes the funds.",
+      "rationale": "The calendar already states when a venue deals, and the hold already makes an order meet the market only from an instant, so forward pricing needs no new mechanism. Refusing a day order, rather than reinterpreting it, keeps an order's terms meaning what they say.",
+      "compatibility": "Additive: AssetType's binding gains two members, and InstrumentRegistry's a derived index, named in the CHANGELOG; the persisted values pinned (PER-004). No record's identity, and no run's behaviour without a fund, moves.",
+      "record": "docs/ADR/0076-funds-and-etfs-as-booking-classes.md (settled points 1 to 5); CHANGELOG.",
+      "tests": "tests/integration/test_funds_and_etfs.py (5): an ETF at its own quote; a fund's order before the cutoff dealt at that evening's NAV, one after it at the next day's; a redemption beyond units held refused; a day order, a limit order, a package leg and an undeclared calendar refused; both types fully paid. tests/unit/instrument/test_fx_terms.py gains the funds index, derived and restored. The registry-read table restates its index reads."
     }
   ],
   "plan_changes": [
@@ -2604,6 +2617,11 @@
         {
           "milestone": "M10",
           "item": "A run cites the reference packs it read (TD-88, ADR-0053 section 8, plan G.1.3): RunProvenance.packs, a pack line of the canonical key per citation, written only when cited",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M10",
+          "item": "Funds and ETFs as booking classes (TD-89, ADR-0076, GAP-51 in part): AssetType.ETF and FUND; an ETF trades as a share; a fund deals at the NAV after its dealing day's close",
           "status": "Local validation passed"
         }
       ],
@@ -3794,6 +3812,14 @@
       "workstream": "WS-07",
       "needed": "Before M6",
       "status": "Accepted (2026-11-16)"
+    },
+    {
+      "id": "ADR-0076",
+      "subject": "Funds and ETFs as booking classes (GAP-51)",
+      "plan_section": "§G",
+      "workstream": "WS-13",
+      "needed": "M10",
+      "status": "Accepted (2026-11-28)"
     }
   ],
   "authority": {
@@ -3823,7 +3849,7 @@
   },
   "state": {
     "updated": "2026-11-28",
-    "remote_head": "ca73c49",
+    "remote_head": "ad5a88e",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -5869,6 +5895,10 @@
     {
       "date": "2026-11-28",
       "entry": "ca73c49 pushed: GR-1 (TD-87). 5093723 passed hosted CI. A run's provenance now cites the reference packs it read (TD-88), written and hashed only when cited, so no stored record or provenance_id moves."
+    },
+    {
+      "date": "2026-11-28",
+      "entry": "ad5a88e pushed: pack citations in provenance (TD-88), and PR #22's description brought up to date with M10's commits, still a Draft. ADR-0076 accepted under delegation and implemented (TD-89): an ETF trades as a share, and an open-ended fund deals at the NAV after its dealing day's close, by the calendar and the hold that exist. GAP-51's other classes are WS-14's and WS-28's."
     }
   ]
 }

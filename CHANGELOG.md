@@ -1601,6 +1601,24 @@ entry below says otherwise.
   pack is another record than one citing none. A record citing none stores no
   `packs` field and hashes as before: no stored record or `provenance_id`
   moves, and `RUN_PROVENANCE_SCHEMA` stays 1.
+* **Funds and ETFs as booking classes** [plan WS-13, GAP-51, ADR-0076].
+  `AssetType` gains `ETF` and `FUND`, appended, and so does the broker
+  package's `BrokerAssetClass`, which is the same enum. Both are fully paid
+  units unless their records declare otherwise.
+  * **An ETF is a share.** It trades on its listing venue at its prices, by
+    every rule a share trades by, and its type classifies it.
+  * **An open-ended fund deals at its NAV, by forward pricing.** An order is
+    held until its dealing day's close on the fund's venue calendar: the day
+    it is placed in, or the next trading day's when it is placed while the
+    venue is shut. It then fills in full at the fund's first price after that
+    close, its NAV.
+  * A fund's order is a market order good till cancelled. A limit, a stop, an
+    auction order, an execution algorithm's order and a package's leg are each
+    refused, and so are a fund whose venue declares no calendar and a
+    redemption of more units than are held. Its charges are its dealing
+    venue's cost model, and its unit precision its record's lot.
+  * `InstrumentRegistry` indexes its funds (`funds`), so a run holding none
+    pays one emptiness check for every fund rule.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

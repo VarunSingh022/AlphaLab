@@ -75,6 +75,7 @@ from dataclasses import dataclass, field, replace
 
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.conventions.tick import is_on_tick
+from alphalab.core.enums import AssetType
 from alphalab.instrument.classification import (
     OPERATOR,
     SECTOR,
@@ -182,6 +183,11 @@ class InstrumentRegistry:
             what the execution path reads before it books a fill or judges an
             order as an FX deal, so a registry declaring none costs that path
             one emptiness check. An index, derived like ``margined``.
+        funds: ``asset_id`` -> ``None``, for every open-ended fund
+            (``AssetType.FUND``, v4.3, ADR-0076) -- what the execution path
+            reads before it deals an order at a NAV, so a registry holding
+            none costs that path one emptiness check. An index, derived like
+            ``fx_pairs``.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
@@ -203,6 +209,7 @@ class InstrumentRegistry:
     recallable: PersistentMap[str, None] | None = None
     universes: PersistentMap[str, HistoricalUniverse] = field(default_factory=PersistentMap)
     fx_pairs: PersistentMap[str, None] | None = None
+    funds: PersistentMap[str, None] | None = None
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -269,6 +276,18 @@ class InstrumentRegistry:
                         asset_id: None
                         for asset_id, record in self.instruments.items()
                         if isinstance(record.terms, FxTerms)
+                    }
+                ),
+            )
+        if self.funds is None:
+            object.__setattr__(
+                self,
+                "funds",
+                PersistentMap(
+                    {
+                        asset_id: None
+                        for asset_id, record in self.instruments.items()
+                        if record.asset_type is AssetType.FUND
                     }
                 ),
             )
@@ -528,6 +547,11 @@ def register_instrument(
                 registry.fx_pairs
                 if not isinstance(record.terms, FxTerms) or registry.fx_pairs is None
                 else registry.fx_pairs.set(record.asset_id, None)
+            ),
+            funds=(
+                registry.funds
+                if record.asset_type is not AssetType.FUND or registry.funds is None
+                else registry.funds.set(record.asset_id, None)
             ),
         )
     )

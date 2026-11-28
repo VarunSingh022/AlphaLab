@@ -3235,6 +3235,15 @@ def _route_requests(
             current, order = _record_venue(current, order, venue, instant)
         if (
             current.config.routing is ExecutionRouting.SIMULATED
+            and _fund_record(current, order.asset_id) is not None
+        ):
+            # An open-ended fund deals at its NAV: held until its dealing day's
+            # close, it fills at the fund's first price after (ADR-0076).
+            current, dealt = _await_dealing(current, order, instant)
+            orders.append(dealt)
+            continue
+        if (
+            current.config.routing is ExecutionRouting.SIMULATED
             and current.config.latency_pricing is LatencyPricing.POST_LATENCY_EVENT
         ):
             current, held = _await_latency(current, order, instant, event.timestamp)
@@ -3445,9 +3454,110 @@ def _fx_record(state: ExecutionPipelineState, asset_id: str) -> InstrumentRecord
     """
 
     registry = state.config.instruments
-    if registry is None or not registry.fx_pairs or asset_id not in registry.fx_pairs:
+    return None if registry is None else _indexed_record(registry, registry.fx_pairs, asset_id)
+
+
+def _fund_record(state: ExecutionPipelineState, asset_id: str) -> InstrumentRecord | None:
+    """The record of ``asset_id`` when it is an open-ended fund, else ``None`` (ADR-0076).
+
+    Read through the registry's ``funds`` index, so a run holding no fund pays
+    one emptiness check for it.
+    """
+
+    registry = state.config.instruments
+    return None if registry is None else _indexed_record(registry, registry.funds, asset_id)
+
+
+def _indexed_record(
+    registry: InstrumentRegistry, index: Mapping[str, None] | None, asset_id: str
+) -> InstrumentRecord | None:
+    """The record of ``asset_id`` when ``index`` -- one of the registry's own -- holds it."""
+
+    if not index or asset_id not in index:
         return None
     return registry.record_for(asset_id)
+
+
+def _fund_refusal(
+    state: ExecutionPipelineState, request: OrderRequest, instant: float
+) -> str | None:
+    """Why an order in an open-ended fund cannot be dealt at its NAV, or ``None`` (ADR-0076).
+
+    A fund deals once, at the NAV after its dealing day's close: by a market
+    order, good till cancelled -- a day order would expire at the very close it
+    is dealt after -- never by an execution algorithm, and never sold short.
+    """
+
+    fund = _fund_record(state, request.asset_id)
+    if fund is None:
+        return None
+    named = f"{fund.symbol} on {fund.exchange}"
+    terms = request.terms
+    if (
+        terms.order_type is not OrderType.MARKET
+        or terms.is_auction
+        or terms.time_in_force is not TimeInForce.GTC
+    ):
+        return (
+            f"{named} is an open-ended fund, dealt at its NAV: its order is a market order, good "
+            f"till cancelled, not {terms.order_type.name} {terms.time_in_force.name}. A day order "
+            "would expire at the close it is dealt after."
+        )
+    if state.config.routing is ExecutionRouting.ALGORITHMIC:
+        return f"{named} is an open-ended fund, dealt once at its NAV: no algorithm works it."
+    calendar = state.config.calendars.calendar_for(fund.exchange)
+    if calendar is None:
+        return (
+            f"{named} is dealt at the NAV after its dealing day's close, by its venue's calendar, "
+            f"and no calendar is declared for {fund.exchange}: declare it on "
+            "ExecutionPipelineConfig.calendars."
+        )
+    if calendar.day_order_expiry(instant) is None:
+        return f"{named} has no dealing session after {instant!r} in {calendar.calendar_id}."
+    if request.side is CoreSide.SELL:
+        position = state.portfolio.positions.get(request.asset_id)
+        held = Decimal("0") if position is None else position.quantity
+        redeeming = sum(
+            (
+                order.remaining_quantity
+                for order_id in state.oms.working_orders_for(request.asset_id)
+                for order in (state.oms.orders.find(order_id),)
+                if order.side is OMSSide.SELL
+            ),
+            Decimal("0"),
+        )
+        if request.quantity > held - redeeming:
+            return (
+                f"{named} is redeemed from units held: {request.quantity} asked, "
+                f"{held - redeeming} held and not already being redeemed. A fund is never sold "
+                "short."
+            )
+    return None
+
+
+def _await_dealing(
+    state: ExecutionPipelineState, order: OMSOrder, decided: float
+) -> tuple[ExecutionPipelineState, OMSOrder]:
+    """Hold a fund's order until its dealing day's close, to deal at the price after (ADR-0076).
+
+    That price is the fund's NAV. A latency the run also models holds it no
+    less long.
+    """
+
+    fund = _fund_record(state, order.asset_id)
+    assert fund is not None  # the caller asked
+    calendar = state.config.calendars.calendar_for(fund.exchange)
+    assert calendar is not None  # _fund_refusal requires it
+    cutoff = calendar.day_order_expiry(decided)
+    assert cutoff is not None  # _fund_refusal requires it
+    ready = cutoff
+    if state.config.latency_pricing is LatencyPricing.POST_LATENCY_EVENT:
+        model = _simulator_for(state, order).latency_model
+        ready = max(ready, decided + model.calculate(str(order.order_id.value), decided))
+    held = evolve(
+        state, oms=OMSEngine.annotate(state.oms, order.order_id, {_READY_AT: repr(ready)})
+    )
+    return held, held.oms.orders.find(order.order_id)
 
 
 def _declared_option(
@@ -6426,6 +6536,11 @@ def _place_package(
         )
     current = evolve(state, allocation=allocation)
     for request in requests:
+        if _fund_record(current, request.asset_id) is not None:
+            return refuse(
+                f"Leg {request.asset_id} is an open-ended fund, dealt once at its NAV, not with a "
+                "package's other legs at one instant (ADR-0076)."
+            )
         unbookable = _fx_leg_refusal(current, request, timestamp, requests)
         if unbookable is not None:
             return refuse(f"Leg {request.asset_id}: {unbookable}")
@@ -7531,6 +7646,8 @@ _IMMEDIATE: Final = frozenset({TimeInForce.IOC, TimeInForce.FOK})
 #: Where an order kept from the market by its latency records the instant it
 #: may first meet it, in its metadata (ADR-0060).
 _READY_AT: Final = "latency_ready_at"
+#: How a fund's order fills at its NAV: in full (ADR-0076).
+_DEALT_IN_FULL: Final = ImmediateFill()
 
 #: Where an order kept from the market by its latency records the instant of
 #: its first turn after it: the one turn that can be an arriving one (ADR-0060).
@@ -7953,6 +8070,9 @@ def _terms_refusal(
     unsettleable = _settlement_calendar_refusal(state, request.asset_id, instant)
     if unsettleable is not None:
         return unsettleable
+    undealt = _fund_refusal(state, request, instant)
+    if undealt is not None:
+        return undealt
     if state.config.routing is ExecutionRouting.EXTERNAL:
         return None
     if state.config.routing is ExecutionRouting.ALGORITHMIC:
@@ -8794,6 +8914,16 @@ def _fill_working_orders(
         # An order whose latency ended within this bar meets its close alone (ADR-0060).
         arriving = _arrives_within(order, event)
         current, order = _first_turn(current, order, event.timestamp)
+        if _fund_record(current, asset_id) is not None:
+            # A fund's order deals in full at its NAV, whatever size it shows (ADR-0076).
+            current, new_reports, new_fills, new_trades = _work_order(
+                current, order, event, _DEALT_IN_FULL, rates, arriving=False
+            )
+            orders.append(current.oms.orders.find(order_id))
+            reports.extend(new_reports)
+            fills.extend(new_fills)
+            trades.extend(new_trades)
+            continue
         turn = None
         key = ""
         if queue is not None and observation is not None:
