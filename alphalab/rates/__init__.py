@@ -66,6 +66,7 @@ from alphalab.rates.pricing import (
     fra_settlement,
     leg_periods,
     swap_accrued,
+    value_flows,
     value_fra,
     value_swap,
 )
@@ -76,6 +77,7 @@ from alphalab.rates.quotes import (
     FutureQuote,
     RateQuote,
     SwapQuote,
+    fixed_bond_flows,
 )
 from alphalab.rates.schedule import regular_schedule, tenor_months
 from alphalab.rates.securities import (
@@ -145,6 +147,7 @@ __all__ = [
     "Valuation",
     "bootstrap_curve",
     "canonical_curve_key",
+    "fixed_bond_flows",
     "floater_maturity",
     "fra_settlement",
     "hazard_curve",
@@ -162,6 +165,7 @@ __all__ = [
     "swap_accrued",
     "tenor_months",
     "value_floater",
+    "value_flows",
     "value_fra",
     "value_linker",
     "value_repo",

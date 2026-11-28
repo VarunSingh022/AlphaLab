@@ -61,6 +61,7 @@ __all__ = [
     "FutureQuote",
     "RateQuote",
     "SwapQuote",
+    "fixed_bond_flows",
 ]
 
 
@@ -287,6 +288,53 @@ def _months_before(anchor: date, months: int) -> date:
     return date(year, month, min(anchor.day, gregorian.monthrange(year, month)[1]))
 
 
+def fixed_bond_flows(
+    settlement: date, maturity: date, coupon: float, frequency: int, day_count: DayCount
+) -> tuple[tuple[date, float], ...]:
+    """A fixed-coupon bond's cash flows after ``settlement``, per 100 of face, by its conventions.
+
+    The coupon dates step back from maturity by ``12 / frequency`` months, each
+    counted from maturity, so a month-end maturity keeps month-end coupons.
+    Each coupon pays ``100 * coupon`` times its period's year fraction under
+    ``day_count``; a basis that needs the coupon period, ACT/ACT (ICMA) among
+    them, reads each period's own. The redemption of 100 is paid with the
+    last coupon. A zero-coupon bond's only flow is its redemption. Each flow is
+    dated by its unadjusted date.
+
+    Raises:
+        RatesInputError: If maturity is not after settlement, the coupon is
+            not a finite number, the frequency does not divide a year into
+            whole months, or the basis cannot measure a coupon period.
+    """
+
+    _period(settlement, maturity, "A bond")
+    rate = require_finite(coupon, "A bond's coupon")
+    if (
+        isinstance(frequency, bool)
+        or not isinstance(frequency, int)
+        or frequency < 1
+        or 12 % frequency
+    ):
+        raise RatesInputError(
+            f"A bond's frequency is {frequency!r}; coupons a year that divide it into whole "
+            "months: 1, 2, 3, 4, 6 or 12."
+        )
+    require_basis(day_count, "A bond's day count", terms_free=False)
+    step = 12 // frequency
+    dates = [maturity]
+    while dates[-1] > settlement:
+        dates.append(_months_before(maturity, step * len(dates)))
+    flows = []
+    for later, earlier in pairwise(dates):
+        fraction = period_fraction(
+            earlier, later, day_count, frequency=frequency, termination=maturity
+        )
+        amount = 100.0 * rate * fraction + (100.0 if later == maturity else 0.0)
+        if amount != 0.0:
+            flows.append((later, amount))
+    return tuple(reversed(flows))
+
+
 @dataclass(frozen=True, slots=True)
 class BondQuote:
     """A fixed-coupon bond's full price per 100 of face, paid at its settlement.
@@ -317,37 +365,12 @@ class BondQuote:
     flows: tuple[tuple[date, float], ...] = field(init=False)
 
     def __post_init__(self) -> None:
-        _period(self.settlement, self.maturity, "A bond")
-        object.__setattr__(self, "coupon", require_finite(self.coupon, "A bond's coupon"))
         object.__setattr__(self, "price", require_finite(self.price, "A bond's price"))
-        if (
-            isinstance(self.frequency, bool)
-            or not isinstance(self.frequency, int)
-            or self.frequency < 1
-            or 12 % self.frequency
-        ):
-            raise RatesInputError(
-                f"A bond's frequency is {self.frequency!r}; coupons a year that divide it into "
-                "whole months: 1, 2, 3, 4, 6 or 12."
-            )
-        require_basis(self.day_count, "A bond's day count", terms_free=False)
-        step = 12 // self.frequency
-        dates = [self.maturity]
-        while dates[-1] > self.settlement:
-            dates.append(_months_before(self.maturity, step * len(dates)))
-        flows = []
-        for later, earlier in pairwise(dates):
-            fraction = period_fraction(
-                earlier,
-                later,
-                self.day_count,
-                frequency=self.frequency,
-                termination=self.maturity,
-            )
-            amount = 100.0 * self.coupon * fraction + (100.0 if later == self.maturity else 0.0)
-            if amount != 0.0:
-                flows.append((later, amount))
-        object.__setattr__(self, "flows", tuple(reversed(flows)))
+        flows = fixed_bond_flows(
+            self.settlement, self.maturity, self.coupon, self.frequency, self.day_count
+        )
+        object.__setattr__(self, "coupon", float(self.coupon))
+        object.__setattr__(self, "flows", flows)
 
     @property
     def pillar(self) -> date:

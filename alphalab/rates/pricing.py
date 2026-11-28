@@ -81,6 +81,7 @@ __all__ = [
     "fra_settlement",
     "leg_periods",
     "swap_accrued",
+    "value_flows",
     "value_fra",
     "value_swap",
 ]
@@ -473,3 +474,44 @@ def fra_settlement(terms: FraTerms, fixing: Decimal) -> Decimal:
         raise RatesInputError(f"A fixing is a finite Decimal, got {fixing!r}.")
     tau = Decimal(repr(accrual(terms.start, terms.end, terms.day_count)))
     return terms.notional * (fixing - terms.rate) * tau / (1 + fixing * tau)
+
+
+def value_flows(flows: Sequence[tuple[date, float]], *, discount: DiscountCurve) -> Valuation:
+    """Riskless flows' value on the discount curve's date: ``sum(cf * D(t))``.
+
+    A fixed-coupon bond's value off a curve, with its flows from
+    :func:`~alphalab.rates.quotes.fixed_bond_flows`. A flow on or before the
+    curve's date has been paid, and is not valued.
+
+    Raises:
+        RatesInputError: If the curve is not one, or a flow is not a finite
+            number.
+        CurveRangeError: If a flow lies beyond a curve that states no
+            extrapolation.
+    """
+
+    if not isinstance(discount, DiscountCurve):
+        raise RatesInputError(f"discount is a DiscountCurve, got {discount!r}.")
+    as_of = discount.anchor
+    stated = []
+    for day, amount in flows:
+        if (
+            not isinstance(day, date)
+            or isinstance(amount, bool)
+            or not isinstance(amount, int | float)
+            or not math.isfinite(amount)
+        ):
+            raise RatesInputError(f"A flow is a date and a finite amount, got {(day, amount)!r}.")
+        if day > as_of:
+            stated.append((day, float(amount)))
+    value = math.fsum(amount * discount.discount(day) for day, amount in stated)
+    key = "\n".join(
+        [
+            VALUATION_KEY_SCHEME,
+            "kind=flows",
+            f"as_of={as_of.isoformat()}",
+            f"discount={discount.curve_id}",
+            *(f"flow={day.isoformat()}|{amount!r}" for day, amount in stated),
+        ]
+    )
+    return Valuation(as_of, discount.currency, value, (("flows", value),), 0.0, None, None, key)

@@ -352,6 +352,30 @@ FRA's, a repo's and a floater's cash to the minor unit by hand.
     identities. The cash ledger stays the book of record, and no curve is
     read inside a run.
 
+# Settled at implementation (2026-11-28): S-06 and the guide
+
+30. **S-06, end to end.** `examples/85_trade_a_duration_neutral_curve_book.py`
+    holds a two-year Treasury note against a ten-year payer swap through a
+    synthetic 2025. Its experiment lives in `examples/_rates_book.py`, so its
+    identity is stable.
+    - Each week a swap curve, from a deposit and par swaps, and a Treasury
+      curve, from par notes at ACT/ACT (ICMA), are bootstrapped under a named
+      interpolation.
+    - The note is valued at its flows (`fixed_bond_flows`, `value_flows`) and
+      the swap at its value, each off its own curve, as the run's marks.
+    - Every coupon is booked by the run from fixings as they were published.
+
+    Two trials size the swap: to a zero parallel DV01 at inception, or to the
+    note's face, which leaves the book short the level.
+    `tests/integration/test_rates_end_to_end.py` holds:
+    - each curve repricing its quotes under its interpolation;
+    - the duration book within one unit's DV01 of zero;
+    - both trials counted, the short-duration book gaining as the level rose;
+    - the duration book's cash, reconciled to the cent by hand.
+31. **The guide.** `docs/RATES.md` states the three rules, the curves, the
+    bootstrap and GR-6, the instruments, their values, the payments on the
+    run's path, S-06, and what is not here.
+
 # Compatibility
 
 - Additive. A package, terms, appended `AssetType` members, and cash-flow

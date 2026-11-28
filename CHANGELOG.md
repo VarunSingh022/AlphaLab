@@ -1735,6 +1735,21 @@ entry below says otherwise.
   * A record that trades past its final payment is refused. What a position
     has accrued is stated by its conventions, and its coupon's cash is booked
     at payment to its holder (ADR-0065 settled point 28).
+* **S-06: a duration-neutral curve book, run as an experiment, and the rates
+  guide** [plan WS-14, S-06, ADR-0065].
+  `examples/85_trade_a_duration_neutral_curve_book.py` holds a two-year
+  Treasury note against a ten-year payer swap through a synthetic 2025.
+  * Each week a swap curve and a Treasury curve are bootstrapped under a named
+    interpolation, the notes at ACT/ACT (ICMA).
+  * The note is marked at its flows and the swap at its value, each off its
+    own curve.
+  * Every coupon is booked from fixings as they were published.
+
+  Two trials size the swap to a zero parallel DV01 or to the note's face, and
+  `tests/integration/test_rates_end_to_end.py` reconciles the duration book's
+  cash to the cent. `fixed_bond_flows` states a fixed-coupon bond's flows by
+  its conventions, and `value_flows` values riskless flows off a curve.
+  `docs/RATES.md` is the rates guide.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

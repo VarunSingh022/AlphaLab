@@ -1471,6 +1471,19 @@
       "compatibility": "Additive: a backtesting module and five exports; settle_contract accepts three more asset types, which no earlier record could be. No identity, digest or persisted byte moves.",
       "record": "docs/ADR/0065-fixed-income-and-rates.md (settled points 24 to 29, known limitation 4); CHANGELOG.",
       "tests": "tests/integration/test_rates_booking.py (6)."
+    },
+    {
+      "id": "TD-94",
+      "date": "2026-11-28",
+      "workstream": "WS-14",
+      "title": "S-06 as a note-against-swap curve book run as an experiment whose trials size the hedge, the marks fixed across trials, and the rates guide (ADR-0065)",
+      "problem": "S-06 asks for rates relative value -- a curve bootstrapped under a named interpolation, swaps and bonds at ACT/ACT, a duration-neutral book -- run as an experiment. An experiment's trials share one dataset, schedule and registry, so what a trial varies cannot be the curves the marks are read off.",
+      "alternatives": "(a) Trials over the interpolation: the marks, and so the dataset, would differ by trial, outside what an experiment holds fixed. (b) A 2s10s swap steepener alone: no bond, no ACT/ACT. (c) A two-year Treasury note against a ten-year payer swap, marked off curves under one stated interpolation, with trials sizing the swap duration-neutral or notional-matched.",
+      "decision": "(c). examples/_rates_book.py bootstraps a swap curve and a Treasury curve each week from a synthetic level, slope and spread drawn with random() and arithmetic, marks the note at its flows and the swap at its value, books every coupon through rates_payments from published fixings, and runs two trials. fixed_bond_flows and value_flows are added to rates for the note. docs/RATES.md is the guide.",
+      "rationale": "The trial varies what the strategy decides, as an experiment's trials should, and the two sizings answer the scenario's question: which risk the book holds. Marks rounded to a published price's precision keep a host's last-bit difference out of the dataset in all but a vanishing share of values.",
+      "compatibility": "Additive: an example, its module, a guide, two rates exports.",
+      "record": "docs/ADR/0065-fixed-income-and-rates.md (settled points 30 and 31); CHANGELOG; docs/EXAMPLES.md; docs/README.md.",
+      "tests": "tests/integration/test_rates_end_to_end.py (6); tests/installed_smoke.py runs example 85."
     }
   ],
   "plan_changes": [
@@ -2697,7 +2710,7 @@
         {
           "milestone": "M10",
           "item": "Swaps and FRAs by declared terms (TD-91, ADR-0065 settled points 11 to 17, GAP-51 in part): AssetType.SWAP and FRA; SwapTerms and FraTerms on the record, outside its identity key; value_swap and value_fra off a stated discount and projection curve, a known fixing read as supplied and refused when absent; swap parity at inception; accrual by convention; the FRA's settlement in Decimal",
-          "status": "Pushed"
+          "status": "Hosted CI passed"
         },
         {
           "milestone": "M10",
@@ -2707,6 +2720,11 @@
         {
           "milestone": "M10",
           "item": "A rates position's payments on the run's path (TD-93, ADR-0065 settled points 24 to 29, known limitation 4): rates_payments turns a record's terms into per-unit coupon distributions, netted per date, and a final settlement closing at the price the terms state; fixings and prints as published observations read point-in-time, a missing or late one refused; settle_contract closes a swap, an FRA and a repo",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M10",
+          "item": "S-06 end to end and the rates guide (TD-94, ADR-0065 settled points 30 and 31): example 85 holds a two-year Treasury note against a ten-year payer swap through a synthetic 2025, both curves bootstrapped weekly under a named interpolation, every coupon booked from published fixings, run as an experiment of two sizings; docs/RATES.md",
           "status": "Local validation passed"
         }
       ],
@@ -2714,7 +2732,8 @@
         "alphalab.rates (imports common and conventions only): curve.py, quotes.py, schedule.py, bootstrap.py. tests/unit/rates (46): each interpolation held to its definition, a pillar read back bit for bit, extrapolation refused unless stated and each kind by its definition, a parallel shift exact under every method; GR-6 -- Hull, Options, Futures, and Other Derivatives, 8th ed., Tables 4.3 and 4.4 to the three decimals published under both interpolations, and the two-year swap zero rate of 4.953%; every quote type repriced to 1e-11; a projection curve against a stated OIS curve checked by hand; refusals; identity the problem's. benchmarks/benchmark_rates.py: a 30-instrument curve in 0.008 CPU s against the plan's 1 s.",
         "alphalab.rates.terms (SwapTerms, FraTerms, FixedLeg, FloatingLeg, LegSchedule, the codec) and alphalab.rates.pricing (leg_periods, value_swap, value_fra, swap_accrued, fra_settlement); instrument carries the terms (record validation, the terms codec). tests/unit/rates/test_swaps_and_fras.py (12): parity at inception on one curve for each quoted tenor and against a stated OIS curve; a known fixing read as supplied, a basis point costing one basis point of the period's discounted accrual, and refused when absent; accrual by convention by hand; a receiver's DV01 near its annuity; an FRA at its forward worth nothing and settled by its formula. tests/unit/instrument/test_rates_records.py (4): what a rates record must declare, terms outside the identity key, the registry's round trip, and a split and an exchange passing over a working swap, which failed on the unfixed check with an AttributeError.",
         "alphalab.rates.securities and alphalab.rates.credit. tests/unit/rates/test_securities_and_credit.py (14), by hand: a floater at its reset worth par and a spread adding its annuity; a fixed floater worth its coupon and par at the period's end; a coupon paid on the valuation date paid, not valued; a reference index monthly and interpolated by the day of the month in Decimal, a missing print refused; the floor at par; a linker at today's index ratio times its real flows; a repo's repayment, and a forward repo at par worth nothing; hazards to survival; a risky bond's surviving flows and recovery; at zero recovery a hazard pricing as the same spread. Five faults were tried by hand; the boundary of a coupon paid on the valuation date survived until its test was added. tests/unit/instrument/test_rates_records.py gains the repo and the coupon-bond records.",
-        "alphalab/backtesting/rates_payments.py; settle_contract's _REDEEMED. tests/integration/test_rates_booking.py (6), each through BacktestEngine with the schedule rates_payments builds, cash reconciled to the minor unit by hand: a receiver swap's four netted coupons and its close at nothing; an FRA's settlement at its start; a repo's week; a floater quoted per hundred, redeemed at 100; a missing fixing, a fixing published after its payment and a record trading past its last payment refused; a partial window needing only its own fixings. Four faults tried by hand, each caught: the multiplier's division, the point-in-time read, the floating coupon's sign, the trading check."
+        "alphalab/backtesting/rates_payments.py; settle_contract's _REDEEMED. tests/integration/test_rates_booking.py (6), each through BacktestEngine with the schedule rates_payments builds, cash reconciled to the minor unit by hand: a receiver swap's four netted coupons and its close at nothing; an FRA's settlement at its start; a repo's week; a floater quoted per hundred, redeemed at 100; a missing fixing, a fixing published after its payment and a record trading past its last payment refused; a partial window needing only its own fixings. Four faults tried by hand, each caught: the multiplier's division, the point-in-time read, the floating coupon's sign, the trading check.",
+        "examples/_rates_book.py and examples/85_trade_a_duration_neutral_curve_book.py; docs/RATES.md, its first snippet run as written. tests/integration/test_rates_end_to_end.py (6): each curve repricing its quotes under LOG_LINEAR_DISCOUNT on three days; the duration book within one unit's DV01 of zero at inception and the notional book short the level; both trials counted in the ledger, the short-duration book gaining as the level rose 86 bp; the duration book's cash reconciled to the cent -- its trades, the note's coupon and the swap's three netted coupons. The example runs in the installed-package smoke."
       ]
     },
     {
@@ -3927,7 +3946,7 @@
   },
   "state": {
     "updated": "2026-11-28",
-    "remote_head": "f18bf3c",
+    "remote_head": "2f8c3e3",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -5561,6 +5580,24 @@
         "workflow": "Optional Distributions",
         "run": 46141303246,
         "result": "success"
+      },
+      {
+        "sha": "c709ad0",
+        "workflow": "Continuous Integration",
+        "run": 46143558802,
+        "result": "success: all six quality-gate cells (swaps and FRAs)"
+      },
+      {
+        "sha": "c709ad0",
+        "workflow": "CodeQL",
+        "run": 46143558769,
+        "result": "success"
+      },
+      {
+        "sha": "c709ad0",
+        "workflow": "Optional Distributions",
+        "run": 46143558794,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
@@ -6083,6 +6120,10 @@
     {
       "date": "2026-11-28",
       "entry": "c709ad0 and f18bf3c pushed. 3cae814 passed hosted CI: all six cells, CodeQL and the distributions. A rates position's payments reach the run's path (TD-93): its coupons as per-unit distributions netted per date, its final payment as a settlement, and its fixings as published observations read point-in-time."
+    },
+    {
+      "date": "2026-11-28",
+      "entry": "2f8c3e3 pushed. c709ad0 passed hosted CI: all six cells, CodeQL and the distributions. S-06 ran end to end as an experiment, and the rates guide was written (TD-94). WS-14's content is complete. Its last items await hosted CI."
     }
   ]
 }
