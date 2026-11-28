@@ -73,7 +73,7 @@ def accrual(start: date, end: date, basis: DayCount, terms: DayCountTerms | None
 
 
 def period_fraction(
-    start: date, end: date, basis: DayCount, *, frequency: int, termination: date
+    start: date, end: date, basis: DayCount, *, frequency: int | None, termination: date
 ) -> float:
     """A regular coupon period's year fraction, with the terms its basis needs from the leg.
 
@@ -89,6 +89,11 @@ def period_fraction(
     if needed == frozenset({"termination"}):
         return accrual(start, end, basis, DayCountTerms(termination=termination))
     if needed == frozenset({"period_start", "period_end", "frequency"}):
+        if frequency is None:
+            raise RatesInputError(
+                f"{basis.name} reads a coupon frequency, and a step that does not divide a year "
+                "into whole periods has none."
+            )
         return accrual(
             start,
             end,

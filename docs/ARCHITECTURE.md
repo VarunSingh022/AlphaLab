@@ -1083,8 +1083,11 @@ imports `research`.
 `alphalab.common` and `alphalab.conventions` and nothing else in AlphaLab:
 curves, quotes and bootstraps over what the researcher supplies, with every
 choice stated. It reopens BDY-014 on that boundary's own terms: a curve's
-interpolation is required and named. Nothing on either path imports it yet;
-what books or values a rates instrument will.
+interpolation is required and named. `instrument` imports it for the terms a
+swap's or an FRA's record declares (`SwapTerms`, `FraTerms`), which are
+declared beside what values them. Since `rates` reaches only `common` and
+`conventions`, which `instrument` already reached, the edge adds nothing to
+what `instrument` reaches.
 `tests/regression/test_documented_dependencies_are_measured.py` holds its
 edges.
 

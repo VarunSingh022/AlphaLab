@@ -208,6 +208,57 @@ Building sections 1 to 3 settled ten points. Each is held by a test in
     curve within the plan's one second: 0.008 CPU seconds under each
     interpolation on the reference machine.
 
+# Settled at implementation (2026-11-28): swaps and FRAs
+
+Building section 4 for swaps and FRAs settled seven more points.
+
+11. **Terms live beside what values them.** `SwapTerms` and `FraTerms`, with
+    their `FixedLeg`, `FloatingLeg` and `LegSchedule`, are declared in
+    `alphalab.rates`. `instrument` imports them and carries them on the
+    record, outside the identity key, written and read by its codec as kinds
+    `swap` and `fra`. Calendars are named by id, as an FX deal's are, and
+    supplied where the terms are used.
+12. **A rates record.** `AssetType.SWAP` and `AssetType.FRA` are appended, so
+    no written value moves. A record of either must declare its type's terms,
+    in its own currency. Its economics are declared and must:
+    - settle as `cash_equity`, the value paid at the trade, or as
+      `futures_variation`, settled at every mark as a cleared swap is;
+    - allow a negative price, since a unit is worth its value per unit of
+      notional, which is negative whenever rates move against the holder.
+13. **Sides.** One unit held receives a swap's fixed leg and pays its
+    floating leg, and a negative quantity is the payer's side. One FRA unit
+    receives the fixing and pays the contract rate.
+14. **Periods and fixings.**
+    - A leg's periods are its regular schedule from the instrument's start
+      (settled point 7).
+    - A floating period's fixing date is its reset lag in business days
+      before its start, in its leg's calendars.
+    - A valuation is as of the curves' date. A period already paid is not
+      valued. A period fixed before that date reads its fixing from what the
+      caller supplies and is refused when it is absent, never projected. A
+      period fixing on or after it is projected over the period itself.
+15. **Values and parity.** `value_swap` and `value_fra` return a `Valuation`:
+    - the value to one unit, and each leg's;
+    - what is accrued, by each leg's convention (`swap_accrued`);
+    - the par rate and the annuity.
+
+    Its `valuation_id` covers the terms, the periods as the calendars placed
+    them, the curves' identities, every fixing read and the date. A swap
+    struck at a quoted par rate is worth nothing on the curve bootstrapped
+    from that quote, on one curve and against a stated OIS curve
+    (`tests/unit/rates/test_swaps_and_fras.py`).
+16. **An FRA's settlement.** `fra_settlement` is
+    `notional * (fixing - rate) * tau / (1 + fixing * tau)`, the period's
+    difference discounted to its start at the fixing. It is computed in
+    `Decimal` under the accounting context, from the terms and the shortest
+    `repr` of the period's year fraction, so it books exactly on every host.
+17. **A corporate action passes over a swap.** A split and a holding exchange
+    check every contract held or worked for a deliverable they change. They
+    now pass over every terms type but an option's, since an FX deal, a swap
+    and an FRA deliver no instrument. With a swap working at the venue, the
+    check had read an option's adjustments from it, and the action failed
+    (`tests/unit/instrument/test_rates_records.py`).
+
 # Compatibility
 
 - Additive. A package, terms, appended `AssetType` members, and cash-flow

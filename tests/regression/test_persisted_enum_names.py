@@ -222,6 +222,9 @@ VALUES: dict[str, tuple[str, ...]] = {
         # v4.3.0 (ADR-0076): an ETF and an open-ended fund.
         "etf",
         "fund",
+        # v4.3.0 (ADR-0065): a swap and an FRA, booked by their declared terms.
+        "swap",
+        "fra",
     ),
     "alphalab.core.enums.OrderStatus": (
         "new",

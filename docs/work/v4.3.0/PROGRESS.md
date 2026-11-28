@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `049d1c3` |
+| Remote head | `3cae814` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M10: WS-14's rates -- instruments by declared terms (SwapTerms, FraTerms, FloaterTerms, LinkerTerms, RepoTerms; AssetType SWAP, FRA, REPO), on-path cash-flow booking with fixings as observations, credit curves, S-06 and the rates guide -- then WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for the next push is read at the next boundary. |
@@ -450,6 +450,7 @@ Never:
 - **2026-11-28** ca73c49 pushed: GR-1 (TD-87). 5093723 passed hosted CI. A run's provenance now cites the reference packs it read (TD-88), written and hashed only when cited, so no stored record or provenance_id moves.
 - **2026-11-28** ad5a88e pushed: pack citations in provenance (TD-88), and PR #22's description brought up to date with M10's commits, still a Draft. ADR-0076 accepted under delegation and implemented (TD-89): an ETF trades as a share, and an open-ended fund deals at the NAV after its dealing day's close, by the calendar and the hold that exist. GAP-51's other classes are WS-14's and WS-28's.
 - **2026-11-28** 049d1c3 pushed. 689a1aa, ca73c49, ad5a88e and 049d1c3 passed hosted CI: all six quality-gate cells, CodeQL and the optional distributions. Release Preflight skipped by design. WS-13's M10 items are recorded as Hosted CI passed. WS-14 began: the rates package's curves and bootstrap (TD-90). GR-6 reproduces Hull's Tables 4.3 and 4.4 to the decimals published, and his two-year swap rate.
+- **2026-11-28** 3cae814 pushed: the rates package's curves and bootstrap, GR-6 reproduced (TD-90). Swaps and FRAs by declared terms followed (TD-91). A split or a holding exchange beside a working swap read an option's adjustments from it and failed. Both checks now pass over any terms but an option's.
 
 ## Milestones
 
@@ -1418,6 +1419,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0065-fixed-income-and-rates.md (settled points 1 to 10, known limitations 1 and 2); CHANGELOG; docs/ARCHITECTURE.md.
 - **Tests:** tests/unit/rates/test_curve.py, test_bootstrap.py, test_schedules_and_quotes.py (46), including GR-6. Six planted faults were tried by hand: the interpolations, the extrapolation, the first segment, a projection coupon's discounting, a future's adjustment, a bond's settlement discount. The last survived until a bond settled after the curve's date was added, and now fails it. benchmarks/benchmark_rates.py holds the one-second budget.
 
+### TD-91: Swaps and FRAs by declared terms: the terms in alphalab.rates beside what values them, carried by the record, valued off stated curves with a known fixing read as supplied (ADR-0065 section 4, GAP-51) (WS-14, 2026-11-28)
+
+- **Problem:** ADR-0065 section 4 asks for swaps and FRAs whose every leg's notional, day count, frequency, convention, calendars, index, reset lag and fixing source are declared, with no default, and appended AssetType members. The terms must ride on the record and persist, and something must value them; rates may import only common and conventions.
+- **Alternatives:** (a) Terms in instrument.terms beside FxTerms: rates could not read them, and valuation would live in instrument or above. (b) Terms in rates and valuation in rates, the record carrying them through instrument's codec, which instrument imports. (c) A generic leg list with a kind tag: a terms field another kind does not use would be accepted.
+- **Decision:** (b). SwapTerms and FraTerms in alphalab.rates.terms, each leg a FixedLeg or FloatingLeg on a LegSchedule, calendars by id; instrument's ContractTerms gains both and its codec writes kinds swap and fra. AssetType.SWAP and FRA appended. A rates record must declare its type's terms in its currency, with economics settled as cash_equity or futures_variation that allow a negative price. value_swap and value_fra return a Valuation with its identity; a period fixed before the curves' date reads the supplied fixing, refused when absent.
+- **Rationale:** Declaring the terms beside what values them keeps rates a library of common and conventions, and makes instrument the importer, which reaches nothing new. A unit's price is its value per unit of notional, so negative prices are the norm, not an edge case.
+- **Compatibility:** Additive: AssetType's binding gains two members (and BrokerAssetClass, the same enum), pinned as persisted values; instrument gains the rates edge, which adds nothing to its reach. No identity, digest or persisted byte moves for a record declaring none. The split and exchange checks' fix changes no outcome for an option or a future.
+- **Recorded in:** docs/ADR/0065-fixed-income-and-rates.md (settled points 11 to 17); CHANGELOG; docs/ARCHITECTURE.md.
+- **Tests:** tests/unit/rates/test_swaps_and_fras.py (12) and tests/unit/instrument/test_rates_records.py (4).
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1681,11 +1692,13 @@ Evidence:
 
 ### WS-14: Fixed income and rates
 
-- [Local validation passed] M10: The rates package's curves and bootstrap (TD-90, ADR-0065 settled points 1 to 10, N13, GR-6): DiscountCurve under a required Interpolation (log-linear discount factors, linear zero rates), extrapolation refused unless stated; bootstrap_curve from deposits, FRAs, futures with a stated convexity adjustment, par swaps and bonds, each pillar solved by Brent's method to a stated tolerance, OIS discounting by a stated discount curve; GR-6 reproduces Hull's Tables 4.3 and 4.4 and his two-year swap rate
+- [Pushed] M10: The rates package's curves and bootstrap (TD-90, ADR-0065 settled points 1 to 10, N13, GR-6): DiscountCurve under a required Interpolation (log-linear discount factors, linear zero rates), extrapolation refused unless stated; bootstrap_curve from deposits, FRAs, futures with a stated convexity adjustment, par swaps and bonds, each pillar solved by Brent's method to a stated tolerance, OIS discounting by a stated discount curve; GR-6 reproduces Hull's Tables 4.3 and 4.4 and his two-year swap rate
+- [Local validation passed] M10: Swaps and FRAs by declared terms (TD-91, ADR-0065 settled points 11 to 17, GAP-51 in part): AssetType.SWAP and FRA; SwapTerms and FraTerms on the record, outside its identity key; value_swap and value_fra off a stated discount and projection curve, a known fixing read as supplied and refused when absent; swap parity at inception; accrual by convention; the FRA's settlement in Decimal
 
 Evidence:
 
 - alphalab.rates (imports common and conventions only): curve.py, quotes.py, schedule.py, bootstrap.py. tests/unit/rates (46): each interpolation held to its definition, a pillar read back bit for bit, extrapolation refused unless stated and each kind by its definition, a parallel shift exact under every method; GR-6 -- Hull, Options, Futures, and Other Derivatives, 8th ed., Tables 4.3 and 4.4 to the three decimals published under both interpolations, and the two-year swap zero rate of 4.953%; every quote type repriced to 1e-11; a projection curve against a stated OIS curve checked by hand; refusals; identity the problem's. benchmarks/benchmark_rates.py: a 30-instrument curve in 0.008 CPU s against the plan's 1 s.
+- alphalab.rates.terms (SwapTerms, FraTerms, FixedLeg, FloatingLeg, LegSchedule, the codec) and alphalab.rates.pricing (leg_periods, value_swap, value_fra, swap_accrued, fra_settlement); instrument carries the terms (record validation, the terms codec). tests/unit/rates/test_swaps_and_fras.py (12): parity at inception on one curve for each quoted tenor and against a stated OIS curve; a known fixing read as supplied, a basis point costing one basis point of the period's discounted accrual, and refused when absent; accrual by convention by hand; a receiver's DV01 near its annuity; an FRA at its forward worth nothing and settled by its formula. tests/unit/instrument/test_rates_records.py (4): what a rates record must declare, terms outside the identity key, the registry's round trip, and a split and an exchange passing over a working swap, which failed on the unfixed check with an AttributeError.
 
 ### WS-15: Performance and scale
 

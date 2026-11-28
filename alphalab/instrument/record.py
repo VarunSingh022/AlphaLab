@@ -65,6 +65,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Final
 
 from alphalab.conventions.economics import SettlementModel
 from alphalab.conventions.settlement import SettlementRule
@@ -76,6 +77,7 @@ from alphalab.instrument.exceptions import InstrumentInputError
 from alphalab.instrument.identity import canonical_instrument_key, derive_asset_id
 from alphalab.instrument.margin import MarginTerms
 from alphalab.instrument.terms import ContractTerms, FutureTerms, FxTerms, OptionTerms
+from alphalab.rates.terms import FraTerms, SwapTerms
 
 __all__ = ["DatedAlias", "InstrumentRecord", "normalize_key_field", "normalize_sector_label"]
 
@@ -414,6 +416,12 @@ class InstrumentRecord:
         )
         if self.terms is not None:
             _require_consistent_terms(self)
+        elif self.asset_type in _RATES_TERMS:
+            raise InstrumentInputError(
+                f"{self.symbol} on {self.exchange} is a {self.asset_type.value}, which books by "
+                f"its declared {_RATES_TERMS[self.asset_type].__name__} (ADR-0065 section 4), "
+                "and declares none."
+            )
         if self.margin is not None and not isinstance(self.margin, MarginTerms):
             raise InstrumentInputError(f"margin is MarginTerms or None, got {self.margin!r}.")
         if self.borrow is not None and not isinstance(self.borrow, BorrowTerms):
@@ -473,6 +481,56 @@ def _require_consistent_fx_terms(record: InstrumentRecord, terms: FxTerms, named
         )
 
 
+#: v4.3.0 (ADR-0065): the rates types, each booked by the terms it must declare.
+_RATES_TERMS: Final[dict[AssetType, type[SwapTerms | FraTerms]]] = {
+    AssetType.SWAP: SwapTerms,
+    AssetType.FRA: FraTerms,
+}
+
+#: How a rates instrument's value per unit of notional may settle: paid at the
+#: trade, or as variation margin at every mark, as a cleared swap's is.
+_RATES_SETTLEMENT: Final = frozenset(
+    {SettlementModel.CASH_EQUITY, SettlementModel.FUTURES_VARIATION}
+)
+
+
+def _require_consistent_rates_terms(
+    record: InstrumentRecord, terms: SwapTerms | FraTerms, named: str
+) -> None:
+    """A swap's or an FRA's terms belong to its own type, priced in their currency (ADR-0065)."""
+
+    expected = AssetType.SWAP if isinstance(terms, SwapTerms) else AssetType.FRA
+    if record.asset_type is not expected:
+        raise InstrumentInputError(
+            f"{named} is a {record.asset_type.value}; {type(terms).__name__} are a "
+            f"{expected.value}'s terms."
+        )
+    if record.currency != terms.currency:
+        raise InstrumentInputError(
+            f"{named} is priced in {record.currency} and its terms are in {terms.currency}: a "
+            "single-currency instrument is priced in its own currency."
+        )
+    economics = record.economics
+    if economics is None or economics.settlement not in _RATES_SETTLEMENT:
+        raise InstrumentInputError(
+            f"{named} declares {type(terms).__name__} and "
+            + (
+                "no economics"
+                if economics is None
+                else f"economics settled as {economics.settlement.value}"
+            )
+            + ": a rates instrument's price is its value per unit of notional, paid at the "
+            "trade (cash_equity) or as variation margin at every mark (futures_variation), and "
+            "its multiplier is stated, never assumed."
+        )
+    if not economics.allows_negative_prices:
+        raise InstrumentInputError(
+            f"{named} declares {type(terms).__name__} and economics that refuse a negative "
+            "price: its price is its value per unit of notional, which is negative whenever "
+            "rates move against the holder. Declare allows_negative_prices."
+        )
+
+
 def _require_consistent_terms(record: InstrumentRecord) -> None:
     """Terms that cannot belong to this record are refused at declaration (FUT-013)."""
 
@@ -481,13 +539,17 @@ def _require_consistent_terms(record: InstrumentRecord) -> None:
     if isinstance(terms, FxTerms):
         _require_consistent_fx_terms(record, terms, named)
         return
+    if isinstance(terms, SwapTerms | FraTerms):
+        _require_consistent_rates_terms(record, terms, named)
+        return
     if isinstance(terms, OptionTerms):
         expected, settles = AssetType.OPTION, SettlementModel.OPTION_PREMIUM
     elif isinstance(terms, FutureTerms):
         expected, settles = AssetType.FUTURE, SettlementModel.FUTURES_VARIATION
     else:
         raise InstrumentInputError(
-            f"terms are OptionTerms, FutureTerms or FxTerms, got {type(terms).__name__}."
+            "terms are OptionTerms, FutureTerms, FxTerms, SwapTerms or FraTerms, got "
+            f"{type(terms).__name__}."
         )
     if record.asset_type is not expected:
         raise InstrumentInputError(

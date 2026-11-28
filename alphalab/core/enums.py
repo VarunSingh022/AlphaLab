@@ -68,6 +68,12 @@ class AssetType(StrEnum):
     #: v4.3.0 (ADR-0076): an open-ended fund, dealt at its NAV by forward
     #: pricing: at the fund's first price after its dealing day's close.
     FUND = "fund"
+    #: v4.3.0 (ADR-0065): a single-currency interest rate swap, booked by its
+    #: declared :class:`~alphalab.rates.terms.SwapTerms`.
+    SWAP = "swap"
+    #: v4.3.0 (ADR-0065): a forward rate agreement, booked by its declared
+    #: :class:`~alphalab.rates.terms.FraTerms`.
+    FRA = "fra"
 
 
 @unique

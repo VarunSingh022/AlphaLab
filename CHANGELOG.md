@@ -1659,6 +1659,34 @@ entry below says otherwise.
 
   `benchmarks/benchmark_rates.py` holds the plan's one-second budget for a
   30-instrument curve, measured at 0.008 CPU seconds.
+* **Swaps and FRAs by declared terms** [plan WS-14, GAP-51, ADR-0065
+  section 4].
+  * `AssetType` gains `SWAP` and `FRA`, appended, and so does the broker
+    package's `BrokerAssetClass`, which is the same enum.
+  * A record of either type must declare `SwapTerms` or `FraTerms` in
+    `alphalab.rates`. Each leg is a `FixedLeg` or a `FloatingLeg`, stating its
+    notional, rate or index and spread, day count, `LegSchedule` (step,
+    convention, calendars by id, end-of-month rule), reset lag and fixing
+    source, none defaulted. Its economics must settle as `cash_equity` or
+    `futures_variation` and allow a negative price. The terms ride outside the
+    identity key and persist through the registry's snapshot, as
+    `ContractTerms` do. `RatesTerms` is their union, written and read by
+    `rates_terms_to_primitives` and `rates_terms_from_primitives`.
+  * `value_swap` and `value_fra` value one unit off a stated discount curve
+    and projection curve, as of the curves' date. `leg_periods` places each
+    `CouponPeriod` in the calendars supplied (`resolve_calendars`). A rate
+    fixed before that date is read from the `Fixings` supplied, and refused
+    when absent, never projected. A `Valuation` carries the value, each leg,
+    what is accrued, the par rate, the annuity and its `valuation_id`
+    (`VALUATION_KEY_SCHEME`).
+  * `swap_accrued` states what a unit has accrued by each leg's convention.
+    `fra_settlement` is an FRA's settlement at its fixing, in `Decimal`.
+  * Swap parity at inception is held: a swap struck at a quoted par rate is
+    worth nothing on the curve bootstrapped from that quote, on one curve and
+    against a stated OIS curve.
+  * A split or a holding exchange now passes over any terms but an option's.
+    With a swap working at the venue, the check had read an option's
+    adjustments from it, and the action failed.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

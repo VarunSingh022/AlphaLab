@@ -5523,8 +5523,8 @@ def _require_exchange_adjusted(
                     "a future's delivery is not adjusted for an exchange. Close it before."
                 )
             continue
-        if isinstance(terms, FxTerms):
-            continue  # an FX deal exchanges two currencies; it delivers no instrument
+        if not isinstance(terms, OptionTerms):
+            continue  # an FX deal, a swap or an FRA delivers no instrument
         before = replace(
             terms, adjustments=tuple(a for a in terms.adjustments if a.effective_at < timestamp)
         ).effective(timestamp)
@@ -5572,8 +5572,8 @@ def _require_adjusted_for(state: ExecutionPipelineState, split: Split, timestamp
                     "future's delivery is not adjusted for a split. Close it before the split."
                 )
             continue
-        if isinstance(terms, FxTerms):
-            continue  # an FX deal exchanges two currencies; it delivers no instrument
+        if not isinstance(terms, OptionTerms):
+            continue  # an FX deal, a swap or an FRA delivers no instrument
         before = replace(
             terms, adjustments=tuple(a for a in terms.adjustments if a.effective_at < timestamp)
         ).effective(timestamp)
