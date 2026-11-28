@@ -45,10 +45,10 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `ad5a88e` |
+| Remote head | `049d1c3` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
-| Next | M10: WS-27's records at the close (GR-3, S-05, GAP-23); then WS-13's lot relief (GAP-50), fund and ETF types and GR-1's packs, WS-14's rates (ADR-0065, GR-6, S-06), WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for 5416d36 and the next push is read at the next boundary. |
+| Next | M10: WS-14's rates -- instruments by declared terms (SwapTerms, FraTerms, FloaterTerms, LinkerTerms, RepoTerms; AssetType SWAP, FRA, REPO), on-path cash-flow booking with fixings as observations, credit curves, S-06 and the rates guide -- then WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for the next push is read at the next boundary. |
 
 | Commit | Workflow | Run | Result |
 | --- | --- | --- | --- |
@@ -309,6 +309,18 @@ Never:
 | `5093723` | Continuous Integration | 46117043688 | success: all six quality-gate cells (S-05 end to end) |
 | `5093723` | CodeQL | 46117043656 | success |
 | `5093723` | Optional Distributions | 46117043659 | success |
+| `689a1aa` | Continuous Integration | 46118466884 | success: all six quality-gate cells (lot relief) |
+| `689a1aa` | CodeQL | 46118466940 | success |
+| `689a1aa` | Optional Distributions | 46118466852 | success |
+| `ca73c49` | Continuous Integration | 46119994315 | success: all six quality-gate cells (venue packs, GR-1) |
+| `ca73c49` | CodeQL | 46119994421 | success |
+| `ca73c49` | Optional Distributions | 46119994387 | success |
+| `ad5a88e` | Continuous Integration | 46120950541 | success: all six quality-gate cells (pack citations) |
+| `ad5a88e` | CodeQL | 46120950549 | success |
+| `ad5a88e` | Optional Distributions | 46120950551 | success |
+| `049d1c3` | Continuous Integration | 46122499181 | success: all six quality-gate cells (funds and ETFs) |
+| `049d1c3` | CodeQL | 46122499175 | success |
+| `049d1c3` | Optional Distributions | 46122499230 | success |
 
 ## Continuation log
 
@@ -437,6 +449,7 @@ Never:
 - **2026-11-28** 689a1aa pushed: lot relief (TD-86). 5416d36 passed hosted CI. GR-1 is validated locally (TD-87): a reference pack now states a venue's sessions, holidays and settlement cycle; a calendar read from one holds the pack's range as its coverage and refuses a day outside it, inside a run too; and the loader reads a pack's JSON with its digest checked first. Citing a pack in RunProvenance (plan G.1.3, R53-5) needs the stored record's schema step and follows.
 - **2026-11-28** ca73c49 pushed: GR-1 (TD-87). 5093723 passed hosted CI. A run's provenance now cites the reference packs it read (TD-88), written and hashed only when cited, so no stored record or provenance_id moves.
 - **2026-11-28** ad5a88e pushed: pack citations in provenance (TD-88), and PR #22's description brought up to date with M10's commits, still a Draft. ADR-0076 accepted under delegation and implemented (TD-89): an ETF trades as a share, and an open-ended fund deals at the NAV after its dealing day's close, by the calendar and the hold that exist. GAP-51's other classes are WS-14's and WS-28's.
+- **2026-11-28** 049d1c3 pushed. 689a1aa, ca73c49, ad5a88e and 049d1c3 passed hosted CI: all six quality-gate cells, CodeQL and the optional distributions. Release Preflight skipped by design. WS-13's M10 items are recorded as Hosted CI passed. WS-14 began: the rates package's curves and bootstrap (TD-90). GR-6 reproduces Hull's Tables 4.3 and 4.4 to the decimals published, and his two-year swap rate.
 
 ## Milestones
 
@@ -1395,6 +1408,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0076-funds-and-etfs-as-booking-classes.md (settled points 1 to 5); CHANGELOG.
 - **Tests:** tests/integration/test_funds_and_etfs.py (5): an ETF at its own quote; a fund's order before the cutoff dealt at that evening's NAV, one after it at the next day's; a redemption beyond units held refused; a day order, a limit order, a package leg and an undeclared calendar refused; both types fully paid. tests/unit/instrument/test_fx_terms.py gains the funds index, derived and restored. The registry-read table restates its index reads.
 
+### TD-90: The rates package's curves and bootstrap: a required named interpolation, extrapolation refused unless stated, each pillar solved by the library's root finder to a stated tolerance, and an identity that is the problem's (ADR-0065 sections 1 to 3, GR-6) (WS-14, 2026-11-28)
+
+- **Problem:** ADR-0065 reopens BDY-014 on its own reason: a curve's interpolation must be the researcher's, named and recorded. A curve, its bootstrap and its identity had to be built so that no modelling choice is defaulted, a quote that cannot be met is refused, and a solved discount factor -- class 3, through exp and log -- never enters an identity.
+- **Alternatives:** (a) A curve as a list of zero rates with a default linear interpolation: the choice BDY-014 refused. (b) A global solver fitting every pillar at once: needed only for non-local interpolations, none of which is at M10, and harder to certify. (c) Pillars solved in turn by Brent's method on ln P, under an Interpolation the curve requires, with local methods only (log-linear discount factors, linear zero rates), extrapolation stated or refused; a curve's identity over its stated pillars, or over its derivation when computed; a bootstrap's identity over the problem.
+- **Decision:** (c). DiscountCurve, Pillar, Interpolation, Extrapolation, shifted; bootstrap_curve over DepositQuote, FraQuote, FutureQuote, SwapQuote and BondQuote with tolerance and max_iterations required and FORWARD_SEARCH stated; a discount= curve makes a projection curve against it (OIS discounting, stated); CurveBootstrap returns each Repricing and each pillar's ConvergenceReport. A bond's price is a fifth quote type, since GR-6's published example bootstraps from bonds. A quoted swap's floating forward is read over its accrual period, so its floating leg states no day count; a stub is refused.
+- **Rationale:** Local interpolations make each pillar's solve independent of later ones, so a bootstrap is exact in order and its repricing reads off the curve returned. Naming the derivation in place of the solved bits keeps two hosts that solved one problem on one identity (ADR-0058 section 3).
+- **Compatibility:** Additive: a new package, alphalab.rates, its edges common and conventions (docs/ARCHITECTURE.md's table, measured); the package count 46 and the manifest 47 packages and 3,191 exports. RateQuote is named apart from the market packages' Quote. No identity, digest or persisted byte moves.
+- **Recorded in:** docs/ADR/0065-fixed-income-and-rates.md (settled points 1 to 10, known limitations 1 and 2); CHANGELOG; docs/ARCHITECTURE.md.
+- **Tests:** tests/unit/rates/test_curve.py, test_bootstrap.py, test_schedules_and_quotes.py (46), including GR-6. Six planted faults were tried by hand: the interpolations, the extrapolation, the first segment, a projection coupon's discounting, a future's adjustment, a bond's settlement discount. The last survived until a bond settled after the curve's date was added, and now fails it. benchmarks/benchmark_rates.py holds the one-second budget.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1647,14 +1670,22 @@ Evidence:
 - [Hosted CI passed] M3: data.packs.ReferencePack: source, coverage, licence, typed entries, content digest; universe_from_pack
 - [Hosted CI passed] M3: Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught
 - [Hosted CI passed] M10: Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in
-- [Pushed] M10: Lot relief (TD-86, GAP-50): relieve_lots reads an asset's gains and open lots by a stated LotRelief -- average cost as the book relieves it, FIFO, LIFO, highest and lowest cost, Section 104's same-day, 30-day and pool rules -- the book unchanged
-- [Pushed] M10: A venue from a reference pack, and the loader (TD-87, ADR-0059 settled points 6 to 10, GR-1): VenueSession, Holiday and SettlementCycle entries; calendar_from_pack with coverage refused outside; settlement_from_pack; load_pack; GR-1's three venues in three zones from a synthetic pack
-- [Pushed] M10: A run cites the reference packs it read (TD-88, ADR-0053 section 8, plan G.1.3): RunProvenance.packs, a pack line of the canonical key per citation, written only when cited
-- [Local validation passed] M10: Funds and ETFs as booking classes (TD-89, ADR-0076, GAP-51 in part): AssetType.ETF and FUND; an ETF trades as a share; a fund deals at the NAV after its dealing day's close
+- [Hosted CI passed] M10: Lot relief (TD-86, GAP-50): relieve_lots reads an asset's gains and open lots by a stated LotRelief -- average cost as the book relieves it, FIFO, LIFO, highest and lowest cost, Section 104's same-day, 30-day and pool rules -- the book unchanged
+- [Hosted CI passed] M10: A venue from a reference pack, and the loader (TD-87, ADR-0059 settled points 6 to 10, GR-1): VenueSession, Holiday and SettlementCycle entries; calendar_from_pack with coverage refused outside; settlement_from_pack; load_pack; GR-1's three venues in three zones from a synthetic pack
+- [Hosted CI passed] M10: A run cites the reference packs it read (TD-88, ADR-0053 section 8, plan G.1.3): RunProvenance.packs, a pack line of the canonical key per citation, written only when cited
+- [Hosted CI passed] M10: Funds and ETFs as booking classes (TD-89, ADR-0076, GAP-51 in part): AssetType.ETF and FUND; an ETF trades as a share; a fund deals at the NAV after its dealing day's close
 
 Evidence:
 
 - conventions.daycount: 30E/360, 30E/360 (ISDA), ACT/ACT (ISDA), ACT/ACT (ICMA), ACT/365L, NL/365 and BUS/252 beside ACT/365F, ACT/360 and 30/360, by ISDA 2006 section 4.16 and ICMA Rule 251; DayCountTerms for what only an instrument states (coupon period and frequency, termination date, holidays and weekend), required where a basis needs them and refused where it does not; required_terms; days_in_year refusing the three variable-year bases; require_accrual_basis for daily accruals. Consumers: financing and borrow refuse a basis that cannot weight a day at construction; macro.bond accrues ICMA and ACT/365L by its own coupon period (a short first coupon against its notional regular period) and refuses BUS/252; an FX forward refuses a basis needing an instrument's terms. tests/unit/conventions/test_global_day_counts.py: each basis against an independent restatement of its definition in Fraction on worked and 300 random periods, the terms rule, the consumers. The three existing bases unchanged, so no accrual, run or result_id moves. ROADMAP, ADR-0039 (amended), BDY-014 (narrowed) record it. GR-2: the bases match the published worked examples -- ISDA's 1998 memorandum on EMU and market conventions for ACT/ACT (ISDA) and (ICMA), the long first coupon by the definition's sum over determination periods, and ISDA's 2008 note on 30/360 conventions for 30E/360 and 30E/360 (ISDA) with their termination dates, as QuantLib's day-counter tests reproduce them -- and BUS/252 matches QuantLib's reference values under the Brazilian holidays of each period. The full gate also caught test_persisted_enum_names's table (PER-004), extended as its rule for an additive member says.
+
+### WS-14: Fixed income and rates
+
+- [Local validation passed] M10: The rates package's curves and bootstrap (TD-90, ADR-0065 settled points 1 to 10, N13, GR-6): DiscountCurve under a required Interpolation (log-linear discount factors, linear zero rates), extrapolation refused unless stated; bootstrap_curve from deposits, FRAs, futures with a stated convexity adjustment, par swaps and bonds, each pillar solved by Brent's method to a stated tolerance, OIS discounting by a stated discount curve; GR-6 reproduces Hull's Tables 4.3 and 4.4 and his two-year swap rate
+
+Evidence:
+
+- alphalab.rates (imports common and conventions only): curve.py, quotes.py, schedule.py, bootstrap.py. tests/unit/rates (46): each interpolation held to its definition, a pillar read back bit for bit, extrapolation refused unless stated and each kind by its definition, a parallel shift exact under every method; GR-6 -- Hull, Options, Futures, and Other Derivatives, 8th ed., Tables 4.3 and 4.4 to the three decimals published under both interpolations, and the two-year swap zero rate of 4.953%; every quote type repriced to 1e-11; a projection curve against a stated OIS curve checked by hand; refusals; identity the problem's. benchmarks/benchmark_rates.py: a 30-instrument curve in 0.008 CPU s against the plan's 1 s.
 
 ### WS-15: Performance and scale
 

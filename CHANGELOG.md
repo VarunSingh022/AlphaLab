@@ -1619,6 +1619,46 @@ entry below says otherwise.
     venue's cost model, and its unit precision its record's lot.
   * `InstrumentRegistry` indexes its funds (`funds`), so a run holding none
     pays one emptiness check for every fund rule.
+* **Rates: curves under a required, named interpolation, and a certified
+  bootstrap** [plan WS-14, N13, GAP-24, GR-6, ADR-0065]. A new package,
+  `alphalab.rates`, importing `alphalab.common` and `alphalab.conventions`
+  only. It narrows BDY-014 on that boundary's own reason: no interpolation is
+  chosen for the researcher.
+  * `DiscountCurve` holds `Pillar`s, dates with discount factors, in a stated
+    currency on a stated day count's axis from its anchor. It is read between
+    pillars by a required `Interpolation`:
+    * `LOG_LINEAR_DISCOUNT`: piecewise-flat forwards;
+    * `LINEAR_ZERO`: zero rates linear, flat before the first pillar.
+
+    A read beyond the last pillar is refused unless the curve states an
+    `Extrapolation` (`FLAT_FORWARD` or `FLAT_ZERO`). It answers `discount`,
+    `zero_rate` under a stated `Compounding`, `forward_rate` under a stated
+    basis, and `shifted`, a parallel move of every zero rate.
+  * `bootstrap_curve` solves each pillar in turn by Brent's method from
+    `DepositQuote`, `FraQuote`, `FutureQuote` (with its convexity adjustment
+    stated), `SwapQuote` and `BondQuote` values. The tolerance and iteration
+    limit are required, and the search range is `FORWARD_SEARCH`. A quote no
+    discount factor reprices is refused with the reason, never skipped.
+  * Given a `discount=` curve, the bootstrap builds a projection curve against
+    it, which is OIS discounting, stated. `RateQuote` is the quotes' union.
+  * A `CurveBootstrap` returns the curve, each quote's `Repricing` and each
+    pillar's convergence report. Its `bootstrap_id` is the problem's,
+    `BOOTSTRAP_KEY_SCHEME`. A computed curve's `curve_id`
+    (`CURVE_KEY_SCHEME`, `canonical_curve_key`, `SHIFT_KEY_SCHEME` for a shift)
+    names its derivation in place of its class-3 discount factors.
+  * `regular_schedule` and `tenor_months` place a leg's dates. They refuse a
+    stub rather than choose where it goes.
+  * Refusals are `RatesInputError`, `CurveRangeError` and `BootstrapError`,
+    under `RatesError`.
+
+  GR-6 reproduces two of Hull's published examples (*Options, Futures, and
+  Other Derivatives*, 8th edition):
+  * the Treasury bootstrap of Tables 4.3 and 4.4, to the three decimals
+    published, under both interpolations;
+  * the two-year swap zero rate of 4.953%.
+
+  `benchmarks/benchmark_rates.py` holds the plan's one-second budget for a
+  30-instrument curve, measured at 0.008 CPU seconds.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

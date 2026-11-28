@@ -3222,7 +3222,7 @@ findings:
     v4_disposition: "KEEP_BOUNDARY"
     verified: "v3.13 review against the code"
     v313_outcome: "Reviewed: unchanged; fixed income remains outside the engine's systematic-trading mission."
-    v430_outcome: "Narrowed: the day-count variants the boundary named (30E/360, ACT/ACT ISDA) are in conventions.daycount with the rest of the world's bond and swap bases (plan N21, GAP-36), each taking an instrument's terms explicitly; the rest of the boundary stands until ADR-0065 (M10)."
+    v430_outcome: "Narrowed: the day-count variants the boundary named (30E/360, ACT/ACT ISDA) are in conventions.daycount with the rest of the world's bond and swap bases (plan N21, GAP-36), each taking an instrument's terms explicitly. At M10 the curve bootstrapper is alphalab.rates (ADR-0065, TD-90): a curve under a required, named interpolation, extrapolation refused unless stated, each pillar solved from the researcher's quotes to a stated tolerance; rates instruments by declared terms follow in WS-14. What stays out: exotic rates options, CVA and XVA, structured products and default simulation."
   - id: "BDY-015"
     category: "boundary"
     subsystem: "roadmap"

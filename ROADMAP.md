@@ -528,13 +528,19 @@ have a regression test that a future "simplification" would have to break first 
   differs between segments of one venue, so a list baked in here would be wrong
   within a year while looking authoritative — the same position v2.11 took on
   taxonomies and v2.17 on FX rates.
-- **No curve bootstrapper.** `YieldCurve` holds *observed* yields and v3.4
-  deliberately did not make it a discount curve. Bootstrapping requires choosing
-  an interpolation scheme over an incomplete set of quotes, and the choice
-  changes every forward rate read off the result — which is the researcher's
-  decision, not a library's. `discount_factor_at` turns an observed yield into a
-  factor under a **named** compounding convention and stops there (ADR-0039
-  decision 11).
+- ~~**No curve bootstrapper.**~~ **Reopened in v4.3 on its own reason**
+  (ADR-0065, TD-90). `YieldCurve` holds *observed* yields and v3.4 deliberately
+  did not make it a discount curve. Bootstrapping requires choosing an
+  interpolation scheme over an incomplete set of quotes, and the choice changes
+  every forward rate read off the result — which is the researcher's decision,
+  not a library's. `alphalab.rates` keeps that decision the researcher's:
+  - a `DiscountCurve` cannot exist without a named `Interpolation`;
+  - a read beyond its last pillar is refused unless it states an
+    `Extrapolation`;
+  - `bootstrap_curve` solves each pillar to a stated tolerance from quotes the
+    researcher supplies, and refuses a quote it cannot meet.
+
+  `YieldCurve` and `discount_factor_at` are unchanged (ADR-0039 decision 11).
 - **No fixed-income engine.** `alphalab.macro.bond` covers what a fixed-rate
   bond with known coupon dates admits exactly. Credit spreads and default,
   embedded calls and puts, and floating and inflation-linked coupons are each

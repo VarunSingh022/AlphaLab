@@ -120,6 +120,94 @@ curve's identity.
   researcher supplies or bootstraps from spreads they quote. Default events
   are not simulated at M10.
 
+# Settled at implementation (2026-11-28): curves and the bootstrap
+
+Building sections 1 to 3 settled ten points. Each is held by a test in
+`tests/unit/rates`.
+
+1. **The package's edges.** `alphalab.rates` imports `alphalab.common` and
+   `alphalab.conventions`, and nothing else in AlphaLab.
+   `tests/regression/test_documented_dependencies_are_measured.py` reads its
+   row of `docs/ARCHITECTURE.md`'s table against its imports.
+2. **The two interpolations, exactly.** A date's time is its year fraction
+   from the curve's anchor under the curve's day count. A basis that needs an
+   instrument's terms cannot be that axis, so it is refused.
+   - `LOG_LINEAR_DISCOUNT`: `ln P` is linear between pillars, from `P = 1` at
+     the anchor.
+   - `LINEAR_ZERO`: the continuously compounded zero rate is linear between
+     pillars, and flat at the first pillar's from the anchor.
+
+   A pillar reads back its own discount factor, bit for bit. Two pillars at
+   one time on the axis, such as 30 and 31 March under 30E/360, are refused.
+3. **Extrapolation, when stated.** `FLAT_FORWARD` continues the last
+   segment's continuously compounded forward rate, and `FLAT_ZERO` the last
+   pillar's zero rate. A curve that states neither refuses a read beyond its
+   last pillar (`CurveRangeError`), and every curve refuses a read before its
+   anchor.
+4. **Identity.** A curve's `curve_id` covers its name, currency, anchor, axis,
+   interpolation, extrapolation and stated pillars. A computed curve names
+   its computation's identity in place of its discount factors: a
+   bootstrap's, or a parallel shift's (`shifted`). A solved discount factor
+   passes through `exp` and `log`, numerical class 3 (ADR-0058 section 3), so
+   two hosts that solved one problem may differ in its last bits while their
+   curves keep one identity. A bootstrap's `bootstrap_id` is the problem's:
+   - the curve's name, currency, anchor, axis, interpolation and
+     extrapolation;
+   - the tolerance, the iteration limit and the search range;
+   - the discount curve's identity;
+   - each quote in pillar order, with its dates as its conventions placed
+     them.
+5. **The bootstrap.** The quotes are taken in order of the last date each
+   reads. Each pillar's `ln P` is solved by Brent's method, the library's one
+   root finder, to the stated tolerance within the stated iterations, both
+   required. It is sought where the new segment's continuously compounded
+   forward rate lies between -100% and +1,000% a year (`FORWARD_SEARCH`).
+   Each refusal is a `BootstrapError` with its reason:
+   - a quote no discount factor in that range reprices, refused with its
+     residual at both ends;
+   - a pillar not solved within its iterations.
+
+   Both interpolations are local, so a later pillar never moves an earlier
+   segment. Each quote's repricing is read off the curve returned.
+6. **A bond's price is a quote too.** Section 3 lists deposits, FRAs, futures
+   and par swaps. GR-6's published example bootstraps zero rates from bond
+   prices, so `BondQuote` is a fifth quote type: a fixed-coupon bond's full
+   price at its settlement, a zero-coupon bond's included.
+   - Its coupons step back from maturity, each counted from it.
+   - Each coupon pays its period's year fraction under the bond's basis.
+     ACT/ACT (ICMA) reads each period's own terms.
+   - It is refused for a projection curve, since its price states discount
+     factors, not an index's forwards.
+7. **A quoted swap.** Both legs run from its start for its length, each a
+   whole number of its own steps, under one convention, calendar set and
+   end-of-month rule.
+   - A stub is refused, not placed.
+   - The fixed leg accrues under its basis. A basis that needs a coupon
+     period's terms reads each period's own, and 30E/360 (ISDA) reads the
+     termination date.
+   - A floating period's forward is read over the period itself, so a
+     floating leg states no day count: nothing would read it.
+   - On one curve the floating leg is `P(start) - P(end)`. Against a
+     discount curve, each floating coupon is projected off the curve being
+     built and discounted at the given one.
+8. **A future's convexity.** A future states the forward
+   `1 - price / 100 - convexity_adjustment`. The adjustment is required, and
+   zero states that none is made.
+9. **GR-6, the published worked examples.** John C. Hull, *Options, Futures,
+   and Other Derivatives* (8th edition, Pearson, 2012):
+   - chapter 4's bootstrap of Treasury zero rates from five bond prices,
+     Tables 4.3 and 4.4, reproduced to the three decimals published (10.127%,
+     10.469%, 10.536%, 10.681% and 10.808%) under both interpolations. Every
+     coupon falls on a pillar, so the example needs none, as its text says.
+   - The swap chapter's two-year zero rate of 4.953%, from zero rates of 4%,
+     4.5% and 4.8% and a two-year swap at 5%.
+
+   The example's times are in years, so the test's axis is 30/360 from 15
+   January 2025, where each maturity's date is exactly its time.
+10. **The budget.** `benchmarks/benchmark_rates.py` bootstraps a 30-instrument
+    curve within the plan's one second: 0.008 CPU seconds under each
+    interpolation on the reference machine.
+
 # Compatibility
 
 - Additive. A package, terms, appended `AssetType` members, and cash-flow
@@ -132,6 +220,16 @@ curve's identity.
 
 None is accepted at drafting. What implementation settles, or defers, is
 recorded below.
+
+1. **A bond's coupon is discounted at its unadjusted date** (settled point 6).
+   A coupon paid on the next business day after a holiday is discounted at the
+   holiday itself, a day or two early. At a 5% rate a day's discounting is
+   about 0.014% of the coupon. Payment adjustment for a bond quote is not built
+   at M10.
+2. **A quoted swap's floating forward is its accrual period's** (settled
+   point 7). A reset lag, and an index tenor that differs from the period, are
+   not modelled in a quote. They are the instrument's declared terms when it is
+   booked (section 4).
 
 # Consequences
 

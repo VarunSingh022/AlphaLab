@@ -1079,6 +1079,15 @@ results over a caller's series, and is reached from neither path.
 `research` may import it, as it imports `factor_library`, and nothing in it
 imports `research`.
 
+**`rates` (v4.3, ADR-0065) is a library on neither path.** It imports
+`alphalab.common` and `alphalab.conventions` and nothing else in AlphaLab:
+curves, quotes and bootstraps over what the researcher supplies, with every
+choice stated. It reopens BDY-014 on that boundary's own terms: a curve's
+interpolation is required and named. Nothing on either path imports it yet;
+what books or values a rates instrument will.
+`tests/regression/test_documented_dependencies_are_measured.py` holds its
+edges.
+
 **`scenario` joined this list in v3.3**, and its being there is the design
 rather than an omission. A `Scenario` applies to a `ScenarioState` — a flat
 projection any holder of positions can produce — rather than to a portfolio
@@ -2346,6 +2355,7 @@ Replay", none of which was true).
 | `conventions` | `common` |
 | `alt_data` | `common` |
 | `econometrics` | `common` |
+| `rates` | `common`, `conventions` |
 | `strategy` | `common` |
 | `replay` | `common` |
 | `data` | `common`, `options` |
