@@ -75,6 +75,7 @@ from dataclasses import dataclass, field, replace
 
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.conventions.tick import is_on_tick
+from alphalab.core.enums import AssetType
 from alphalab.instrument.classification import (
     OPERATOR,
     SECTOR,
@@ -87,8 +88,9 @@ from alphalab.instrument.classification import (
 from alphalab.instrument.controls import TradingControls
 from alphalab.instrument.exceptions import InstrumentInputError, InstrumentRegistrationError
 from alphalab.instrument.margin import MarginModel, OptionPricing, ScenarioMargin
+from alphalab.instrument.membership import HistoricalUniverse
 from alphalab.instrument.record import DatedAlias, InstrumentRecord, normalize_sector_label
-from alphalab.instrument.terms import OptionTerms
+from alphalab.instrument.terms import FxTerms, OptionTerms
 from alphalab.options.enums import ExerciseStyle
 
 __all__ = [
@@ -108,6 +110,7 @@ __all__ = [
     "register_dated_alias",
     "register_instrument",
     "register_instruments",
+    "register_universe",
     "sector_as_of",
 ]
 
@@ -171,6 +174,20 @@ class InstrumentRegistry:
             what the execution path reads after every market step, so a registry
             declaring no recall costs that path nothing. An index, derived like
             ``margined``.
+        universes: universe name -> its dated membership, a
+            :class:`~alphalab.instrument.membership.HistoricalUniverse` (v4.3,
+            ADR-0059). Declared with :func:`register_universe`. A registry
+            holding none snapshots and digests exactly as before.
+        fx_pairs: ``asset_id`` -> ``None``, for every instrument declaring
+            :class:`~alphalab.instrument.terms.FxTerms` (v4.3, ADR-0067) --
+            what the execution path reads before it books a fill or judges an
+            order as an FX deal, so a registry declaring none costs that path
+            one emptiness check. An index, derived like ``margined``.
+        funds: ``asset_id`` -> ``None``, for every open-ended fund
+            (``AssetType.FUND``, v4.3, ADR-0076) -- what the execution path
+            reads before it deals an order at a NAV, so a registry holding
+            none costs that path one emptiness check. An index, derived like
+            ``fx_pairs``.
     """
 
     instruments: PersistentMap[str, InstrumentRecord] = field(default_factory=PersistentMap)
@@ -190,6 +207,9 @@ class InstrumentRegistry:
     margin_model: MarginModel | None = None
     controls: TradingControls | None = None
     recallable: PersistentMap[str, None] | None = None
+    universes: PersistentMap[str, HistoricalUniverse] = field(default_factory=PersistentMap)
+    fx_pairs: PersistentMap[str, None] | None = None
+    funds: PersistentMap[str, None] | None = None
 
     def __post_init__(self) -> None:
         # The containers' own types only -- inspecting the entries here would
@@ -205,6 +225,8 @@ class InstrumentRegistry:
             object.__setattr__(self, "dated", PersistentMap(self.dated))
         if not isinstance(self.dimensions, PersistentMap):
             object.__setattr__(self, "dimensions", PersistentMap(self.dimensions))
+        if not isinstance(self.universes, PersistentMap):
+            object.__setattr__(self, "universes", PersistentMap(self.universes))
         if self.members is None:
             # Built once, when a registry is declared from mappings; every write
             # below passes the index on, kept true, so this never runs again.
@@ -242,6 +264,30 @@ class InstrumentRegistry:
                         asset_id: None
                         for asset_id, record in self.instruments.items()
                         if record.borrow is not None and record.borrow.recalls
+                    }
+                ),
+            )
+        if self.fx_pairs is None:
+            object.__setattr__(
+                self,
+                "fx_pairs",
+                PersistentMap(
+                    {
+                        asset_id: None
+                        for asset_id, record in self.instruments.items()
+                        if isinstance(record.terms, FxTerms)
+                    }
+                ),
+            )
+        if self.funds is None:
+            object.__setattr__(
+                self,
+                "funds",
+                PersistentMap(
+                    {
+                        asset_id: None
+                        for asset_id, record in self.instruments.items()
+                        if record.asset_type is AssetType.FUND
                     }
                 ),
             )
@@ -496,6 +542,16 @@ def register_instrument(
                 registry.recallable
                 if record.borrow is None or not record.borrow.recalls or registry.recallable is None
                 else registry.recallable.set(record.asset_id, None)
+            ),
+            fx_pairs=(
+                registry.fx_pairs
+                if not isinstance(record.terms, FxTerms) or registry.fx_pairs is None
+                else registry.fx_pairs.set(record.asset_id, None)
+            ),
+            funds=(
+                registry.funds
+                if record.asset_type is not AssetType.FUND or registry.funds is None
+                else registry.funds.set(record.asset_id, None)
             ),
         )
     )
@@ -962,3 +1018,37 @@ def declare_trading_controls(
                     f"lists on ({', '.join(sorted(venues))})."
                 )
     return replace(registry, controls=controls)
+
+
+def register_universe(
+    registry: InstrumentRegistry, universe: HistoricalUniverse
+) -> InstrumentRegistry:
+    """The registry carrying ``universe``'s dated membership (v4.3, ADR-0059).
+
+    Every asset the history names must be an instrument the registry holds: a
+    member is an instrument, and one the registry has never heard of is more
+    likely a mistake than a constituent. A delisted company is registered like
+    any other, so a run can be held to it.
+
+    Raises:
+        InstrumentRegistrationError: If ``universe`` is not a
+            :class:`~alphalab.instrument.membership.HistoricalUniverse`, the
+            registry already carries a universe of its name, or the history names
+            an instrument the registry does not hold.
+    """
+
+    if not isinstance(universe, HistoricalUniverse):
+        raise InstrumentRegistrationError(
+            f"A universe is registered as a HistoricalUniverse, got {universe!r}."
+        )
+    if universe.name in registry.universes:
+        raise InstrumentRegistrationError(
+            f"The registry already carries the universe {universe.name!r}: one name, one history."
+        )
+    unknown = sorted(universe.assets - set(registry.instruments))
+    if unknown:
+        raise InstrumentRegistrationError(
+            f"The universe {universe.name!r} names {', '.join(unknown)}, which the registry does "
+            "not hold. Register every member, the delisted included, first."
+        )
+    return replace(registry, universes=registry.universes.set(universe.name, universe))

@@ -534,7 +534,8 @@ def test_a_payload_carrying_a_null_sector_still_restores() -> None:
     state = _run(_ROUND_TRIP, None, _APPLE.asset_id)
     payload = deserialize(serialize(capture_pipeline(state)))
 
-    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA
+    # Version 8: the run declares none of M8's execution options (ADR-0060).
+    assert payload["schema_version"] == 8 == PIPELINE_SNAPSHOT_SCHEMA - 1
     assert [record["sector_id"] for record in payload["trade_records"]] == [None, None]
 
     objects = RuntimeObjects(
@@ -698,8 +699,17 @@ def test_the_runtime_reads_the_registry_through_keyed_reads_and_nothing_else() -
     # an order's turn reads them once more for an auction-reopened halt, by its
     # own indexed lookup -- a test that none are declared, then the halt; and
     # (phase 4, FUT-033) every auction check reads them through `_controls`,
-    # once, where FUT-027's reopening read them twice.
-    assert source.count("record_for(") == 8
+    # once, where FUT-027's reopening read them twice. (v4.3.0) One in
+    # `_indexed_record`, for an instrument one of the registry's own indexes
+    # holds: `fx_pairs` for an FX deal (ADR-0067), read by `_fx_record`, and
+    # `funds` for an open-ended fund (ADR-0076), read by `_fund_record`. The
+    # index is read first -- an emptiness test and a membership test -- so a
+    # run declaring no FX pair and no fund reads no record for either. And once
+    # per market step, an emptiness test of `fx_pairs` before any NDF is
+    # checked for a missing fixing.
+    assert source.count("record_for(") == 9
+    assert source.count(".fx_pairs") == 2
+    assert source.count(".funds") == 1
     assert source.count(".expiring") == 2
     assert source.count(".margined") == 10
     assert source.count(".controls") == 6
@@ -867,7 +877,7 @@ def test_sector_exposure_survives_a_round_trip_without_moving_the_schema() -> No
     payload = deserialize(serialize(capture_pipeline(state)))
     restored = restore_pipeline(pipeline_from_primitives(payload), objects)
 
-    assert payload["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 8
+    assert payload["schema_version"] == 8, "no M8 execution option declared (ADR-0060)"
     assert payload["risk"]["exposure"]["sector_exposure"] == {
         "Technology": "1000.00",
         "Financials": "-400.00",

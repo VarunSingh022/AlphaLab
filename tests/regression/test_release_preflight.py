@@ -60,7 +60,7 @@ def _job(name: str) -> str:
 
 
 #: The candidate branch a push may validate: named once in the trigger, once in the guard.
-CANDIDATE_BRANCH = "work/v4.2.1-release"
+CANDIDATE_BRANCH = "work/v4.3.0-release"
 
 
 def _triggers() -> str:
@@ -712,12 +712,18 @@ def test_the_preflight_keeps_the_artifact_the_approval_reads() -> None:
     ],
 )
 def test_a_release_tag_is_v_and_the_package_s_version(
-    tag: str, outcome: str | None, capsys: pytest.CaptureFixture[str]
+    tag: str, outcome: str | None, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    """``release.yml``: the published tag ``v4.0.0`` names package 4.0.0; nothing else passes."""
+    """``release.yml``: the published tag ``v4.0.0`` names package 4.0.0; nothing else passes.
 
-    script = _script()
-    tag = tag.format(version=script.package_version())
+    Checked in a release's tree with the package's version -- the tree being
+    tested may be one developing it, which the gate refuses whatever the tag
+    (``test_a_development_tree_is_coherent_and_the_release_gate_refuses_it``).
+    """
+
+    version = _script().package_version()
+    script = _script_in(_release_tree(tmp_path / "tree", version))
+    tag = tag.format(version=version)
 
     assert script.main(["version", "--tag", tag]) == (0 if outcome is None else 1)
     said = capsys.readouterr()
@@ -737,8 +743,9 @@ def test_release_yml_takes_the_version_only_from_a_tag_it_has_checked(
     """The step's own script: it fails on a bad tag before any version is handed on."""
 
     version = _script().package_version()
+    tree = _release_tree(tmp_path / "tree", version)
     script, fixed = _step(RELEASE, "tag")
-    done, written = _run_step(script, {**fixed, "TAG": tag.format(version=version)}, ROOT, tmp_path)
+    done, written = _run_step(script, {**fixed, "TAG": tag.format(version=version)}, tree, tmp_path)
     if validates:
         assert done.returncode == 0, done.stdout + done.stderr
         assert written == f"version={version}"
@@ -768,6 +775,17 @@ def _release_tree(root: Path, version: str) -> Path:
     return root
 
 
+def _script_in(tree: Path) -> ModuleType:
+    """The script copied into ``tree``, loaded so that its ``ROOT``, every default, is the tree."""
+
+    path = tree / "docs" / "audit" / "scripts" / "release_preflight.py"
+    spec = importlib.util.spec_from_file_location(f"release_preflight_in_{tree.name}", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_references_that_agree_on_another_version_are_not_this_release(tmp_path: Path) -> None:
     """4.0.1 everywhere agrees with itself and is still not 4.0.0."""
 
@@ -791,13 +809,13 @@ def test_the_candidate_s_release_is_the_one_the_push_branch_names() -> None:
 @pytest.mark.parametrize(
     ("event", "dispatched", "tree_version", "outcome"),
     [
-        ("push", "", "4.2.2", "but 4.2.1 was expected"),
-        ("pull_request", "", "4.2.2", "but 4.2.1 was expected"),
-        ("push", "", "4.2.1", "version=4.2.1"),
-        ("pull_request", "", "4.2.1", "version=4.2.1"),
-        ("workflow_dispatch", "4.2.2", "4.2.2", "version=4.2.2"),
-        ("workflow_dispatch", "4.2.1", "4.2.2", "but 4.2.1 was expected"),
-        ("workflow_dispatch", "v4.2.1", "4.2.1", "is not MAJOR.MINOR.PATCH"),
+        ("push", "", "{later}", "but {version} was expected"),
+        ("pull_request", "", "{later}", "but {version} was expected"),
+        ("push", "", "{version}", "version={version}"),
+        ("pull_request", "", "{version}", "version={version}"),
+        ("workflow_dispatch", "{later}", "{later}", "version={later}"),
+        ("workflow_dispatch", "{version}", "{later}", "but {version} was expected"),
+        ("workflow_dispatch", "v{version}", "{version}", "is not MAJOR.MINOR.PATCH"),
     ],
 )
 def test_push_and_pull_request_runs_require_the_release_and_a_manual_run_names_its_own(
@@ -805,11 +823,18 @@ def test_push_and_pull_request_runs_require_the_release_and_a_manual_run_names_i
 ) -> None:
     """The identity step's own script, in a tree whose every reference says ``tree_version``.
 
-    A push or a labelled pull request must find 4.2.1 (RELEASE_VERSION); a tree
-    that says 4.2.2 throughout fails though it agrees with itself. A manual run
-    keeps its own ``expected_version``, which the tree must match.
+    A push or a labelled pull request must find the release RELEASE_VERSION
+    names, the package's; a tree that says the next patch throughout fails
+    though it agrees with itself. A manual run keeps its own
+    ``expected_version``, which the tree must match.
     """
 
+    version = _script().package_version()
+    major, minor, patch = version.split(".")
+    names = {"version": version, "later": f"{major}.{minor}.{int(patch) + 1}"}
+    dispatched, tree_version, outcome = (
+        text.format(**names) for text in (dispatched, tree_version, outcome)
+    )
     tree = _release_tree(tmp_path / "tree", tree_version)
     script, fixed = _step(PREFLIGHT, "identity")
     done, written = _run_step(
@@ -1046,16 +1071,129 @@ def test_the_release_facing_documents_are_the_ones_the_version_test_holds() -> N
 
 
 def test_this_release_identity_agrees_everywhere() -> None:
+    """The tree is this release, or this release coherently in development (v4.3), never neither."""
+
     script = _script()
     version = script.package_version()
 
-    assert script.version_problems(version) == []
-    assert script.release_status_problems(version) == []
-    assert script.version_problems("0.0.1") == [f"the package is {version}, but 0.0.1 was expected"]
-    assert script.version_problems(f"v{version}") == [
+    if script.developing(version):
+        assert script.development_problems(version) == []
+        assert any(
+            problem.startswith(f"CHANGELOG.md's heading for {version} is not ")
+            for problem in script.version_problems(version)
+        ), "the release gate refuses a development tree"
+        assert script.documented_release() != version
+    else:
+        assert script.version_problems(version) == []
+        assert script.release_status_problems(version) == []
+        assert script.documented_release() == version
+    assert script.version_problems("0.0.1")[0] == (
+        f"the package is {version}, but 0.0.1 was expected"
+    )
+    assert script.version_problems(f"v{version}")[0] == (
         f"the expected version 'v{version}' is not MAJOR.MINOR.PATCH (a release tag such as "
         "v4.0.0 is given with --tag)"
-    ], "a tag is a tag: --expected takes the bare version"
+    ), "a tag is a tag: --expected takes the bare version"
+
+
+def _development_tree(root: Path, version: str, published: str) -> Path:
+    """A tree developing ``version`` after ``published``, every record of it ``version``'s."""
+
+    tree = _release_tree(root, version)
+    (tree / "CHANGELOG.md").write_text(
+        f"# [{version}] - Unreleased\n\nThe work so far.\n\n# [{published}] - 2026-11-09\n",
+        encoding="utf-8",
+    )
+    return tree
+
+
+def test_a_development_tree_is_coherent_and_the_release_gate_refuses_it(tmp_path: Path) -> None:
+    """v4.3: a release developed under its own version, which ``version`` will not let out."""
+
+    tree = _development_tree(tmp_path / "tree", "4.3.0", "4.2.1")
+    (tree / "README.md").write_text(
+        "**Current Release:** **v4.2.1**; the published release is 4.2.1.\n", encoding="utf-8"
+    )
+    script = _script()
+
+    assert script.developing("4.3.0", tree)
+    assert script.documented_release(tree) == "4.2.1"
+    assert script.development_problems("4.3.0", tree) == []
+    assert script.version_problems("4.3.0", tree) == [
+        "CHANGELOG.md's heading for 4.3.0 is not '# [4.3.0] - YYYY-MM-DD', the date it is "
+        "published: '# [4.3.0] - Unreleased'",
+        "README.md:1 names 4.2.1 the published release, not 4.3.0",
+    ]
+    assert _script_in(tree).main(["version", "--expected", "4.3.0"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("change", "refused"),
+    [
+        (
+            {"CHANGELOG.md": "# [4.3.0] - unreleased (in development)\n\n# [4.2.1] - 2026-11-09\n"},
+            "CHANGELOG.md does not lead with '# [4.3.0] - Unreleased'",
+        ),
+        ({"CHANGELOG.md": "# [4.3.0] - Unreleased\n"}, "CHANGELOG.md dates no release"),
+        (
+            {"CHANGELOG.md": "# [4.3.0] - Unreleased\n\n# [4.3.0] - 2026-11-09\n"},
+            "4.3.0 is not later than 4.3.0, the newest release CHANGELOG.md dates",
+        ),
+        (
+            {"docs/api/public_api.json": json.dumps({"release": "4.2.1"})},
+            "the public-API manifest (docs/api/public_api.json) is 4.2.1's, not 4.3.0's",
+        ),
+        (
+            {"docs/audit/release_certification.json": json.dumps({"release": "4.2.1"})},
+            "the release certificate (docs/audit/release_certification.json) is 4.2.1's",
+        ),
+        (
+            {"docs/api/history/4.3.0.json": json.dumps({"release": "4.3.0", "stale": True})},
+            "docs/api/history/4.3.0.json is not docs/api/public_api.json",
+        ),
+        (
+            {"docs/README.md": "v4.3.0 -- in development, unpublished.\n"},
+            "docs/README.md:1 calls 4.3.0 unreleased",
+        ),
+        (
+            {"README.md": "The published release is v4.1.0.\n"},
+            "README.md:1 names 4.1.0 the published release, not 4.3.0",
+        ),
+    ],
+    ids=[
+        "heading not the development one",
+        "nothing published before",
+        "not later than the published",
+        "manifest another release's",
+        "certificate another release's",
+        "history copy not the manifest",
+        "called unreleased",
+        "another release named published",
+    ],
+)
+def test_an_incoherent_development_tree_is_refused(
+    change: dict[str, str], refused: str, tmp_path: Path
+) -> None:
+    tree = _development_tree(tmp_path / "tree", "4.3.0", "4.2.1")
+    for relative, text in change.items():
+        (tree / relative).write_text(text, encoding="utf-8")
+
+    problems = _script().development_problems("4.3.0", tree)
+
+    assert any(refused in problem for problem in problems), problems
+
+
+def test_a_release_tree_is_not_a_development_tree(tmp_path: Path) -> None:
+    tree = _release_tree(tmp_path / "tree", "4.3.0")
+    script = _script()
+
+    assert not script.developing("4.3.0", tree)
+    assert script.documented_release(tree) == "4.3.0"
+    assert script.version_problems("4.3.0", tree) == []
+    assert script.development_problems("4.3.0", tree) == [
+        "CHANGELOG.md does not lead with '# [4.3.0] - Unreleased'",
+        "4.3.0 is not later than 4.3.0, the newest release CHANGELOG.md dates",
+    ]
 
 
 def _metadata(version: str, requires: str = "") -> str:

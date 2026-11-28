@@ -328,6 +328,10 @@ class UniverseProtocol(Protocol):
 
     def __len__(self) -> int: ...
 
+    def members(self, universe: str, at: float) -> frozenset[str]:
+        """The assets in a historical universe at ``at``, as known now (v4.3, ADR-0059)."""
+        ...
+
     def instrument(self, asset_id: str) -> Any | None:
         """What ``asset_id`` is, or ``None`` when it is not in the universe."""
         ...
@@ -632,6 +636,9 @@ class NoUniverse:
 
     def __bool__(self) -> bool:
         return False
+
+    def members(self, universe: str, at: float) -> frozenset[str]:
+        return frozenset()
 
     def instrument(self, asset_id: str) -> Any | None:
         return None

@@ -26,10 +26,18 @@ families, and a new idea needs no change to the engine.
 | `on_observation` | `ObservationReceived(record, delivery_id, subject)` | when a point-in-time record becomes knowable |
 | `on_timer` | `TimerEvent` | when the driver fires a timer |
 | `on_fill`, `on_order` | the strategy's own fills and order changes | after the step that produced them |
+| `on_child_fill` | `ChildFillReceived(child_id, parent_order_id, attributed_quantity, ...)` | each fill of a child an execution plan works the strategy's order in, at the event it filled (v4.3) |
 | `on_start`, `on_shutdown`, `on_stop` | -- | lifecycle |
 
+The hooks added after the first ten -- `on_slice`, `on_observation`,
+`on_child_fill` -- are optional protocols (`SliceStrategyProtocol`,
+`ObservationStrategyProtocol`, `ChildFillStrategyProtocol`), each with its own
+ADR and dispatched only to the strategies that define the hook. A strategy
+without one is unchanged. A new strategy capability is added the same way, never
+as a new method on `StrategyProtocol` (ADR-0061).
+
 Subscriptions decide what is delivered: `bars`, `quotes`, `slices`,
-`observations` (or `observations:<subject>`), `timers`, `*`. A hook returns
+`observations` (or `observations:<subject>`), `timers`, `child_fills`, `*`. A hook returns
 `Intent`s -- `DELTA`, `TARGET_QUANTITY` or `TARGET_WEIGHT`, with `OrderTerms`
 (market, limit, stop, opening or closing auction). That is the only way a
 strategy affects anything: allocation nets intents, risk gates the requests,
@@ -48,8 +56,10 @@ cancel, a new target counts a resting order as held: a target of zero beside a
 resting buy sells against it. `AMEND` (phase 3) changes the one order the strategy alone has
 working in an instrument: its target the quantity to leave working, its terms
 the order's own type and time in force. A reduction at the same price keeps
-the order's queue priority; any other amend is a cancel and a new order, judged
-by risk as one -- if risk refuses it, the original is gone.
+the order's queue priority; any other amend prepares a replacement, judged by
+allocation, risk and routing as a new order is, and commits it only if it is
+placed. If any of them refuses it, the original keeps working with its
+reservations held, and an `AmendRefused` records why (FUT-031).
 
 ## 2. Several assets, several datasets
 
@@ -221,7 +231,13 @@ is refused or rejected, never filled whole. The result is an
 parent, child and fill; `alphalab.execution.quality.implementation_shortfall`
 measures them (example 74). A `VenueCheck` on the plan checks every child against
 a venue's declared capabilities. A child's fill reaches its strategy through the
-portfolio its next context shows, not `on_fill`.
+portfolio its next context shows, not `on_fill`; a strategy that defines
+`on_child_fill` and subscribes to `child_fills` also hears each one at the event
+it happened, its share signed, and what it answers is an intent like any other,
+resting until the asset's next event (v4.3, ADR-0061). Give the run a queue model
+beside the plan and its limit children wait their turn at their price level,
+filling only as far as the model says has reached the front; the result is then
+an `AlgorithmicQueuedResult`, holding both books (v4.3, ADR-0061).
 
 ## 6. Features, factors and models
 
@@ -260,11 +276,77 @@ Implement `StrategyStateProtocol` (`strategy_state_version`, `capture_state`,
 * a backtest stopped at any record, written to JSON, restored with freshly built
   objects and continued with `ScheduleCursor.start(schedule, <timestamp of the
   last record taken>)` finishes byte-identical: what remains is derived from
-  that record, so nothing is applied twice or lost.
+  that record, so nothing is applied twice or lost;
+* since v4.3 (ADR-0053) the continuation is held to the schedule the run was
+  given, which its record does not name. Checkpoint the chain with
+  `checkpoint(state, previous, schedule=cursor.binding)`, and
+  `restore_checkpoints(chain, objects, schedule_binding=schedule.binding)`
+  refuses another schedule, or none, before anything is restored. For a bare
+  snapshot, keep `backtesting.payload_provenance(payload, schedule=schedule)`
+  beside it and continue with
+  `ScheduleCursor.start(schedule, after, expected=provenance.schedule)`, which
+  refuses another schedule before applying anything.
 
 For lineage, `lifecycle.manifest_for_run(..., schedule=schedule)` checks the
 schedule holds the run's deliveries and records its digest in the manifest's
-identity.
+identity. `backtesting.run_provenance(result, schedule=schedule)` records, beside
+the run, the effective schedule's binding and the registry it held;
+`verify_provenance` says how far a check went -- `VERIFIED`, `DECLARED`,
+`UNRECORDED` or `NONE_GIVEN`, never more -- and
+`manifest_for_run(..., provenance=provenance)` refuses a manifest the
+provenance contradicts. Provenance is tamper-evident, not substitution-proof:
+only a rerun detects a consistent forgery.
+
+### Searching over candidates: the trial ledger (v4.3)
+
+`docs/EXPERIMENTS.md` is the guide; this is its summary.
+
+A search over configurations measures the search as much as the strategy, so
+v4.3 records the population a statistic is given (ADR-0072).
+`alphalab.lifecycle.experiments` is that record.
+
+* **The specification.** An `ExperimentSpec` states everything a trial turns
+  on, with no defaults: the hypothesis, the strategy's fingerprint, the
+  configuration type every candidate is typed as, the `ParameterSpace`, the
+  dataset's identity, the schedule's binding, the registry's digest, the
+  execution assumptions, the capture, the retention, the validation design and
+  the seed.
+* **The runner.** A runner builds one trial's inputs from its typed
+  configuration. It is registered by name in a `RunnerRegistry`, and a name is
+  looked up, never resolved to code.
+* **The run.** `run_experiment(spec, registry, name, TrialLedger(store),
+  SequentialExecutor())` runs every trial the ledger has no record of. It holds
+  each trial's inputs to the specification, and captures each run
+  (`backtesting.run_captured`, ADR-0055).
+* **Where trials run.** The executor decides, and the record is the same under
+  each:
+  * `SequentialExecutor`, in this process;
+  * `SpawnExecutor`, trials in spawned interpreters that refuse the network
+    before they import the researcher's code: a fresh one per trial, or one per
+    worker for many trials, as `trials_per_worker` says;
+  * `ClusterExecutor`, each trial as a job on a `cloud_research` cluster,
+    placed by the cluster's scheduler or a `cluster_scheduler` policy, in the
+    same worker.
+
+  Neither spawned executor is a sandbox: isolating untrusted code is the
+  host's (`SECURITY.md`).
+* **Candidates from the research assistant.**
+  `research_assistant.candidate_space(generate_candidates(...))` is the space
+  of exactly the candidates generated, so the experiment runs one trial per
+  candidate, in the assistant's order.
+* **The tracker.** A tracker run cites its experiment by tag:
+  `start_run(..., tags=experiment_tags(spec))`, read back by `tracked_runs`.
+* **Outcomes.** Every trial ends `COMPLETED`, `INSOLVENT`, `STRATEGY_FAILED`,
+  `REFUSED` or `FAILED`, and is counted (`LedgerCount`); an interruption leaves
+  nothing, and a resume runs it again. A record holds digests and the series'
+  identity, never the run's result. A trial that runs again and leaves another
+  record is refused as nondeterminism.
+* **The lockbox.** A `Lockbox` holds the end of the data back from every trial.
+  `read_lockbox` evaluates one candidate over it once; a second read is a child
+  experiment's that states why.
+* **Statistics.** `lifecycle.selection.assess_captures` measures captured trials
+  directly (ADR-0054). The experiment's completed trials form the matrix its
+  `matrix_id` names.
 
 ## 8. Boundaries
 

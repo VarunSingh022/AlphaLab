@@ -1,0 +1,535 @@
+{
+ "as_of": 1735603200.0,
+ "digest": "8cdf2a2373a1e1245d28bc602e5c48dcee5baede42b5c47741d4fc27b1d1d4f0",
+ "entries": [
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "date": "2025-01-01",
+   "effective_at": 1735646400.0,
+   "name": "XLON closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "date": "2025-04-18",
+   "effective_at": 1735646400.0,
+   "name": "XLON closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "date": "2025-04-21",
+   "effective_at": 1735646400.0,
+   "name": "XLON closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "date": "2025-05-05",
+   "effective_at": 1735646400.0,
+   "name": "XLON closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "date": "2025-05-26",
+   "effective_at": 1735646400.0,
+   "name": "XLON closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "date": "2025-08-25",
+   "effective_at": 1735646400.0,
+   "name": "XLON closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "date": "2025-12-25",
+   "effective_at": 1735646400.0,
+   "name": "XLON closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "date": "2025-12-26",
+   "effective_at": 1735646400.0,
+   "name": "XLON closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "date": "2025-01-01",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1735516800.0,
+   "calendar_id": "XNYS",
+   "date": "2025-01-09",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "date": "2025-01-20",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "date": "2025-02-17",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "date": "2025-04-18",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "date": "2025-05-26",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "date": "2025-06-19",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "date": "2025-07-04",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "date": "2025-09-01",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "date": "2025-11-27",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "date": "2025-12-25",
+   "effective_at": 1735646400.0,
+   "name": "XNYS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-01-01",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-01-02",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-01-03",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-01-13",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-02-11",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-02-24",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-03-20",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-04-29",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-05-05",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-05-06",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-07-21",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-08-11",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-09-15",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-09-23",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-10-13",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-11-03",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-11-24",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "date": "2025-12-31",
+   "effective_at": 1735646400.0,
+   "name": "XTKS closed",
+   "type": "Holiday"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "basis": "TRADING_DAYS",
+   "days": "2",
+   "effective_at": 1735646400.0,
+   "type": "SettlementCycle",
+   "venue": "XLON"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "basis": "TRADING_DAYS",
+   "days": "1",
+   "effective_at": 1735646400.0,
+   "type": "SettlementCycle",
+   "venue": "XNYS"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "basis": "TRADING_DAYS",
+   "days": "2",
+   "effective_at": 1735646400.0,
+   "type": "SettlementCycle",
+   "venue": "XTKS"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "closes": "16:30",
+   "effective_at": 1735646400.0,
+   "opens": "08:00",
+   "timezone": "Europe/London",
+   "type": "VenueSession",
+   "weekday": "0"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "closes": "16:30",
+   "effective_at": 1735646400.0,
+   "opens": "08:00",
+   "timezone": "Europe/London",
+   "type": "VenueSession",
+   "weekday": "1"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "closes": "16:30",
+   "effective_at": 1735646400.0,
+   "opens": "08:00",
+   "timezone": "Europe/London",
+   "type": "VenueSession",
+   "weekday": "2"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "closes": "16:30",
+   "effective_at": 1735646400.0,
+   "opens": "08:00",
+   "timezone": "Europe/London",
+   "type": "VenueSession",
+   "weekday": "3"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XLON",
+   "closes": "16:30",
+   "effective_at": 1735646400.0,
+   "opens": "08:00",
+   "timezone": "Europe/London",
+   "type": "VenueSession",
+   "weekday": "4"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "closes": "16:00",
+   "effective_at": 1735646400.0,
+   "opens": "09:30",
+   "timezone": "America/New_York",
+   "type": "VenueSession",
+   "weekday": "0"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "closes": "16:00",
+   "effective_at": 1735646400.0,
+   "opens": "09:30",
+   "timezone": "America/New_York",
+   "type": "VenueSession",
+   "weekday": "1"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "closes": "16:00",
+   "effective_at": 1735646400.0,
+   "opens": "09:30",
+   "timezone": "America/New_York",
+   "type": "VenueSession",
+   "weekday": "2"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "closes": "16:00",
+   "effective_at": 1735646400.0,
+   "opens": "09:30",
+   "timezone": "America/New_York",
+   "type": "VenueSession",
+   "weekday": "3"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XNYS",
+   "closes": "16:00",
+   "effective_at": 1735646400.0,
+   "opens": "09:30",
+   "timezone": "America/New_York",
+   "type": "VenueSession",
+   "weekday": "4"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "closes": "11:30",
+   "effective_at": 1735646400.0,
+   "opens": "09:00",
+   "timezone": "Asia/Tokyo",
+   "type": "VenueSession",
+   "weekday": "0"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "closes": "15:30",
+   "effective_at": 1735646400.0,
+   "opens": "12:30",
+   "timezone": "Asia/Tokyo",
+   "type": "VenueSession",
+   "weekday": "0"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "closes": "11:30",
+   "effective_at": 1735646400.0,
+   "opens": "09:00",
+   "timezone": "Asia/Tokyo",
+   "type": "VenueSession",
+   "weekday": "1"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "closes": "15:30",
+   "effective_at": 1735646400.0,
+   "opens": "12:30",
+   "timezone": "Asia/Tokyo",
+   "type": "VenueSession",
+   "weekday": "1"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "closes": "11:30",
+   "effective_at": 1735646400.0,
+   "opens": "09:00",
+   "timezone": "Asia/Tokyo",
+   "type": "VenueSession",
+   "weekday": "2"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "closes": "15:30",
+   "effective_at": 1735646400.0,
+   "opens": "12:30",
+   "timezone": "Asia/Tokyo",
+   "type": "VenueSession",
+   "weekday": "2"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "closes": "11:30",
+   "effective_at": 1735646400.0,
+   "opens": "09:00",
+   "timezone": "Asia/Tokyo",
+   "type": "VenueSession",
+   "weekday": "3"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "closes": "15:30",
+   "effective_at": 1735646400.0,
+   "opens": "12:30",
+   "timezone": "Asia/Tokyo",
+   "type": "VenueSession",
+   "weekday": "3"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "closes": "11:30",
+   "effective_at": 1735646400.0,
+   "opens": "09:00",
+   "timezone": "Asia/Tokyo",
+   "type": "VenueSession",
+   "weekday": "4"
+  },
+  {
+   "announced_at": 1717200000.0,
+   "calendar_id": "XTKS",
+   "closes": "15:30",
+   "effective_at": 1735646400.0,
+   "opens": "12:30",
+   "timezone": "Asia/Tokyo",
+   "type": "VenueSession",
+   "weekday": "4"
+  }
+ ],
+ "licence": "Synthetic example data, free to use. It describes no venue authoritatively.",
+ "pack_id": "alphalab-examples/synthetic-venues",
+ "source": {
+  "document": "Three venues' 2025 sessions, holidays and settlement cycles, declared by the example to resemble each venue's published calendar. SYNTHETIC: not a reference; check every date against the venue's own publication before relying on it.",
+  "publisher": "AlphaLab examples (synthetic)"
+ },
+ "valid_from": 1735646400.0,
+ "valid_to": 1767268800.0,
+ "version": "2025.1"
+}

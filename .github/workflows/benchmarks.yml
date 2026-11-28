@@ -7,7 +7,15 @@ name: Benchmarks
 # gated, because shared runners are too noisy to gate on. The complexity guards
 # in tests/regression gate scaling on every push instead.
 #
-# Run on every supported interpreter (v4.1, ledger LIM-007). The job installs
+# Run on every supported interpreter (v4.1, ledger LIM-007), on Linux and macOS
+# (v4.3 M6, TD-33, TD-35, TD-39). Linux runs every benchmark, as it always has, and
+# is authoritative: PC-07's limits are judged there (the owner's decision,
+# 2026-11-16). macOS runs the capture benchmark as a diagnostic: its figures are
+# printed, an unreliable one reported as such, and none fails the job. Hosted
+# macOS runners read timings as their own noise: an order book's scaling at
+# 1.85x on one cell and 3.07x on the next, a capture cheaper than none. Every benchmark runs even after one fails, so a failure
+# hides nothing measured after it; the job then fails. Each is bounded by Python
+# itself, since macOS has no GNU `timeout`. The job installs
 # the development extra because a benchmark may share a helper with the tests;
 # tests/regression/test_workflow_environments.py holds every benchmark's
 # imports to what this job installs, so a job that installs too little fails
@@ -32,16 +40,24 @@ permissions:
 
 jobs:
   benchmarks:
-    name: Benchmarks (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Benchmarks (${{ matrix.os }}, Python ${{ matrix.python-version }}, ${{ matrix.role }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
         python-version:
           - "3.12"
           - "3.13"
           - "3.14"
+        include:
+          - os: ubuntu-latest
+            role: authoritative
+          - os: macos-latest
+            role: diagnostic
 
     steps:
       - name: Check out repository
@@ -61,10 +77,25 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Run every benchmark
+        env:
+          ALPHALAB_BENCHMARK_ROLE: ${{ matrix.role }}
         run: |
           set -euo pipefail
-          for benchmark in benchmarks/benchmark_*.py; do
+          failed=()
+          if [ "${RUNNER_OS}" = "macOS" ]; then
+            benchmarks=(benchmarks/benchmark_capture.py)
+          else
+            benchmarks=(benchmarks/benchmark_*.py)
+          fi
+          for benchmark in "${benchmarks[@]}"; do
             echo "::group::${benchmark}"
-            timeout 900 python -W error "${benchmark}"
+            if ! python -c 'import subprocess, sys; sys.exit(subprocess.run([sys.executable, "-W", "error", sys.argv[1]], timeout=900).returncode)' "${benchmark}"; then
+              failed+=("${benchmark}")
+              echo "::error::${benchmark} failed"
+            fi
             echo "::endgroup::"
           done
+          if [ "${#failed[@]}" -ne 0 ]; then
+            echo "Failed: ${failed[*]}"
+            exit 1
+          fi

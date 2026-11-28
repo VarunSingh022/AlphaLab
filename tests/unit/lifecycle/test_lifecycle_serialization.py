@@ -116,13 +116,13 @@ def test_serializing_is_deterministic() -> None:
 def test_two_seeded_runs_of_the_flow_serialize_identically() -> None:
     """Under a seed, the whole flow reproduces field for field.
 
-    Every identity the lifecycle mints itself is already deterministic: a model
-    or strategy version is numbered in registration order, an evidence id is a
-    digest of what it records, and a release checksum is a digest of its
-    manifest. The one identity that is not is the experiment ``run_id``, which
-    comes from ``new_id()`` and is ``uuid4`` by default. ``id_scope`` is the
-    mechanism v2.2 established for exactly this, and it is what makes a
-    lifecycle comparable across executions rather than only within one.
+    Every identity the lifecycle mints itself is deterministic: a model or
+    strategy version is numbered in registration order, an evidence id is a
+    digest of what it records, a release checksum is a digest of its manifest,
+    and since v4.3 an experiment ``run_id`` is derived from the run's
+    declaration and its place in the tracker (DET-007, plan D-54-7). Until then
+    it came from ``new_id()``, and ``id_scope`` was what made a lifecycle
+    comparable across executions.
     """
     with id_scope(20240):
         first = serialize(_lifecycle())
@@ -132,20 +132,18 @@ def test_two_seeded_runs_of_the_flow_serialize_identically() -> None:
     assert first == second
 
 
-def test_without_a_seed_only_the_run_id_differs() -> None:
-    """The honest statement of the limit: quantities and derived ids reproduce,
-    the run identifier does not."""
-    unseeded = json.loads(serialize(_lifecycle()))
-    other = json.loads(serialize(_lifecycle()))
+def test_without_a_seed_the_flow_reproduces_too() -> None:
+    """No identity in the flow is drawn, so no seed is needed to reproduce it.
 
-    assert list(unseeded["experiments"]["runs"]) != list(other["experiments"]["runs"])
-    assert (
-        unseeded["models"]["versions"]["momentum"]["1"]["metrics"]
-        == (other["models"]["versions"]["momentum"]["1"]["metrics"])
-    )
-    assert [record["to_stage"] for record in unseeded["strategies"]["promotions"]] == [
-        record["to_stage"] for record in other["strategies"]["promotions"]
-    ]
+    Until v4.3 the experiment ``run_id`` was the one identity that differed
+    between two unseeded executions -- this test held exactly that limit. It is
+    now derived (DET-007, plan D-54-7), and the flow is the same bytes either way.
+    """
+    unseeded = serialize(_lifecycle())
+    other = serialize(_lifecycle())
+
+    assert unseeded == other
+    assert json.loads(unseeded)["experiments"]["runs"]
 
 
 def test_the_histories_serialize_as_arrays_not_prose() -> None:

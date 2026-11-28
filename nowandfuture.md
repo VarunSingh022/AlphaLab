@@ -850,21 +850,30 @@ all. (v3.10 removed `feed` and `live`; v3.11 `studio`, `workbench` and
 
 `portfolio_optimizer`, `reporting`, `feature_store`,
 `ml`, `deep_learning`, `reinforcement_learning`,
-`options`, `futures`, `crypto`, `macro`, `cloud_research`, `cluster_scheduler`,
-`distributed`, `research_assistant`, `brokers`,
+`options`, `futures`, `crypto`, `macro`, `cluster_scheduler`,
+`research_assistant`, `brokers`,
 `scheduler`, `scenario`. (`scenario`, added in v3.3, imports only `common` and
 was missing from this list until v3.10; `live` and `feed` were removed in v3.10,
-and `workbench`, `studio` and `enterprise` in v3.11 — ADR-0046.)
+and `workbench`, `studio` and `enterprise` in v3.11 — ADR-0046; `cloud_research`
+and `distributed` left it in v4.3, below.)
 
 Each is deterministic, individually tested and individually benchmarked. **A
 package with no in-repo consumer is a standalone engine by design, not an
-orphan** — pinned by
+orphan**, until a tested bridge joins it to the research path (ADR-0056) — pinned by
 `test_every_zero_consumer_production_package_is_a_standalone_engine`.
 
 `portfolio_optimizer` stayed on this list in v3.8 while gaining one edge — the
 risk model in `analytics` — because nothing on either path imports it: a
 construction answers what to own, and turning weights into orders stays the
 caller's decision. `test_v38_invariants.py` asserts its edge set.
+
+`cloud_research` and `distributed` left this list in v4.3. The trial ledger's
+`ClusterExecutor` runs an experiment's trials on a `cloud_research` cluster,
+whose cycle drives `distributed`'s job lifecycle, so `lifecycle` imports both
+(ADR-0072, GAP-31). `cluster_scheduler` and `research_assistant` stay on it, and
+join the ledger without an edge. A scheduler policy is what a cycle is given,
+and the assistant's candidates reach an experiment through
+`research.ParameterSpace`. `test_one_executor_path.py` measures those edges.
 
 `factor_library` left this list in v3.2 and `alt_data` in v3.7: `research`,
 which `lifecycle` imports, imports both. Each edge runs one way and each is
@@ -1142,7 +1151,7 @@ constant and **one** typed decoder.
 | `PortfolioState` | `portfolio.snapshot` | `PORTFOLIO_SNAPSHOT_SCHEMA` | 5 |
 | `LifecycleState` | `lifecycle.snapshot` | `LIFECYCLE_SNAPSHOT_SCHEMA` | 2 |
 | `AllocationState` | `allocation.snapshot` | `ALLOCATION_SNAPSHOT_SCHEMA` | 3 |
-| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 8 |
+| `ExecutionPipelineState` | `runtime.snapshot` | `PIPELINE_SNAPSHOT_SCHEMA` | 9 |
 | `RunState` | `runtime.run_snapshot` | `RUN_SNAPSHOT_SCHEMA` | 5 |
 | `InstrumentRegistry` | `instrument.snapshot` | `INSTRUMENT_SNAPSHOT_SCHEMA` | 4 |
 | `BrokerState` | `broker.snapshot` | `BROKER_SNAPSHOT_SCHEMA` | 2 |
@@ -1152,9 +1161,12 @@ constant and **one** typed decoder.
 
 Plus `persistence.run_state.RUN_STATE_ENVELOPE_SCHEMA = 1`, which versions what
 the *store* records about a payload and nothing inside it, and the envelopes of
-an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 2`; v3.12, and
-2 since v3.13 writes per-order state by its changes) and of the evidence store
-(`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12). The
+an incremental checkpoint (`runtime.checkpoint.CHECKPOINT_SCHEMA = 3`; v3.12,
+2 since v3.13 writes per-order state by its changes, and 3 since v4.3 records a
+schedule binding when given -- a checkpoint given none is written as 2) and of
+the evidence store (`model_registry.evidence.EVIDENCE_SCHEMA = 1`, v3.12), and
+a run's provenance record (`backtesting.provenance.RUN_PROVENANCE_SCHEMA = 1`,
+v4.3). The
 values are v4.0's -- pipeline 8 and run 5 since v4.0 record how each live object
 was configured (PER-008) -- and `tests/regression/test_documented_schemas_are_current.py`
 keeps them so.
@@ -1275,13 +1287,16 @@ decision.
 `BaseStrategy` is an optional convenience ABC. A strategy may implement the
 Protocol directly.
 
-**Of the ten hooks, seven are routed and three are not.** `Dispatcher` routes
-`on_tick` / `on_quote` / `on_trade` / `on_bar` by **module and name together**
-(never the bare name — three packages define a `TickReceived`, and matching the
-name alone routed the wrong class and then blamed the strategy for the resulting
-`AttributeError`), and routes `on_fill` / `on_order` / `on_timer` when a caller
-supplies those events. `on_start` / `on_stop` / `on_shutdown` are declared and
-**never invoked by the runtime**.
+**All ten hooks are delivered** (since v3.11, ledger EXE-005). `Dispatcher`
+routes `on_tick` / `on_quote` / `on_trade` / `on_bar` by **module and name
+together** (never the bare name — three packages define a `TickReceived`, and
+matching the name alone routed the wrong class and then blamed the strategy for
+the resulting `AttributeError`). The execution path delivers `on_fill` and
+`on_order` for a strategy's own orders and fills, and `on_timer` from a run's
+schedule. `on_start` is delivered once, before a strategy's first event, and
+`on_shutdown` then `on_stop` when a run stops its strategies
+(`RunEngine.stop_strategies`); a hook that raises fails its strategy, as an
+event hook does.
 
 `BookUpdated` and `SnapshotCreated` reach no hook at all. NON-GOAL, stated and
 pinned.
@@ -1299,7 +1314,10 @@ Easy to confuse; they are not the same thing.
 The class registry is deliberately **not** in `lifecycle`, which still constructs
 nothing. It stores an identity and a factory and nothing about what a strategy
 *is*. It **never resolves a name to code** — no `importlib`, no class-name
-derivation, because a name is not a type. A duplicate registration is refused
+derivation, because a name is not a type. (One package does:
+`cloud_research.resolve_task` imports the module a job's task path names, the
+trust boundary ledger BDY-028 states. Since v4.3 it is superseded, and kept until
+5.0, by a cycle that looks a task up by name in a `RunnerRegistry`.) A duplicate registration is refused
 naming both incumbent and challenger; an unknown identity is refused listing what
 *is* registered; a factory returning something undispatchable is refused at
 construction rather than at its first market event.
@@ -1555,7 +1573,8 @@ with the optimizer in v3.12 (OFE-013).
 # 14. What must not be changed casually
 
 **These are the frozen invariants.** Changing any of them is a major release with
-an ADR.
+an ADR. Each stands until its own ADR changes it, under the principles ADR-0056
+binds every such decision to; capability grows around them.
 
 1. **One owner per responsibility.** The step is `ExecutionPipeline`'s, the run is
    `RunEngine`'s, and drivers hold no state. Do not give a driver a field.
@@ -1929,8 +1948,9 @@ integration does not.**
 Until v3.10 this section listed what could be built with no commitment. The
 pre-v4 audit re-classified every item; the ledger
 (`docs/audit/PRE_V4_COMPLETION_LEDGER.yaml`) holds each with its disposition
-and release, and `ROADMAP.md` has the table. **Nothing is planned any more:
-every item was delivered by v3.13 or is kept, with its reason.** In short:
+and release, and `ROADMAP.md` has the table. **Every item planned before v4 was
+delivered by v3.13 or is kept, with its reason**; what is planned now is in
+`ROADMAP.md`'s *Future work* and the v4.3.0 programme (ADR-0056). In short:
 
 - **Delivered in v3.11**: richer construction (OFE-002); multi-exposure
   neutralization (OFE-004); a deflated Sharpe ratio and corrections beyond
@@ -2000,8 +2020,10 @@ superseding ADR's Status block; read the Status block first.
 **Adding a standalone engine.** Follow the existing shape: `__init__.py` with an
 honest `__all__`, `engine.py`, `state.py`, `events.py`, `validation.py`,
 `exceptions.py`, `views.py`. Immutable state, pure functions, its own tests under
-`tests/unit/<package>/` and its own benchmark. It will have no in-repo consumer,
-and that is correct.
+`tests/unit/<package>/` and its own benchmark. Then integrate it through a
+tested bridge -- into the execution path or a research workflow, with an
+end-to-end test of the composition -- or keep it a library by stated choice, with
+the reason in an ADR (ADR-0056 section 5).
 
 **Adding a vendor adapter.** Implement `BrokerProtocol` (one venue) or a
 `MarketDataSource` in your own package, and normalize into the canonical types on
@@ -2032,12 +2054,15 @@ can tell them apart afterwards.
 `AvailabilityNotDeclared` when it supports none, which is honest and makes the
 data unusable for research until somebody establishes when it was knowable.
 
-**Adding a construction method.** Add an objective type to
-`portfolio_optimizer.construction` with a `rendering` that enters the problem's
-identity, solve it through `quadratic.solve_quadratic_program` if it is a
-quadratic program, and check it against the exact-rational reference in
-`tests/unit/portfolio_optimizer/qp_reference.py`. Do not add a second solver or a
-fallback: an answer the certificate cannot verify is not an answer.
+**Adding a construction method.** State an objective through the `Objective`
+protocol of `portfolio_optimizer.construction` (ADR-0063): its `Convexity`, a
+`rendering` that enters the problem's identity, and a `QuadraticForm` for the
+certified quadratic methods or a `LinearForm` for the certified linear
+program. Check it against the exact-rational references in
+`tests/unit/portfolio_optimizer/qp_reference.py` and `lp_reference.py`. Every
+method behind `construct` is certified: do not add one whose answer it cannot
+certify, or a fallback -- an answer the certificate cannot verify is not an
+answer.
 
 **Adding a capital rule or dimension.** A rule is a frozen value the plan's
 identity renders; allocate in the account's currency, convert only plan-wide

@@ -18,6 +18,12 @@ continue durably: a backtest through the run snapshot, and since v4.1 a replay
 through :class:`~alphalab.backtesting.replay.PausedReplay` and
 :mod:`alphalab.backtesting.replay_snapshot` (ledger FUT-001).
 
+Since v4.3 a third entry drives the backtest's own step loop:
+:func:`~alphalab.backtesting.capture.run_captured` returns the result
+:meth:`~alphalab.backtesting.engine.BacktestEngine.run` returns, beside the
+run's return series and an identity of its history that no retention moves
+(ADR-0055).
+
 As of v2.14 neither owns run state. A run is a
 :class:`~alphalab.runtime.run.RunState` configured by a
 :class:`~alphalab.runtime.run.RunConfig`, and these are drivers over it --
@@ -33,6 +39,27 @@ from alphalab.backtesting.algorithmic import (
     ExecutionPlanError,
     FinishedParent,
     VenueCheck,
+)
+from alphalab.backtesting.capture import (
+    CAPTURE_EXTRACTOR_SCHEME,
+    CAPTURE_SERIES_SCHEME,
+    CAPTURE_TRACE_SCHEME,
+    EVERY_INSTANT,
+    Captured,
+    CaptureError,
+    CaptureRecord,
+    CaptureSpec,
+    CashFlows,
+    Costs,
+    EveryInstant,
+    FixedInterval,
+    Insolvency,
+    InsolventCaptureError,
+    ReturnExtractor,
+    TraceCounts,
+    canonical_captured_series_key,
+    canonical_extractor_key,
+    run_captured,
 )
 from alphalab.backtesting.dataset import (
     MarketDataset,
@@ -54,7 +81,24 @@ from alphalab.backtesting.exceptions import (
     DatasetValidationError,
     UnsupportedRecordError,
 )
+from alphalab.backtesting.provenance import (
+    RUN_PROVENANCE_SCHEMA,
+    RUN_PROVENANCE_SCHEME,
+    ProvenanceError,
+    RunProvenance,
+    payload_provenance,
+    provenance_from_primitives,
+    run_provenance,
+    verify_provenance,
+)
 from alphalab.backtesting.queueing import QueueModelError
+from alphalab.backtesting.rates_payments import (
+    PaymentTime,
+    PublishedFixing,
+    PublishedPrint,
+    RatesPayments,
+    rates_payments,
+)
 from alphalab.backtesting.replay import (
     PausedReplay,
     ReplayBacktest,
@@ -63,6 +107,7 @@ from alphalab.backtesting.replay import (
 )
 from alphalab.backtesting.schedule import (
     EMPTY_SCHEDULE,
+    RUN_SCHEDULE_DIGEST_SCHEME,
     DailyAccrual,
     DailyBorrowFee,
     DailyInterest,
@@ -84,13 +129,20 @@ from alphalab.backtesting.schedule import (
     ScheduledExchange,
     ScheduledExercise,
     ScheduledExpiry,
+    ScheduledFixing,
     ScheduledFundingRate,
     ScheduledInterest,
     ScheduledSettlement,
     ScheduledSplit,
     ScheduleValidationError,
 )
-from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, QueuedResult, ReplayResult
+from alphalab.backtesting.state import (
+    AlgorithmicQueuedResult,
+    AlgorithmicResult,
+    BacktestResult,
+    QueuedResult,
+    ReplayResult,
+)
 from alphalab.backtesting.views import (
     commission_paid,
     equity_values,
@@ -109,21 +161,37 @@ from alphalab.execution.policy import (
     ImmediateFill,
     LiquidityCappedFill,
     LiquidityContext,
+    RestRemainder,
     StaticFill,
+    StrictLiquidityCappedFill,
 )
 from alphalab.execution.queue import PriceTimeQueue, QueueBook, QueueModel
 from alphalab.runtime.execution_pipeline import UnpricedAsset, UnpricedReason
 from alphalab.runtime.run import ExecutionMode, RunConfig, RunState, RunStep
 
 __all__ = [
+    "CAPTURE_EXTRACTOR_SCHEME",
+    "CAPTURE_SERIES_SCHEME",
+    "CAPTURE_TRACE_SCHEME",
     "EMPTY_SCHEDULE",
+    "EVERY_INSTANT",
+    "RUN_PROVENANCE_SCHEMA",
+    "RUN_PROVENANCE_SCHEME",
+    "RUN_SCHEDULE_DIGEST_SCHEME",
     "AlgorithmAssignment",
     "AlgorithmBook",
+    "AlgorithmicQueuedResult",
     "AlgorithmicResult",
     "BacktestEngine",
     "BacktestError",
     "BacktestResult",
+    "CaptureError",
+    "CaptureRecord",
+    "CaptureSpec",
+    "Captured",
+    "CashFlows",
     "ChildFill",
+    "Costs",
     "DailyAccrual",
     "DailyBorrowFee",
     "DailyInterest",
@@ -133,14 +201,18 @@ __all__ = [
     "EarlierElections",
     "ElectiveExchange",
     "ElectiveTerms",
+    "EveryInstant",
     "ExecutionMode",
     "ExecutionPlan",
     "ExecutionPlanError",
     "FillDecision",
     "FillPolicy",
     "FinishedParent",
+    "FixedInterval",
     "Funding",
     "ImmediateFill",
+    "Insolvency",
+    "InsolventCaptureError",
     "LiquidityCappedFill",
     "LiquidityContext",
     "MarketDataset",
@@ -149,16 +221,24 @@ __all__ = [
     "PaidExchange",
     "PausedReplay",
     "PaymentAmendment",
+    "PaymentTime",
     "PriceTimeQueue",
+    "ProvenanceError",
+    "PublishedFixing",
+    "PublishedPrint",
     "QueueBook",
     "QueueModel",
     "QueueModelError",
     "QueuedResult",
     "RateChange",
+    "RatesPayments",
     "ReplayBacktest",
     "ReplayProgress",
     "ReplayResult",
+    "RestRemainder",
+    "ReturnExtractor",
     "RunConfig",
+    "RunProvenance",
     "RunSchedule",
     "RunState",
     "RunStep",
@@ -171,16 +251,21 @@ __all__ = [
     "ScheduledExchange",
     "ScheduledExercise",
     "ScheduledExpiry",
+    "ScheduledFixing",
     "ScheduledFundingRate",
     "ScheduledInterest",
     "ScheduledSettlement",
     "ScheduledSplit",
     "StaticFill",
+    "StrictLiquidityCappedFill",
+    "TraceCounts",
     "UnpricedAsset",
     "UnpricedReason",
     "UnsupportedRecordError",
     "VenueCheck",
     "advance",
+    "canonical_captured_series_key",
+    "canonical_extractor_key",
     "commission_paid",
     "equity_values",
     "executed_fills",
@@ -190,12 +275,18 @@ __all__ = [
     "id_scope",
     "id_source",
     "initialize",
+    "payload_provenance",
     "performance_report",
+    "provenance_from_primitives",
     "publish",
+    "rates_payments",
     "realized_pnl",
+    "run_captured",
+    "run_provenance",
     "session_for",
     "steps_with_fills",
     "submitted_orders",
     "unrealized_pnl",
     "validate_dataset",
+    "verify_provenance",
 ]

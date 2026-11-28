@@ -111,6 +111,15 @@ class PortfolioManager:
         last_ts: float,
         current_ts: float,
     ) -> PortfolioEngineState:
+        """Record a ``Rebalanced`` event when ``trigger``'s standalone rule fires.
+
+        Superseded since 4.3, unchanged until 5.0: its rules are
+        :mod:`alphalab.portfolio_optimizer.rebalance`'s, a thirty-day month and
+        a threshold of 0.05. A construction run as a strategy is
+        :class:`alphalab.rebalancing.RebalancingStrategy`, whose triggers state
+        every parameter.
+        """
+
         validate_portfolio_exists(state, port_id)
         target_w = state.weights.get(port_id, TargetWeights(port_id, current_ts, {})).weights
 

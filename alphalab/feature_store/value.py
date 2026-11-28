@@ -24,3 +24,17 @@ class FeatureValue:
     asset_id: str | None
     value: float | Decimal | int | bool | str
     timestamp: float
+
+
+@dataclass(frozen=True, slots=True)
+class KnownFeatureValue:
+    """A written value and the instant the store knew it (v4.3, GAP-13).
+
+    Attributes:
+        value: The value written.
+        known_at: The later of the instant it was computed at and the instant
+            it was written: before either, no read could have returned it.
+    """
+
+    value: FeatureValue
+    known_at: float

@@ -17,12 +17,14 @@ projects the order and the market event into a context, so a policy never needs
 to know how an order or a quote is modelled.
 """
 
+import math
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from typing import Protocol
 
 from alphalab.core.enums import Side
+from alphalab.execution.exceptions import ExecutionValidationError
 from alphalab.execution.fill import FillStatus
 
 
@@ -45,6 +47,99 @@ class FillTiming(StrEnum):
     #: cost of one event's delay. It gets one attempt there, as a same-event
     #: order gets one at its event; what a partial fill leaves is withdrawn.
     NEXT_EVENT = "next_event"
+    #: As ``NEXT_EVENT``, but a market order's turn at a bar fills at the bar's
+    #: **open**, where ``NEXT_EVENT`` fills it at the close (v4.3, ADR-0060):
+    #: what an order sent after one close meets at the next open, a gap
+    #: included. The fill is recorded at the instant of the event that delivered
+    #: the bar, as an ``OPG`` auction fill is. Every other order kind already
+    #: meets the next bar from its open under ``NEXT_EVENT`` and is unchanged;
+    #: at a quote, trade or tick the turn is ``NEXT_EVENT``'s. With a trading
+    #: calendar declared for the order's listing venue, an intraday bar outside
+    #: the venue's sessions gives no working order its turn, so an order decided
+    #: after a session's last bar fills at the next session's first bar's open.
+    #: Like ``NEXT_EVENT`` it governs simulated orders: an execution plan's
+    #: children are worked at the events their algorithm schedules.
+    NEXT_OPEN = "next_open"
+
+
+class LatencyPricing(StrEnum):
+    """What a run's latency model does to a simulated order (v4.3, ADR-0060).
+
+    Recorded with the run, its snapshot -- only when not the default -- and its
+    results, because it decides whether latency costs anything.
+    """
+
+    #: The latency model moves the fill's timestamp and nothing else: the order
+    #: meets the market at the price its fill timing gives it, and the fill is
+    #: stamped that long after. What every run did before v4.3, and the default.
+    STAMP = "stamp"
+    #: An order cannot meet the market before its latency has passed. Its first
+    #: turn is its asset's first event at or after the decision instant plus the
+    #: latency model's draw for the order, and the fill is stamped at that event,
+    #: since the latency was spent waiting for it; events before then pass the
+    #: order by, and a same-event order with no latency trades at its event as
+    #: before. The turn is the run's fill timing's -- at a bar a market order
+    #: fills at the open under ``NEXT_OPEN``, at the close otherwise -- except at
+    #: an intraday bar the latency ended within: the order was not in the market
+    #: at its open or through its range, so it meets the bar's close alone, as an
+    #: order placed at that bar does. A daily-or-longer bar is a session, met
+    #: from its open: its interval holds the break between sessions, and a
+    #: latency is taken to be shorter than that break. Like the fill timings it
+    #: governs simulated orders: an execution plan's children are worked at the
+    #: events their algorithm schedules.
+    POST_LATENCY_EVENT = "post_latency_event"
+
+
+@dataclass(frozen=True, slots=True)
+class RestRemainder:
+    """What a partial fill leaves keeps working, for a stated while (v4.3, ADR-0060).
+
+    Declared on ``ExecutionPipelineConfig.remainder``; without it a partial
+    fill's remainder is cancelled in the step that partially filled it, as every
+    run before ADR-0060 did (ADR-0014 decision 3). With it, the remainder of an
+    order that would otherwise be cancelled keeps working: a turn at each of its
+    asset's following events, of the order's own kind -- a market remainder
+    makes a market attempt at each -- and a turn that fills nothing counts
+    against its rest. When the rest ends the remainder is cancelled, and what it
+    holds is freed. An immediate-or-cancel or fill-or-kill order is withdrawn
+    after its first turn whatever the policy, and a limit order's remainder
+    already rests at its limit.
+
+    Attributes:
+        events: How many of its asset's following events the remainder works
+            for, a positive integer; or ``None`` when ``seconds`` is stated.
+        seconds: How long after the partial fill the remainder works, in
+            seconds, positive and finite; or ``None`` when ``events`` is stated.
+            A turn at or after that instant is not taken.
+
+    Raises:
+        ExecutionValidationError: Unless exactly one of the two is stated, and
+            stated as above.
+    """
+
+    events: int | None = None
+    seconds: float | None = None
+
+    def __post_init__(self) -> None:
+        if (self.events is None) == (self.seconds is None):
+            raise ExecutionValidationError(
+                "A resting remainder states how long it rests: events or seconds, exactly one."
+            )
+        if self.events is not None and (
+            isinstance(self.events, bool) or not isinstance(self.events, int) or self.events < 1
+        ):
+            raise ExecutionValidationError(
+                f"A remainder rests for a positive whole number of events, got {self.events!r}."
+            )
+        if self.seconds is not None and (
+            isinstance(self.seconds, bool)
+            or not isinstance(self.seconds, int | float)
+            or not math.isfinite(self.seconds)
+            or self.seconds <= 0
+        ):
+            raise ExecutionValidationError(
+                f"A remainder rests for a positive, finite number of seconds, got {self.seconds!r}."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +229,50 @@ class LiquidityCappedFill:
         if available is None:
             return FillDecision(FillStatus.FULL_FILL, context.requested_quantity)
 
+        cap = available * self.participation_rate
+        if cap <= Decimal("0"):
+            return FillDecision(FillStatus.NO_FILL, None)
+        if cap >= context.requested_quantity:
+            return FillDecision(FillStatus.FULL_FILL, context.requested_quantity)
+        return FillDecision(FillStatus.PARTIAL_FILL, cap)
+
+
+@dataclass(frozen=True, slots=True)
+class StrictLiquidityCappedFill:
+    """Fill only up to a share of the liquidity the event showed, and refuse an event without it.
+
+    :class:`LiquidityCappedFill`'s cap, in its strict mode (v4.3, ADR-0060):
+    given an event that carries no size, it has nothing to cap against, and it
+    refuses rather than fill in full -- a run that declared a cap is told its
+    data cannot apply one. A new class rather than a field on
+    :class:`LiquidityCappedFill`, whose description, and so every capped run's
+    identity, a new field would move.
+
+    Attributes:
+        participation_rate: The share of ``available_quantity`` this
+            participant may take, a ``Decimal`` in ``(0, 1]``.
+
+    Raises:
+        ExecutionValidationError: When made with another rate; and from
+            :meth:`decide`, given an event with no size.
+    """
+
+    participation_rate: Decimal = Decimal("1")
+
+    def __post_init__(self) -> None:
+        rate = self.participation_rate
+        if not isinstance(rate, Decimal) or not rate.is_finite() or not 0 < rate <= 1:
+            raise ExecutionValidationError(
+                f"A participation rate is a Decimal in (0, 1], got {rate!r}."
+            )
+
+    def decide(self, context: LiquidityContext) -> FillDecision:
+        available = context.available_quantity
+        if available is None:
+            raise ExecutionValidationError(
+                f"The event for {context.asset_id} at {context.timestamp!r} shows no size, and the "
+                "run declared a strict liquidity cap: it cannot be applied to data without sizes."
+            )
         cap = available * self.participation_rate
         if cap <= Decimal("0"):
             return FillDecision(FillStatus.NO_FILL, None)

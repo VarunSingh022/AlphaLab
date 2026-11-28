@@ -1,0 +1,147 @@
+{
+  "written_by": "docs/audit/scripts/generate_v4_2_1_snapshot_fixtures.py",
+  "replays": {
+    "replay_paused.json": {
+      "workload": "tests/integration/replay_workload.py",
+      "paused_after": 11,
+      "records": 24,
+      "uninterrupted_result_id": "7813604e4255ab453df89695dd8c09188cbc8474eb5d3a5f5327f231c7029a3c"
+    },
+    "replay_execution_plan.json": {
+      "workload": "examples/74_evaluate_an_execution_algorithm.py",
+      "paused_after": 7,
+      "records": 60,
+      "uninterrupted_result_id": "08932c8499751141d19a33c5efaddc4229278d7afe89495e6d4f339504522c29"
+    },
+    "replay_queue.json": {
+      "workload": "tests/integration/test_queue_model.py",
+      "paused_after": 2,
+      "records": 5,
+      "uninterrupted_result_id": "d2ee00b339e98bbaa9217072126b24e55f72905e83615ffae70ca9369a14224e"
+    },
+    "replay_option_life.json": {
+      "workload": "examples/75_exercise_assign_and_deliver.py",
+      "paused_after": 40,
+      "records": 95,
+      "uninterrupted_result_id": "4d0b2a72c3b87a4679b0757d1fa67798c059ab332702baa4f4e1f86e47db71e5"
+    },
+    "replay_financed_book.json": {
+      "workload": "examples/76_a_financed_long_short_book.py",
+      "paused_after": 6,
+      "records": 10,
+      "uninterrupted_result_id": "c1f398c5af59ad6b9a8c5742b8eb7dd5f811f333a8154400ee1935013ec05e22"
+    },
+    "replay_recalled_short.json": {
+      "workload": "examples/77_a_short_squeezed_by_its_lender.py",
+      "paused_after": 5,
+      "records": 9,
+      "uninterrupted_result_id": "4685c1aa16a9e891519630b19a5b9c4f2d2c771c45bfd4f8b09e00e9248ef0e8"
+    },
+    "replay_prorated_tender.json": {
+      "workload": "examples/78_a_tender_split_between_holders.py",
+      "paused_after": 10,
+      "records": 17,
+      "uninterrupted_result_id": "9d82376a5073ad9d3e4fbbcdc2de6c9aadf3106e45985f470c56d98ac0b73b58"
+    },
+    "replay_reopening_auction.json": {
+      "workload": "examples/79_bid_into_a_reopening_auction.py",
+      "paused_after": 6,
+      "records": 7,
+      "uninterrupted_result_id": "9216570100f9c13a042533a3eb10c5f97d3cf30dde9437301725ea57dd6fef4c"
+    },
+    "replay_delivered_surfaces.json": {
+      "workload": "tests/integration/test_surface_feeds.py",
+      "paused_after": 3,
+      "records": 6,
+      "uninterrupted_result_id": "df2012748f79399b67d715ef92f8ea7b5bf4bc97a04f1efde52f74a4e74945e3"
+    },
+    "replay_delivered_auctions.json": {
+      "workload": "tests/integration/test_live_auctions.py",
+      "paused_after": 4,
+      "records": 6,
+      "uninterrupted_result_id": "0cdb87f80ffafeec4c2615b735b6f2b52628b9ef70dcc58f3ee4a2367d039340"
+    },
+    "replay_observations.json": {
+      "workload": "tests/regression/test_heterogeneous_inputs_on_every_driver.py",
+      "paused_after": 4,
+      "records": 24,
+      "uninterrupted_result_id": "acc447507c7c439e485445ea52b94dc7bc990628f1962fe063d7e0c88d2ab8a2"
+    }
+  },
+  "checkpoints": {
+    "workload": "tests/integration/replay_workload.py, run as a session",
+    "taken": [
+      6,
+      12,
+      18
+    ],
+    "records": 24,
+    "uninterrupted_result_id": "4c772c310e877afb3f4bbfff712068b13b9d25a80c6d0371bb13b18943e6f965"
+  },
+  "registries": {
+    "instrument_execution_plan.json": "604ee4cf6b3420292644987188b354455d6115d3c755a1591c026da20e538888",
+    "instrument_queue.json": "e2cbef1865c5b2e5090b4e446c96bde2b08af03cff9a412a2a899429cc15d489",
+    "instrument_option_life.json": "107cbe2e9f76f03ba6db33544dda93dfdddd4638e7b96f6665e706549c605779",
+    "instrument_financed_book.json": "461d0bc32849ca206d4ca9c5fb3c8cd89f372ee8a78347809f2ce59dd767aeee",
+    "instrument_recalled_short.json": "d02f8ea94b8afb697000eab20befe03a7cc5ad42220def555d250eed62e5704b",
+    "instrument_prorated_tender.json": "da4b5307a9a72fa091e4bc733bc7e0f9764c9686ab72ece97ed969bc8f2c93f2",
+    "instrument_reopening_auction.json": "536041ba2227f08746187d1da96bb641f579e2930e0283c8bb4a1bf137d3b713",
+    "instrument_delivered_surfaces.json": "4d4c0362e5bffeb5eb1c1164bc381432cc3092ebcb7c9d95f1e85991dad8835e",
+    "instrument_delivered_auctions.json": "dc5cb6e67f1469c5fa9c4ad670b3161445c5427c41ed1779a3a106e5fdea3d73"
+  },
+  "evidence": [
+    {
+      "kind": "reproducibility_manifest",
+      "identity": "041fbc1a1393a84449a53528286b1178e2ba0807f50a373f3c6fc1d37e53b32d",
+      "digest": "7544f3c43e496b331639c05366413ba8e7890d0b01638e2fbd6f26ac5dea3e6b"
+    },
+    {
+      "kind": "strategy_fingerprint",
+      "identity": "v36-momentum@a1765857f597cbd4ac60987a1be86a42a988fabc0a0c16ee79ed847dcbd50c7e",
+      "digest": "b1d76d53c19ce774b05e24453bad6b95553fc28d0ad32bf6d6344aa16ced012a"
+    }
+  ],
+  "files": {
+    "allocation.json": "0a1fe41c2cb65aaf873558193dcad3977f9ff08ab9f40ef5e46e019466954fbc",
+    "allocation_eur.json": "a67576cc5b560579d04785ab5cd88e1ec90ac18c64924e8f021131bfac6ee937",
+    "broker.json": "6404dcd0220b9dbf9be7e1a98b662915006350b0c18fe4dacd52ef91fbde3726",
+    "checkpoints/chain_0.json": "de402adf6f4dbd24974d313367aaf85e0bbf3a7ded28197f948656d078bf179d",
+    "checkpoints/chain_1.json": "89cb535fd5d468c65ab518eb1635661bffe4fe87a65e68cb3011582e5e9f5fec",
+    "checkpoints/chain_2.json": "9f52a38e6719d2838f4ecae4891dcb30538aa73bc3eb21f6a161b62cf74e0ad7",
+    "checkpoints/full_18.json": "0d16f4d24e8521a6faaaaf8a216e6788c5b953fcb8d8470462c4e51b46032e24",
+    "evidence_store/artifacts/75/7544f3c43e496b331639c05366413ba8e7890d0b01638e2fbd6f26ac5dea3e6b.artifact": "7544f3c43e496b331639c05366413ba8e7890d0b01638e2fbd6f26ac5dea3e6b",
+    "evidence_store/artifacts/b1/b1d76d53c19ce774b05e24453bad6b95553fc28d0ad32bf6d6344aa16ced012a.artifact": "b1d76d53c19ce774b05e24453bad6b95553fc28d0ad32bf6d6344aa16ced012a",
+    "evidence_store/index/reproducibility_manifest/b123283a48f36af5c316d19a27142fc7db8306d180b4cfc44991bb16778e182c.json": "74bb479992d86553f13e9acfd799c3c49c7650a73a8d41a174dc4d6dcad24f83",
+    "evidence_store/index/strategy_fingerprint/d4b0e83a8e1f2dd2ff8bf6034aa5d639ec2bb9a571bd22795c222e8a791d46c0.json": "1171ca8e9b53de504a710a269480b455d6dd945165fe5e976dbb48c75949a639",
+    "fx_feed.json": "280589b5a8172ed2f01274a25e77e1f083a7e995faeb1bae7c91b81df1fdbc44",
+    "instrument.json": "dda10f1e5c9989bc25572aba007244749b0328a428d66e72f1627db832263bfb",
+    "instrument_delivered_auctions.json": "20963391d48abcc220850b82d21c479c65e5ce9d60891c3bca2fddef87221496",
+    "instrument_delivered_surfaces.json": "93a149678426c12a01876de3a28d555c04f07dac1106fbe50c5fcc5d8666f5b5",
+    "instrument_execution_plan.json": "eb6546f7d1969ae3a5955ebbc4e69ffd695b2ef0edde79866522b577431ff812",
+    "instrument_financed_book.json": "78d4bf178acc62d60dc811bafe8408c2eed92d7bb20cad6796a52ce8f80dccbd",
+    "instrument_option_life.json": "0f1daa113b3e9753780e1442ab4b01b8b1acc0c5d0cd639f9dd48f6154dfd040",
+    "instrument_prorated_tender.json": "0561082e518790fdc885b6b335978e8d14d4a044b60d6fe4b4dafec313bd3f3f",
+    "instrument_queue.json": "6fe507fca1402db0fa6a47ab9a4cd413404d29bd8f3958c8b9d90367bf28bfd1",
+    "instrument_recalled_short.json": "c6f75a799f666c8c33b2df05cc9c897287c31ba691a7187040d3fd2a8929e077",
+    "instrument_reopening_auction.json": "ec5dbd84ed1eabce991ecee59c002169ffc79df5ff66d832e4d787d6b8427834",
+    "lifecycle.json": "c41921bbf387b0cddbc45241dbd4069ce1ed14ac922b143a05979651073f38fd",
+    "live.json": "08f7b306276d5cd923c0763fac5b99b71348f8b9fde394456163effd6dc5cea6",
+    "oms.json": "e4a4f8aae981d4424801b509aa2aecb13bc365ee83fd402a17485b26519ac8be",
+    "portfolio.json": "8026004d83715ee84f320ac7e0ee123d3826365a53a3d0a0a3c1b7f9dcd76b00",
+    "replay_delivered_auctions.json": "0df1e8fc1c8fcb5a98babbbb97e24b7955b639ef1dd513a82cba10090a35dca8",
+    "replay_delivered_surfaces.json": "d546872a9c5010cd20751c0248afbf720662db5cb7f169783cfb6e5aff5024d3",
+    "replay_execution_plan.json": "4614a03e89412791716c8392769761dead99a2aa50a9df7259eeff14b1d9a1c4",
+    "replay_financed_book.json": "544ba797d31998bba972a7093b1f645385380453b232137468521d86b9c79278",
+    "replay_observations.json": "2ae7689ba01557d6a72fe57f9b833ba8cacfb88c05501174616cfef539cc14e2",
+    "replay_option_life.json": "964aa36e103bd0b4389c1be6fa42414273f6bf97137fdbb565f1cb26ba251381",
+    "replay_paused.json": "05846b2bde8466d8b3beb6ba437302b57436ae5a72af62cd072776dd92c346c3",
+    "replay_prorated_tender.json": "327033e0f644306d525a17367743886ab882a639d5a1c08a4745fe8f979aa8f8",
+    "replay_queue.json": "3c39a05feb450f683c0d3a05072175da57abc6936786f55ad930adbb1c9f31a8",
+    "replay_recalled_short.json": "55d8d684fda2b967d77936659e0102ba9aa2890dcedd5e7b9309bcb855db54e4",
+    "replay_reopening_auction.json": "038201750517f0194f88f8e4ffcb3da24846dbd6aba08a59050764a62391c4e1",
+    "run_backtest.json": "6c9f3cfc719ba0279f0362fe67a549b9fb3b858d3286e9f5be7a2434e5855b7d",
+    "run_store/493d823df17a2dc2cf3a73d915bc1df7/00000000000000000001.runstate": "dad6fee02459d95073860c4eec2784821596628e5d4fc720cddd3378703e7c59",
+    "run_store/493d823df17a2dc2cf3a73d915bc1df7/run.identity": "e143d6e21a51075af8873860d24dcbf4c322d08e2dc8c1b764e77c1cc9009038",
+    "run_ticks.json": "5995b1be9985aa1f9867d8c95406cfd99928a108d8eb2e6316814b882ff28c90"
+  }
+}

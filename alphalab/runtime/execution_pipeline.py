@@ -10,6 +10,7 @@ from __future__ import annotations
 import decimal
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from datetime import date
 from decimal import ROUND_FLOOR, Decimal
 from enum import Enum, auto
 from types import MappingProxyType
@@ -32,7 +33,15 @@ from alphalab.common.evolve import evolve
 from alphalab.common.ids import IdStreamPosition, current_id_position, new_id
 from alphalab.common.order_terms import OrderTerms, TimeInForce
 from alphalab.common.persistent_map import PersistentMap
+from alphalab.conventions.business_days import (
+    ValueDateRule,
+    forward_value_date,
+    is_business_day,
+    spot_value_date,
+    subtract_business_days,
+)
 from alphalab.conventions.economics import InstrumentEconomics, SettlementModel
+from alphalab.conventions.exceptions import ConventionViolationError
 from alphalab.conventions.lot import LotSpecification
 from alphalab.conventions.tick import RoundingDirection, is_on_tick, round_to_tick
 from alphalab.core.contribution import StrategyContribution, split_by_contribution
@@ -41,24 +50,29 @@ from alphalab.core.enums import Side as CoreSide
 from alphalab.core.fill import Fill as CoreFill
 from alphalab.core.order_request import OrderRequest
 from alphalab.core.trade import Trade as CoreTrade
-from alphalab.data.calendar import MAX_SESSION_SEARCH_DAYS
+from alphalab.data.calendar import MAX_SESSION_SEARCH_DAYS, MarketCalendar
 from alphalab.data.feed import TradeAggressor
 from alphalab.execution.algorithms import ChildOrder
 from alphalab.execution.algorithms import _apportion as _largest_remainder
 from alphalab.execution.auction import AuctionReopening
 from alphalab.execution.engine import ExecutionEngine
 from alphalab.execution.fill import FillStatus, OrderInstruction
+from alphalab.execution.latency import ConstantLatency
 from alphalab.execution.policy import (
     FillDecision,
     FillPolicy,
     FillTiming,
+    ImmediateFill,
+    LatencyPricing,
     LiquidityContext,
+    RestRemainder,
     StaticFill,
 )
 from alphalab.execution.queue import QueueBook, QueueObservation, QueuePosition, QueueTurn
 from alphalab.execution.report import ExecutionReport
 from alphalab.execution.simulator import ExecutionSimulator
 from alphalab.execution.state import ExecutionState
+from alphalab.execution.venue_models import VenueExecution, VenueRouter
 from alphalab.instrument.borrow import BorrowAvailability
 from alphalab.instrument.controls import (
     AuctionInterest,
@@ -83,7 +97,7 @@ from alphalab.instrument.margin import (
 )
 from alphalab.instrument.record import InstrumentRecord
 from alphalab.instrument.registry import InstrumentRegistry
-from alphalab.instrument.terms import Deliverable, FutureTerms, OptionTerms
+from alphalab.instrument.terms import Deliverable, FutureTerms, FxKind, FxTerms, OptionTerms
 from alphalab.market.bar import Bar, IntervalUnit, TimeFrame
 from alphalab.market.engine import MarketEngine
 from alphalab.market.events import (
@@ -177,6 +191,7 @@ from alphalab.strategy.engine import StrategyEngine
 from alphalab.strategy.events import (
     AmendRefused,
     CancelRefused,
+    ChildFillReceived,
     ElectionMade,
     ExerciseRefused,
     FillEvent,
@@ -185,13 +200,18 @@ from alphalab.strategy.events import (
     IntentKind,
     ObservationReceived,
     OrderEvent,
+    PackageRefused,
     SliceClosed,
     StrategyInboundEvent,
     TermsAnnounced,
     TimerEvent,
     UnitsElected,
 )
-from alphalab.strategy.protocol import defines_on_observation, defines_on_slice
+from alphalab.strategy.protocol import (
+    defines_on_child_fill,
+    defines_on_observation,
+    defines_on_slice,
+)
 from alphalab.strategy.state import RuntimeState as StrategyRuntimeState
 from alphalab.strategy.state import StrategyStatus
 from alphalab.strategy.subscription import Topic, market_topic
@@ -313,8 +333,11 @@ class ExecutionPipelineConfig:
             and changes nothing except how precisely an unpriced asset can be
             described and whether a run can report P&L by sector.
         fill_timing: When a simulated order fills: at the event that decided it
-            (``SAME_EVENT``, optimistic, and what every run did before v3.10) or
-            at its asset's next event (``NEXT_EVENT``). See
+            (``SAME_EVENT``, optimistic, and what every run did before v3.10),
+            at its asset's next event (``NEXT_EVENT``), or there with a market
+            order's turn at a bar priced at the bar's open (``NEXT_OPEN``, v4.3,
+            ADR-0060), an intraday bar outside the listing venue's sessions
+            passing the order by when the venue's calendar is declared. See
             :class:`~alphalab.execution.policy.FillTiming`. Ignored under
             ``EXTERNAL`` routing, where nothing is simulated. Recorded with the
             run, its snapshot and its results.
@@ -336,6 +359,31 @@ class ExecutionPipelineConfig:
             cash, orders or anything else a step computes from. Carried by the
             pipeline snapshot. See :mod:`alphalab.runtime.retention` (ledger
             PRF-004).
+        remainder: What a partial fill leaves of a simulated order that would
+            otherwise be cancelled for it: ``None``, the default, cancels it in
+            the step that partially filled it, as every run before v4.3 did
+            (ADR-0014 decision 3); a
+            :class:`~alphalab.execution.policy.RestRemainder` keeps it working
+            for a stated number of its asset's events or seconds (ADR-0060).
+            Carried by the pipeline snapshot, and only when declared.
+        latency_pricing: What the simulator's latency model does: ``STAMP``,
+            the default, moves a fill's timestamp and nothing else, as every
+            run before v4.3 did; ``POST_LATENCY_EVENT`` keeps an order from the
+            market until its latency has passed, its first turn its asset's
+            first event at or after then, and the fill stamped there
+            (ADR-0060). See :class:`~alphalab.execution.policy.LatencyPricing`.
+            Carried by the pipeline snapshot, and only when declared.
+        venues: Each declared execution venue's model, by its code (v4.3,
+            ADR-0061): the simulator that prices and stamps the fills of the
+            orders routed to it. Empty -- the default -- is one simulator,
+            ``simulator``, for every order, as every run before v4.3 had. With
+            venues declared, every simulated order is routed to one of them --
+            by the venue its terms name, then ``router``, then its instrument's
+            listing venue -- or refused. See
+            :mod:`alphalab.execution.venue_models`. Carried by the pipeline
+            snapshot, and only when declared.
+        router: How an order naming no venue is routed among ``venues``
+            (ADR-0061), or ``None`` for its listing venue. Requires venues.
     """
 
     account: Account
@@ -353,11 +401,28 @@ class ExecutionPipelineConfig:
     fill_timing: FillTiming = FillTiming.SAME_EVENT
     calendars: VenueCalendars = field(default_factory=VenueCalendars)
     retention: RetentionPolicy = field(default_factory=RetentionPolicy)
+    remainder: RestRemainder | None = None
+    latency_pricing: LatencyPricing = LatencyPricing.STAMP
+    venues: Mapping[str, VenueExecution] = field(default_factory=lambda: MappingProxyType({}))
+    router: VenueRouter | None = None
 
     def __post_init__(self) -> None:
         if not self.currency:
             # The account names the currency; the config does not name a second.
             object.__setattr__(self, "currency", self.account.base_currency)
+        for code, venue in self.venues.items():
+            if not isinstance(code, str) or not code.strip():
+                raise RuntimeValidationError(f"A venue is declared by its code, got {code!r}.")
+            if not isinstance(venue, VenueExecution):
+                raise RuntimeValidationError(
+                    f"Venue {code}'s model is a VenueExecution, got {type(venue).__name__}."
+                )
+        if self.router is not None and not self.venues:
+            raise RuntimeValidationError(
+                "A router chooses among declared venues, and this configuration declares none."
+            )
+        # Sorted by code, so two equal declarations describe and persist alike.
+        object.__setattr__(self, "venues", MappingProxyType(dict(sorted(self.venues.items()))))
 
     @property
     def settlement_currencies(self) -> frozenset[str]:
@@ -588,7 +653,8 @@ def retained(state: ExecutionPipelineState) -> ExecutionPipelineState:
 
     for name in ("fills", "trades", "trade_records", "portfolio_snapshots"):
         log = getattr(state, name)
-        kept = trimmed(log, policy.results)
+        bound = policy.equity_bound if name == "portfolio_snapshots" else policy.results
+        kept = trimmed(log, bound)
         if kept is not log:
             changes[name] = kept
     return evolve(state, **changes) if changes else state
@@ -1236,9 +1302,10 @@ class ExecutionPipeline:
         # The orders an earlier event left working in this asset are worked now,
         # at this event's price, and before the strategy is dispatched -- so it
         # decides on a book that includes what they did (EXE-001). Under
-        # NEXT_EVENT every simulated order is one; under SAME_EVENT only an order
+        # NEXT_EVENT or NEXT_OPEN every simulated order is one; under SAME_EVENT only an order
         # that rests: one a strategy placed from a fill or an order event
-        # (EXE-005), which fills at its asset's next event.
+        # (EXE-005), which fills at its asset's next event, or one its latency
+        # keeps from the market (POST_LATENCY_EVENT, ADR-0060).
         earlier = _NO_ROUTING
         if (
             update is not None
@@ -1317,6 +1384,8 @@ class ExecutionPipeline:
         # then the account's margin, after everything the step did (FUT-017).
         current, bought_in = _buy_ins(current, event, rates)
         current, liquidation = _margin_call(current, event, rates)
+        # An NDF no fixing was booked for by its value date stops the run (ADR-0067).
+        _require_ndfs_fixed(current, event.timestamp)
         routed = routed.then(bought_in).then(liquidation)
         if queue is not None:
             queue = _queue_after_step(queue, current, event, update, resting_before)
@@ -1490,6 +1559,7 @@ class ExecutionPipeline:
         rates: FxRates = NO_RATES,
         *,
         arriving: bool,
+        queue_turn: QueueTurn | None = None,
     ) -> ChildTurn:
         """One execution-algorithm child's turn at ``event``, its fill settled on the parent.
 
@@ -1513,6 +1583,13 @@ class ExecutionPipeline:
         trades through it -- the rules :func:`_work_order` applies to an order.
         Nothing here reads a later event: ``event`` is the one the child is
         worked at, and the caller decides which events a child may see.
+
+        ``queue_turn`` is a queue model's answer for a resting ``LIMIT`` child at
+        ``event`` (v4.3, ADR-0061): its resting turn fills nothing until the
+        model puts it at the front of its price level, and no more than the
+        model says traded beyond the queue ahead of it, the fill policy deciding
+        within that -- what a resting limit order's turn is under a queue model
+        (FUT-011). A child taking the market on its first turn is not governed.
 
         Raises:
             RuntimeValidationError: If the run does not route algorithmically;
@@ -1566,6 +1643,9 @@ class ExecutionPipeline:
             else:
                 price = _resting_fill_price(view, event)
                 passive = True
+                if queue_turn is not None and not queue_turn.may_fill:
+                    # Not yet at the front of its level: it rests on (ADR-0061).
+                    price = None
         if price is None:
             return ChildTurn(state, (), (), (), Decimal("0"), None)
 
@@ -1576,6 +1656,8 @@ class ExecutionPipeline:
             unworked = OrderStatus.CANCELLED if child.order_type is OrderType.MARKET else None
             return ChildTurn(state, (), (), (), Decimal("0"), unworked)
         decision = _decide_fill(policy, view, event, price, _whole_units(state))
+        if passive and queue_turn is not None and queue_turn.eligible is not None:
+            decision = _within_queue(decision, view, queue_turn.eligible, _whole_units(state))
         if decision.status is FillStatus.REJECTED:
             return ChildTurn(state, (), (), (), Decimal("0"), OrderStatus.REJECTED)
         if decision.status is FillStatus.EXPIRED:
@@ -1605,6 +1687,105 @@ class ExecutionPipeline:
             quantity,
             outcome,
         )
+
+    @staticmethod
+    @in_accounting_context
+    def deliver_child_fills(
+        state: ExecutionPipelineState,
+        event: MarketEvent,
+        fills: Sequence[tuple[str, ExecutionReport]],
+        context_factory: ContextFactory,
+        fill_policy: FillPolicy,
+        rates: FxRates = NO_RATES,
+    ) -> tuple[ExecutionPipelineState, tuple[Intent, ...]]:
+        """Tell each strategy what its parents' children filled at ``event``, and route its answer.
+
+        The strategy feedback of execution-algorithm children (v4.3, ADR-0061).
+        ``fills`` are the children's fills at ``event``, in the order they
+        happened, each as its child's id and the execution report it settled
+        through on its parent (:meth:`work_child`). Each strategy that
+        contributed to the parent, is running, is subscribed to ``child_fills``
+        and defines ``on_child_fill`` receives a
+        :class:`~alphalab.strategy.events.ChildFillReceived` with its share,
+        divided as a fill's is. It sees the book as the children leave it, and
+        what it asks for goes through allocation, risk and the OMS like any
+        intent, resting until its asset's next event, as what a strategy asks
+        for from a fill does; its exercise instructions and elections take
+        effect at ``event``'s instant. A run none of whose strategies would
+        receive one builds nothing, dispatches nothing, and is the run it was.
+        """
+
+        if not fills or not _wants_child_fills(state.strategy):
+            return state, ()
+        instant = event.timestamp
+        # Each fill's contributions as its trade record holds them -- the
+        # parent's own leave the ledger once it is filled -- read from the
+        # records the children's fills just appended.
+        records = state.trade_records[max(0, len(state.trade_records) - len(fills)) :]
+        recorded = {record.trade_id: record.contributions for record in records}
+        deliveries: list[tuple[str, StrategyInboundEvent]] = []
+        for child_id, report in fills:
+            parent = state.oms.orders.find(OrderId(UUID(report.order_id)))
+            contributions = recorded.get(report.execution_id) or state.allocation.contributions.get(
+                report.order_id, ()
+            )
+            signed = report.fill_quantity if parent.side is OMSSide.BUY else -report.fill_quantity
+            for strategy_id, share in split_by_contribution(
+                signed, contributions, _ATTRIBUTION_QUANTUM
+            ):
+                deliveries.append(
+                    (
+                        strategy_id,
+                        ChildFillReceived(
+                            f"child-fill:{report.execution_id}:{strategy_id}",
+                            report.timestamp,
+                            child_id=child_id,
+                            parent_order_id=report.order_id,
+                            instrument=report.asset_id,
+                            fill_quantity=report.fill_quantity,
+                            fill_price=report.fill_price,
+                            side=parent.side.value,
+                            attributed_quantity=share,
+                            execution_id=report.execution_id,
+                        ),
+                    )
+                )
+        if not deliveries:
+            return state, ()
+
+        populated = _populate_context(
+            context_factory,
+            portfolio=state.portfolio,
+            risk=state.risk,
+            market=state.market,
+            market_prices=state.market_prices,
+            shares=order_shares_by_strategy(state.oms, state.allocation),
+            instruments=state.config.instruments,
+            reopened=state.execution.reopened,
+            window=state.config.retention.market_history,
+            as_of=instant,
+        )
+        strategy, intents = StrategyEngine.deliver(state.strategy, deliveries, populated, instant)
+        current, ordered, _ = _instructions_requested(
+            evolve(state, strategy=strategy),
+            intents,
+            instant,
+            event=event,
+            policy=fill_policy,
+            rates=rates,
+            rest=True,
+        )
+        if ordered:
+            allocation, requests = _allocate(
+                current, ordered, current.market_prices, rates, instant
+            )
+            current = evolve(current, allocation=allocation)
+            current, _ = _route_requests(
+                current, event, ordered, requests, fill_policy, rates, rest=True, at=instant
+            )
+        current = _exercises_requested(current, intents, instant, rates)
+        current = _elections_requested(current, intents, instant)
+        return evolve(current, id_position=current_id_position()), intents
 
     @staticmethod
     @in_accounting_context
@@ -1690,6 +1871,8 @@ class ExecutionPipeline:
         state: ExecutionPipelineState,
         context_factory: ContextFactory,
         rates: FxRates = NO_RATES,
+        *,
+        fill_policy: FillPolicy | None = None,
     ) -> tuple[ExecutionPipelineState, tuple[Intent, ...], tuple[OMSOrder, ...]]:
         """Deliver the instant of the last event, complete, to ``slices`` subscribers.
 
@@ -1709,10 +1892,18 @@ class ExecutionPipeline:
         at its asset's next event's price; ``OrderTerms.at_open()`` takes the next
         daily bar's open instead.
 
+        Packages (v4.3, ADR-0062) with a leg in the instant's assets have their
+        turn first, by ``fill_policy`` -- the run's, which
+        :meth:`~alphalab.runtime.run.RunEngine.close_slice` gives; an immediate
+        fill when none is. A package fills only when every leg was priced at
+        the instant and would fill in full, each at its own price there, and its
+        fills' feedback is delivered as a step's is; otherwise no leg fills.
+
         Nothing happens -- the same state is returned -- when no event has been
-        published or when no running strategy both subscribes to slices and
-        defines ``on_slice`` (:func:`wants_slices`). Which instants have been
-        closed is the run's to remember, as its record cursor is:
+        published, or when no package is working in the instant and no running
+        strategy both subscribes to slices and defines ``on_slice``
+        (:func:`wants_slices`). Which instants have been closed is the run's to
+        remember, as its record cursor is:
         :meth:`~alphalab.runtime.run.RunEngine.close_slice` closes each once.
 
         Returns:
@@ -1721,14 +1912,42 @@ class ExecutionPipeline:
         """
 
         events = state.market.events
-        if not len(events) or not wants_slices(state.strategy):
+        if not len(events):
             return state, (), ()
         last = events[-1]
         at = last.timestamp
+        assets = _instant_assets(events, at)
+        current = state
+        intents: tuple[Intent, ...] = ()
+        orders: tuple[OMSOrder, ...] = ()
+        if _packages_working(current, assets):
+            policy: FillPolicy = ImmediateFill() if fill_policy is None else fill_policy
+            contributions_before = current.allocation.contributions
+            records_before = len(current.trade_records)
+            current, worked = _work_packages(current, at, assets, policy, rates)
+            current, intents, _, answered = _deliver_feedback(
+                current,
+                last,
+                context_factory,
+                current.market_prices,
+                rates,
+                policy,
+                routed=worked,
+                requests=(),
+                contributions_before=contributions_before,
+                records_before=records_before,
+                at=at,
+            )
+            current = _exercises_requested(current, intents, at, rates)
+            current = _elections_requested(current, intents, at)
+            orders = (*worked.orders, *answered.orders)
+        if not wants_slices(current.strategy):
+            return current, intents, orders
         # Derived, not drawn from the run's identifier stream: closing a slice
         # must not move every identifier minted after it.
-        event = SliceClosed(f"SLICE-{at!r}", at, _instant_assets(events, at))
-        return _deliver_instant(state, event, last, context_factory, rates)
+        event = SliceClosed(f"SLICE-{at!r}", at, assets)
+        current, sliced, placed = _deliver_instant(current, event, last, context_factory, rates)
+        return current, (*intents, *sliced), (*orders, *placed)
 
     @staticmethod
     @in_accounting_context
@@ -2337,7 +2556,9 @@ class ExecutionPipeline:
         The contract must be one the run's registry declares, with a last
         trading instant at or before ``timestamp``, and a future or an option
         -- what settles at expiry -- or a bond, redeemed at maturity at the
-        price ``settlement`` states (v4.1.1, FUT-010). Then, as at a split, an order still working
+        price ``settlement`` states (v4.1.1, FUT-010), or a swap, an FRA or a
+        repo, closed at its final payment at the price its terms state (v4.3.0,
+        ADR-0065). Then, as at a split, an order still working
         in it is cancelled and what it held freed (refused under external
         routing, where the venue reports what became of its orders); the
         position is closed at the settlement price with no commission, by the
@@ -2378,11 +2599,12 @@ class ExecutionPipeline:
                 "would close positions while the contract still trades."
             )
         economics = economics_for(record.asset_type, record.economics, named)
-        redeemed = record.asset_type is AssetType.BOND
+        redeemed = record.asset_type in _REDEEMED
         if economics.settlement not in _EXPIRING and not redeemed:
             raise RuntimeValidationError(
                 f"{named} settles as {economics.settlement.value}: only a future or an option "
-                "is settled at expiry, and a bond redeemed at maturity."
+                "is settled at expiry, and a bond, a swap, an FRA or a repo at its final "
+                "payment."
             )
         price = settlement.price
         if price < 0 and not economics.allows_negative_prices:
@@ -2581,6 +2803,95 @@ class ExecutionPipeline:
             rates,
             f"ASSIGNMENT-{assignment.asset_id}-{timestamp!r}-{assignment.reference}",
         )
+
+    @staticmethod
+    @in_accounting_context
+    def fix_ndf(
+        state: ExecutionPipelineState,
+        asset_id: str,
+        fixing: FxRate,
+        timestamp: float,
+        rates: FxRates = NO_RATES,
+    ) -> ExecutionPipelineState:
+        """Fix every open NDF in ``asset_id`` that fixes on ``fixing``'s day (v4.3.0, ADR-0067).
+
+        The fixing is a supplied rate with its provenance. It is quoted base to
+        quote, as the pair is, and never inverted or crossed (AC-17). It comes
+        from the source the deals name, true at an instant of their fixing date
+        by the listing venue's calendar, and no later than ``timestamp``. Each
+        deal it fixes is owed the difference from its rate, in its settlement
+        currency, pending to its value date
+        (:meth:`~alphalab.portfolio.engine.PortfolioEngine.fix_ndf`).
+
+        Raises:
+            RuntimeValidationError: If ``timestamp`` is before the last event;
+                ``asset_id`` is not a declared NDF; the rate is of another pair,
+                from another source, or true after ``timestamp``; no open deal
+                fixes on its day; or a deal it would fix has reached its value
+                date.
+        """
+
+        _require_not_before_last_event(state, timestamp, "An NDF's fixing")
+        record = _fx_record(state, asset_id)
+        terms = None if record is None else record.terms
+        if record is None or not isinstance(terms, FxTerms) or terms.kind is not FxKind.NDF:
+            raise RuntimeValidationError(
+                f"{asset_id} is not an NDF this run's registry declares: nothing says how a "
+                "fixing settles it."
+            )
+        assert terms.fixing is not None  # FxTerms requires an NDF's
+        named = f"{record.symbol} on {record.exchange}"
+        if (fixing.base, fixing.quote) != (terms.base, terms.quote):
+            raise RuntimeValidationError(
+                f"{named} fixes {terms.base}/{terms.quote}, and the rate supplied is "
+                f"{fixing.base}/{fixing.quote}: a fixing is never inverted or crossed (AC-17)."
+            )
+        if fixing.source != terms.fixing.source:
+            raise RuntimeValidationError(
+                f"{named} fixes at {terms.fixing.source!r}, and the rate supplied is from "
+                f"{fixing.source!r}: a fixing comes from the source the deal names."
+            )
+        if fixing.as_of > timestamp:
+            raise RuntimeValidationError(
+                f"The fixing supplied for {named} is true at {fixing.as_of!r}, after "
+                f"{timestamp!r}: a fixing is not known before it is made."
+            )
+        venue = state.config.calendars.calendar_for(record.exchange)
+        if venue is None:
+            raise RuntimeValidationError(
+                f"No calendar is declared for {record.exchange}, so no day can be read from "
+                f"the fixing supplied for {named}."
+            )
+        day = venue.trading_day_of(fixing.as_of) or venue.local_datetime(fixing.as_of).date()
+        portfolio = state.portfolio
+        due = [e for e in portfolio.unsettled if e.asset_id == asset_id and e.fixes_on == day]
+        if not due:
+            raise RuntimeValidationError(
+                f"No open NDF in {named} fixes on {day.isoformat()}, the day the rate supplied "
+                "is true: a fixing is a rate of its deals' fixing date, and one of another day "
+                "is refused."
+            )
+        wanted = {entry.transaction_id for entry in due}
+        deals = {
+            t.transaction_id: t
+            for t in portfolio.ledger.by_asset(asset_id)
+            if t.transaction_id in wanted
+        }
+        for entry in due:
+            if entry.settles_at <= timestamp:
+                raise RuntimeValidationError(
+                    f"{named}'s NDF deal {entry.transaction_id} reached its value date at "
+                    f"{entry.settles_at!r} unfixed, and is not fixed after it."
+                )
+            portfolio = PortfolioEngine.fix_ndf(
+                portfolio,
+                deals[entry.transaction_id],
+                fixing.rate,
+                fixing.source,
+                fixing.as_of,
+                timestamp,
+            )
+        return _after_book_change(state, portfolio, timestamp, rates)
 
     @staticmethod
     @in_accounting_context
@@ -2905,6 +3216,13 @@ def _route_requests(
             dropped.append((request, unworkable))
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
+        venue = _venue_for(current, request, event, instant) if current.config.venues else None
+        if isinstance(venue, str):
+            # No declared venue routes it: refused, never filled by a model
+            # nobody chose (ADR-0061).
+            dropped.append((request, venue))
+            current = _retire_dropped_request(current, request.order_id, instant)
+            continue
         current, decision = _evaluate_risk(current, request, instant, rates)
         decisions.append(decision)
         if not decision.approved:
@@ -2916,6 +3234,27 @@ def _route_requests(
             current = _retire_dropped_request(current, request.order_id, instant)
             continue
         current, order = _submit_and_accept_order(current, request, instant)
+        if venue is not None:
+            current, order = _record_venue(current, order, venue, instant)
+        if (
+            current.config.routing is ExecutionRouting.SIMULATED
+            and _fund_record(current, order.asset_id) is not None
+        ):
+            # An open-ended fund deals at its NAV: held until its dealing day's
+            # close, it fills at the fund's first price after (ADR-0076).
+            current, dealt = _await_dealing(current, order, instant)
+            orders.append(dealt)
+            continue
+        if (
+            current.config.routing is ExecutionRouting.SIMULATED
+            and current.config.latency_pricing is LatencyPricing.POST_LATENCY_EVENT
+        ):
+            current, held = _await_latency(current, order, instant, event.timestamp)
+            if held is not None:
+                # Kept from the market until its latency has passed: its first
+                # turn is its asset's first event at or after then (ADR-0060).
+                orders.append(held)
+                continue
         if current.config.routing is not ExecutionRouting.SIMULATED:
             # The order is now working and belongs to whoever routes it -- the
             # venue, or the execution algorithm working it in children. No fill
@@ -2923,7 +3262,7 @@ def _route_requests(
             # stays held -- the capital is still committed.
             orders.append(order)
             continue
-        if rest or current.config.fill_timing is FillTiming.NEXT_EVENT:
+        if rest or current.config.fill_timing in _HELD_TIMINGS:
             # Working until its asset's next event, which fills it there -- not
             # at the price the strategy decided on (EXE-001), and not in the step
             # whose feedback placed it (EXE-005). Its reservation stays held
@@ -3010,6 +3349,7 @@ def _allocate(
     market_prices: Mapping[str, Decimal],
     rates: FxRates,
     timestamp: float,
+    sizing_model: SizingModel | None = None,
 ) -> tuple[AllocationState, tuple[OrderRequest, ...]]:
     """Allocate intents with everything allocation reads and cannot see for itself.
 
@@ -3026,7 +3366,7 @@ def _allocate(
         state.allocation,
         intents,
         market_prices,
-        state.config.sizing_model,
+        state.config.sizing_model if sizing_model is None else sizing_model,
         constraints,
         timestamp,
         _budget_prices(state, market_prices, rates, timestamp),
@@ -3107,6 +3447,120 @@ def _declared(state: ExecutionPipelineState, asset_id: str) -> InstrumentRecord 
 
     registry = state.config.instruments
     return None if registry is None else registry.record_for(asset_id)
+
+
+def _fx_record(state: ExecutionPipelineState, asset_id: str) -> InstrumentRecord | None:
+    """The record of ``asset_id`` when it declares an FX deal's terms, else ``None`` (ADR-0067).
+
+    Read through the registry's ``fx_pairs`` index, so a run declaring no FX
+    pair pays one emptiness check for it.
+    """
+
+    registry = state.config.instruments
+    return None if registry is None else _indexed_record(registry, registry.fx_pairs, asset_id)
+
+
+def _fund_record(state: ExecutionPipelineState, asset_id: str) -> InstrumentRecord | None:
+    """The record of ``asset_id`` when it is an open-ended fund, else ``None`` (ADR-0076).
+
+    Read through the registry's ``funds`` index, so a run holding no fund pays
+    one emptiness check for it.
+    """
+
+    registry = state.config.instruments
+    return None if registry is None else _indexed_record(registry, registry.funds, asset_id)
+
+
+def _indexed_record(
+    registry: InstrumentRegistry, index: Mapping[str, None] | None, asset_id: str
+) -> InstrumentRecord | None:
+    """The record of ``asset_id`` when ``index`` -- one of the registry's own -- holds it."""
+
+    if not index or asset_id not in index:
+        return None
+    return registry.record_for(asset_id)
+
+
+def _fund_refusal(
+    state: ExecutionPipelineState, request: OrderRequest, instant: float
+) -> str | None:
+    """Why an order in an open-ended fund cannot be dealt at its NAV, or ``None`` (ADR-0076).
+
+    A fund deals once, at the NAV after its dealing day's close: by a market
+    order, good till cancelled -- a day order would expire at the very close it
+    is dealt after -- never by an execution algorithm, and never sold short.
+    """
+
+    fund = _fund_record(state, request.asset_id)
+    if fund is None:
+        return None
+    named = f"{fund.symbol} on {fund.exchange}"
+    terms = request.terms
+    if (
+        terms.order_type is not OrderType.MARKET
+        or terms.is_auction
+        or terms.time_in_force is not TimeInForce.GTC
+    ):
+        return (
+            f"{named} is an open-ended fund, dealt at its NAV: its order is a market order, good "
+            f"till cancelled, not {terms.order_type.name} {terms.time_in_force.name}. A day order "
+            "would expire at the close it is dealt after."
+        )
+    if state.config.routing is ExecutionRouting.ALGORITHMIC:
+        return f"{named} is an open-ended fund, dealt once at its NAV: no algorithm works it."
+    calendar = state.config.calendars.calendar_for(fund.exchange)
+    if calendar is None:
+        return (
+            f"{named} is dealt at the NAV after its dealing day's close, by its venue's calendar, "
+            f"and no calendar is declared for {fund.exchange}: declare it on "
+            "ExecutionPipelineConfig.calendars."
+        )
+    if calendar.day_order_expiry(instant) is None:
+        return f"{named} has no dealing session after {instant!r} in {calendar.calendar_id}."
+    if request.side is CoreSide.SELL:
+        position = state.portfolio.positions.get(request.asset_id)
+        held = Decimal("0") if position is None else position.quantity
+        redeeming = sum(
+            (
+                order.remaining_quantity
+                for order_id in state.oms.working_orders_for(request.asset_id)
+                for order in (state.oms.orders.find(order_id),)
+                if order.side is OMSSide.SELL
+            ),
+            Decimal("0"),
+        )
+        if request.quantity > held - redeeming:
+            return (
+                f"{named} is redeemed from units held: {request.quantity} asked, "
+                f"{held - redeeming} held and not already being redeemed. A fund is never sold "
+                "short."
+            )
+    return None
+
+
+def _await_dealing(
+    state: ExecutionPipelineState, order: OMSOrder, decided: float
+) -> tuple[ExecutionPipelineState, OMSOrder]:
+    """Hold a fund's order until its dealing day's close, to deal at the price after (ADR-0076).
+
+    That price is the fund's NAV. A latency the run also models holds it no
+    less long.
+    """
+
+    fund = _fund_record(state, order.asset_id)
+    assert fund is not None  # the caller asked
+    calendar = state.config.calendars.calendar_for(fund.exchange)
+    assert calendar is not None  # _fund_refusal requires it
+    cutoff = calendar.day_order_expiry(decided)
+    assert cutoff is not None  # _fund_refusal requires it
+    ready = cutoff
+    if state.config.latency_pricing is LatencyPricing.POST_LATENCY_EVENT:
+        model = _simulator_for(state, order).latency_model
+        ready = max(ready, decided + model.calculate(str(order.order_id.value), decided))
+    held = evolve(
+        state, oms=OMSEngine.annotate(state.oms, order.order_id, {_READY_AT: repr(ready)})
+    )
+    return held, held.oms.orders.find(order.order_id)
 
 
 def _declared_option(
@@ -3809,8 +4263,15 @@ def _buying_power_charge(
     charge the notional, as always -- otherwise: a short sale, a fully paid
     purchase, an instrument declaring no margin terms; a registry declaring none
     costs one emptiness check.
+
+    An FX deal (ADR-0067) spends none, on either side: it opens no position, and
+    what it pays is one currency's cash by its value date, which
+    :func:`_fx_cash_refusal` holds it to -- with the credits that arrive by then,
+    which a base-currency sum of the book's cash cannot see.
     """
 
+    if _fx_record(state, asset_id) is not None:
+        return Decimal("0")
     registry = state.config.instruments
     if registry is None or not registry.margined or asset_id not in registry.margined:
         return None
@@ -3841,10 +4302,17 @@ def _currency_cash_refusal(
     the cash (FUT-017), nor one bought on margin (FUT-018). Its cost at the
     request's price must be within the currency's cash less what is reserved,
     less proceeds not yet received, less every buy already working in it; cash in
-    another currency is not converted to pay it (ADR-0035).
+    another currency is not converted to pay it (ADR-0035). An FX deal pays a
+    currency on either side, and is read by :func:`_fx_cash_refusal` (ADR-0067).
     """
 
-    if request.side is not CoreSide.BUY or len(state.config.settlement_currencies) < 2:
+    if len(state.config.settlement_currencies) < 2:
+        return None
+    fx = _fx_record(state, request.asset_id)
+    if fx is not None:
+        assert isinstance(fx.terms, FxTerms)  # the registry's fx_pairs says so
+        return _fx_cash_refusal(state, request, fx, at)
+    if request.side is not CoreSide.BUY:
         return None
     asset_id = request.asset_id
     economics = _economics_of(state, asset_id)
@@ -3878,6 +4346,100 @@ def _currency_cash_refusal(
         f"The purchase costs {cost} {currency} and the book can pay {max(available, Decimal(0))} "
         f"{currency}: a fill settles in its own currency, and cash in another is not converted "
         "to pay it. Fund the currency first (Funding, RunEngine.fund)."
+    )
+
+
+def _fx_flows(
+    state: ExecutionPipelineState, request: OrderRequest, at: float
+) -> tuple[tuple[str, Decimal], tuple[str, Decimal], float] | None:
+    """What an FX order pays and receives, and when: ``(paid, received, value instant)``.
+
+    ``None`` for an order that is not an FX deal, or whose value date cannot be
+    found. A purchase pays the quote, ``quantity x price``, and receives the
+    base; a sale pays the base and receives the quote (ADR-0067).
+    """
+
+    fx = _fx_record(state, request.asset_id)
+    if fx is None:
+        return None
+    terms = fx.terms
+    assert isinstance(terms, FxTerms)  # the registry's fx_pairs says so
+    if terms.kind is FxKind.NDF:
+        return None  # an NDF exchanges nothing at its trade: its difference is owed at its fixing
+    try:
+        _, arrives = _fx_value_date(state, fx, terms, at)
+    except RuntimeValidationError:
+        return None
+    value = ACCOUNTING_CONTEXT.multiply(request.quantity, request.price)
+    if request.side is CoreSide.BUY:
+        return (terms.quote, value), (terms.base, request.quantity), arrives
+    return (terms.base, request.quantity), (terms.quote, value), arrives
+
+
+def _fx_cash_refusal(
+    state: ExecutionPipelineState,
+    request: OrderRequest,
+    record: InstrumentRecord,
+    at: float,
+    siblings: Sequence[OrderRequest] = (),
+) -> str | None:
+    """Why the currency an FX deal pays cannot pay it by its value date, or ``None`` (ADR-0067).
+
+    A purchase pays the quote, ``quantity x price``; a sale pays the base,
+    ``quantity``. Either is paid from that currency's cash, less what is
+    reserved, less every working order that pays in it -- a buy of what is
+    priced in it, a sale of a pair whose base it is -- and less credits not yet
+    received. A credit that arrives by the deal's own value date is counted: a
+    forward maturing that day delivers what the deal pays, which is how a
+    rollover's near leg is paid. Cash in another currency is not converted to
+    pay it (ADR-0035). A deal whose value date cannot be found is left to
+    :func:`_terms_refusal`, which says why.
+
+    ``siblings`` are the other legs of the deal's package (ADR-0062): what they
+    pay in the currency is committed with it, and what they receive in it by
+    the deal's value date pays it -- a swap's near leg pays its far leg.
+    """
+
+    flows = _fx_flows(state, request, at)
+    if flows is None:
+        return None
+    (currency, need), _, settles_at = flows
+    ctx = ACCOUNTING_CONTEXT
+    cash = state.portfolio.cash
+    available = ctx.subtract(cash.balance(currency), cash.reserved.get(currency, Decimal("0")))
+    for entry in state.portfolio.unsettled:
+        if entry.currency == currency and entry.cash > 0 and entry.settles_at > settles_at:
+            available = ctx.subtract(available, entry.cash)
+    for order_id in state.oms.active_orders:
+        order = state.oms.orders.find(order_id)
+        if order.side is OMSSide.BUY:
+            if _settlement_currency_for(state, order.asset_id) != currency:
+                continue
+            unit = _multiplier(_economics_of(state, order.asset_id))
+            price = order.limit_price or state.market_prices.get(order.asset_id, Decimal("0"))
+            available = ctx.subtract(
+                available, ctx.multiply(ctx.multiply(order.remaining_quantity, price), unit)
+            )
+            continue
+        other = _fx_record(state, order.asset_id)
+        if other is not None and isinstance(other.terms, FxTerms) and other.terms.base == currency:
+            available = ctx.subtract(available, order.remaining_quantity)
+    for sibling in siblings:
+        moved = _fx_flows(state, sibling, at)
+        if moved is None:
+            continue
+        (pays, paid), (gets, received), arrives = moved
+        if pays == currency:
+            available = ctx.subtract(available, paid)
+        if gets == currency and arrives <= settles_at:
+            available = ctx.add(available, received)
+    if need <= available:
+        return None
+    return (
+        f"{record.symbol} on {record.exchange} pays {need} {currency}, and the book can pay "
+        f"{max(available, Decimal(0))} {currency} by the deal's value date: an FX deal is paid "
+        "from the currency's own cash, and cash in another is not converted to pay it. Fund "
+        "the currency first (Funding, RunEngine.fund)."
     )
 
 
@@ -4964,6 +5526,8 @@ def _require_exchange_adjusted(
                     "a future's delivery is not adjusted for an exchange. Close it before."
                 )
             continue
+        if not isinstance(terms, OptionTerms):
+            continue  # an FX deal, a swap or an FRA delivers no instrument
         before = replace(
             terms, adjustments=tuple(a for a in terms.adjustments if a.effective_at < timestamp)
         ).effective(timestamp)
@@ -5011,6 +5575,8 @@ def _require_adjusted_for(state: ExecutionPipelineState, split: Split, timestamp
                     "future's delivery is not adjusted for a split. Close it before the split."
                 )
             continue
+        if not isinstance(terms, OptionTerms):
+            continue  # an FX deal, a swap or an FRA delivers no instrument
         before = replace(
             terms, adjustments=tuple(a for a in terms.adjustments if a.effective_at < timestamp)
         ).effective(timestamp)
@@ -5398,7 +5964,14 @@ def _book_package(
     return current
 
 
-_NOT_ORDERS: Final = (IntentKind.EXERCISE, IntentKind.CANCEL, IntentKind.ELECT, IntentKind.AMEND)
+_NOT_ORDERS: Final = (
+    IntentKind.EXERCISE,
+    IntentKind.CANCEL,
+    IntentKind.ELECT,
+    IntentKind.AMEND,
+    # Placed whole, by _packages_requested (ADR-0062).
+    IntentKind.PACKAGE,
+)
 
 
 def _cancels_requested(
@@ -5435,6 +6008,13 @@ def _cancels_requested(
                         "would withdraw theirs.",
                     )  # fmt: skip
                 continue
+            if _PACKAGE in current.oms.orders.find(order_id).metadata:
+                current = _refuse_cancel(
+                    current, intent, order_id, timestamp,
+                    "The order is a leg of a package, whose legs are worked and withdrawn only "
+                    "together (ADR-0062).",
+                )  # fmt: skip
+                continue
             routing = current.config.routing
             if routing is ExecutionRouting.EXTERNAL:
                 current = _refuse_cancel(
@@ -5464,16 +6044,25 @@ def _instructions_requested(
     rates: FxRates,
     rest: bool = False,
 ) -> tuple[ExecutionPipelineState, tuple[Intent, ...], _Routed]:
-    """Carry out the batch's cancels and amends: the intents left to size, and the amends' routing.
+    """Carry out the batch's cancels, amends and packages: the intents left to size, and routing.
 
     Cancels first, then amends -- each replacement placed atomically, before
-    the batch's own orders (FUT-031).
+    the batch's own orders (FUT-031) -- then packages, each placed whole or
+    refused whole (ADR-0062).
     """
 
     current = _cancels_requested(state, intents, timestamp)
     current, routed = _amends_requested(
         current, intents, timestamp, event=event, policy=policy, rates=rates, rest=rest
     )
+    for intent in intents:
+        if intent.kind is IntentKind.PACKAGE:
+            # Only a batch holding a package pays for the packages' intake.
+            current, packaged = _packages_requested(
+                current, intents, timestamp, event=event, rest=rest
+            )
+            routed = routed.then(packaged)
+            break
     return current, _for_orders(intents), routed
 
 
@@ -5634,6 +6223,12 @@ def _amendable(state: ExecutionPipelineState, intent: Intent) -> tuple[str | Non
                 "The order is netted with another strategy's, and amending it would amend theirs.",
                 None,
             )
+        if _PACKAGE in state.oms.orders.find(order_id).metadata:
+            return (
+                "The order is a leg of a package, whose legs are worked and amended only "
+                "together (ADR-0062).",
+                None,
+            )
         own.append(state.oms.orders.find(order_id))
     if len(own) != 1:
         return (
@@ -5774,6 +6369,439 @@ def _refuse_cancel(
     return evolve(
         state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, refused), ())
     )
+
+
+# --------------------------------------------------------------------------- #
+# Packages: legs traded together, all or none at one instant (ADR-0062)
+# --------------------------------------------------------------------------- #
+
+#: Where a leg records its package's identity -- the first leg's order id --
+#: and its legs' order ids, in its metadata, which every snapshot carries.
+_PACKAGE: Final = "package_id"
+_PACKAGE_LEGS: Final = "package_legs"
+#: The package's label, its intent's ``instrument``: recorded, never resolved.
+_PACKAGE_LABEL: Final = "package_label"
+#: When a package may first fill: at the close of the instant it was decided in
+#: (``_PACKAGE_FROM``) or of a later one (``_PACKAGE_AFTER``) -- the run's fill
+#: timing, or a package placed from feedback, which rests.
+_PACKAGE_FROM: Final = "package_from"
+_PACKAGE_AFTER: Final = "package_after"
+
+#: The times in force a market package may have: it works until it fills, or
+#: its day ends.
+_PACKAGE_TIMES: Final = frozenset({TimeInForce.DAY, TimeInForce.GTC})
+
+
+def _packages_requested(
+    state: ExecutionPipelineState,
+    intents: tuple[Intent, ...],
+    timestamp: float,
+    *,
+    event: MarketEvent | None,
+    rest: bool,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Place each package the batch asks for, whole, or refuse it whole (ADR-0062).
+
+    Packages with the same legs and terms net across strategies into one; a
+    package never nets with an order for one instrument. Each is allocated as
+    its legs, sized ``target * strength * ratio`` whatever the run's sizing
+    model, approved by risk as one decision against the book projected with
+    every leg, and placed as linked leg orders, worked together at a slice
+    close. One that cannot be -- its shape, its prices, its units, allocation or
+    risk -- is refused, recorded as a
+    :class:`~alphalab.strategy.events.PackageRefused`, and holds nothing. A run
+    whose strategies ask for no package takes one test per intent.
+    """
+
+    if not any(intent.kind is IntentKind.PACKAGE for intent in intents):
+        return state, _NO_ROUTING
+    current = state
+    groups: dict[tuple[tuple[tuple[str, Decimal], ...], OrderTerms], list[Intent]] = {}
+    for intent in intents:
+        if intent.kind is not IntentKind.PACKAGE:
+            continue
+        refusal = _package_refusal(current, intent)
+        if refusal is not None:
+            current = _refuse_package(current, intent, timestamp, refusal)
+            continue
+        key = (tuple(sorted((leg.instrument, leg.ratio) for leg in intent.legs)), intent.terms)
+        groups.setdefault(key, []).append(intent)
+    routed = _NO_ROUTING
+    for group in groups.values():
+        current, placed = _place_package(current, tuple(group), timestamp, event=event, rest=rest)
+        routed = routed.then(placed)
+    return current, routed
+
+
+def _package_refusal(state: ExecutionPipelineState, intent: Intent) -> str | None:
+    """Why ``intent`` cannot be a package at all, or ``None`` (ADR-0062 section 1)."""
+
+    if state.config.routing is not ExecutionRouting.SIMULATED:
+        return (
+            f"A package's legs are worked together by the simulator, and this run routes "
+            f"{state.config.routing.name}."
+        )
+    legs = intent.legs
+    if len(legs) < 2:
+        return f"A package trades two legs or more; this one names {len(legs)}."
+    seen: set[str] = set()
+    for leg in legs:
+        if leg.instrument in seen:
+            return f"A package names each leg once; {leg.instrument} appears twice."
+        seen.add(leg.instrument)
+        if leg.ratio == 0:
+            return f"A leg's ratio is not zero; {leg.instrument}'s is."
+        if leg.instrument not in state.market_prices:
+            return f"Leg {leg.instrument} has no price the run has observed."
+    terms = intent.terms
+    if terms.order_type is not OrderType.MARKET or terms.time_in_force not in _PACKAGE_TIMES:
+        return (
+            f"A package is a market order, good for the day or until cancelled; this one is "
+            f"{terms.order_type.name}, {terms.time_in_force.name}."
+        )
+    return None
+
+
+def _refuse_package(
+    state: ExecutionPipelineState, intent: Intent, timestamp: float, reason: str
+) -> ExecutionPipelineState:
+    """Record that ``intent``'s package was refused whole, in the strategy runtime's log."""
+
+    refused = PackageRefused(
+        str(new_id()), timestamp, intent.strategy_id, intent.instrument, reason
+    )
+    strategy = state.strategy
+    return evolve(
+        state, strategy=strategy.evolved(strategy.strategies, (*strategy.events, refused), ())
+    )
+
+
+def _place_package(
+    state: ExecutionPipelineState,
+    group: tuple[Intent, ...],
+    timestamp: float,
+    *,
+    event: MarketEvent | None,
+    rest: bool,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Allocate, approve and place one netted package as its legs, or refuse it whole."""
+
+    legs = group[0].legs
+    net = sum((intent.target * intent.strength for intent in group), Decimal("0"))
+    if net == 0:
+        return state, _NO_ROUTING  # the strategies' packages net to nothing
+    whole = _whole_units(state)
+
+    def refuse(reason: str) -> tuple[ExecutionPipelineState, _Routed]:
+        refused = state
+        for intent in group:
+            refused = _refuse_package(refused, intent, timestamp, reason)
+        return evolve(refused, id_position=current_id_position()), _NO_ROUTING
+
+    if whole:
+        for leg in legs:
+            quantity = net * leg.ratio
+            if quantity != quantity.to_integral_value():
+                return refuse(
+                    f"Leg {leg.instrument} would trade {quantity}, and the run trades whole units."
+                )
+    leg_intents = tuple(
+        Intent(
+            intent.strategy_id,
+            leg.instrument,
+            intent.target * leg.ratio,
+            strength=intent.strength,
+            horizon=intent.horizon,
+            terms=intent.terms,
+            correlation_id=intent.correlation_id,
+            timestamp=intent.timestamp,
+            metadata=intent.metadata,
+        )
+        for leg in legs
+        for intent in group
+    )
+    allocation, requests = _allocate(
+        state, leg_intents, state.market_prices, NO_RATES, timestamp, FixedQuantitySizing()
+    )
+    expected = {leg.instrument: net * leg.ratio for leg in legs}
+    placed = {
+        request.asset_id: (request.quantity if request.side is CoreSide.BUY else -request.quantity)
+        for request in requests
+    }
+    if placed != expected:
+        return refuse(
+            "Allocation could not place every leg as the package states: "
+            + ", ".join(
+                f"{asset} {placed.get(asset, Decimal('0'))} of {quantity}"
+                for asset, quantity in expected.items()
+            )
+            + "."
+        )
+    current = evolve(state, allocation=allocation)
+    for request in requests:
+        if _fund_record(current, request.asset_id) is not None:
+            return refuse(
+                f"Leg {request.asset_id} is an open-ended fund, dealt once at its NAV, not with a "
+                "package's other legs at one instant (ADR-0076)."
+            )
+        unbookable = _fx_leg_refusal(current, request, timestamp, requests)
+        if unbookable is not None:
+            return refuse(f"Leg {request.asset_id}: {unbookable}")
+    requests = _in_settlement_order(current, requests, timestamp)
+    routes: list[tuple[str, str] | None] = []
+    for request in requests:
+        venue = _venue_for(current, request, event, timestamp)
+        if isinstance(venue, str):
+            return refuse(f"Leg {request.asset_id}: {venue}")
+        routes.append(venue)
+    decisions: list[RiskDecision] = []
+    for request in requests:
+        current, decision = _evaluate_risk(current, request, timestamp, NO_RATES)
+        decisions.append(decision)
+        if not decision.approved:
+            return refuse(f"Risk refused leg {request.asset_id}: {decision.reason}")
+    orders: list[OMSOrder] = []
+    for request in requests:
+        current, order = _submit_and_accept_order(current, request, timestamp)
+        orders.append(order)
+    package_id = str(orders[0].order_id.value)
+    entries = {
+        _PACKAGE: package_id,
+        _PACKAGE_LEGS: ",".join(str(order.order_id.value) for order in orders),
+        _PACKAGE_LABEL: group[0].instrument,
+        (
+            _PACKAGE_FROM
+            if current.config.fill_timing is FillTiming.SAME_EVENT and not rest
+            else _PACKAGE_AFTER
+        ): repr(timestamp),
+    }
+    for order, venue in zip(orders, routes, strict=True):
+        current = evolve(current, oms=OMSEngine.annotate(current.oms, order.order_id, entries))
+        if venue is not None:
+            current, _ = _record_venue(current, order, venue, timestamp)
+        current, _ = _await_latency(
+            current, current.oms.orders.find(order.order_id), timestamp, timestamp
+        )
+    held = tuple(current.oms.orders.find(order.order_id) for order in orders)
+    return evolve(current, id_position=current_id_position()), _Routed(
+        decisions=tuple(decisions), orders=held
+    )
+
+
+def _fx_leg_refusal(
+    state: ExecutionPipelineState,
+    request: OrderRequest,
+    at: float,
+    legs: Sequence[OrderRequest],
+) -> str | None:
+    """Why a package's FX leg cannot be booked, or ``None`` (ADR-0067, ADR-0062).
+
+    What a single FX order is refused for before it exists: a pair this run
+    cannot trade, a value date it cannot find, and a currency that cannot pay
+    the deal by its value date -- here with the package's other legs counted,
+    so a swap's near leg pays its far leg. Any other leg is ``None``.
+    """
+
+    fx = _fx_record(state, request.asset_id)
+    if fx is None:
+        return None
+    refused = _settlement_refusal(state, request.asset_id, at)
+    if refused is not None:
+        return refused.detail
+    unvalued = _settlement_calendar_refusal(state, request.asset_id, at)
+    if unvalued is not None:
+        return unvalued
+    siblings = tuple(leg for leg in legs if leg is not request)
+    return _fx_cash_refusal(state, request, fx, at, siblings)
+
+
+def _in_settlement_order(
+    state: ExecutionPipelineState, requests: Sequence[OrderRequest], at: float
+) -> tuple[OrderRequest, ...]:
+    """A package's legs in the order they settle: an FX leg at its value date, any other at once.
+
+    A package's legs are booked at its fill in the order it places them, each
+    paying from the cash the legs before it left. So a swap's near leg, which
+    delivers what its far leg is paid with, is booked first (ADR-0067). A
+    package with no FX leg keeps its order: every key is ``at``, and the sort
+    is stable.
+    """
+
+    def settles(request: OrderRequest) -> float:
+        flows = _fx_flows(state, request, at)
+        return at if flows is None else flows[2]
+
+    return tuple(sorted(requests, key=settles))
+
+
+def _packages_working(state: ExecutionPipelineState, assets: Iterable[str]) -> bool:
+    """Whether a package has a leg working in one of ``assets`` (ADR-0062)."""
+
+    oms = state.oms
+    return any(
+        _PACKAGE in oms.orders.find(order_id).metadata
+        for asset_id in assets
+        for order_id in oms.working_orders_for(asset_id)
+    )
+
+
+def _work_packages(
+    state: ExecutionPipelineState,
+    at: float,
+    assets: tuple[str, ...],
+    policy: FillPolicy,
+    rates: FxRates,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Each package working in the instant's assets, at its close: all legs or none (ADR-0062)."""
+
+    current = state
+    routed = _NO_ROUTING
+    seen: set[str] = set()
+    for asset_id in assets:
+        for order_id in tuple(current.oms.working_orders_for(asset_id)):
+            order = current.oms.orders.find(order_id)
+            package = order.metadata.get(_PACKAGE)
+            if package is None or package in seen:
+                continue
+            seen.add(package)
+            legs = tuple(
+                current.oms.orders.find(OrderId(UUID(leg)))
+                for leg in order.metadata[_PACKAGE_LEGS].split(",")
+            )
+            current, turned = _package_turn(current, legs, at, assets, policy, rates)
+            routed = routed.then(turned)
+    return evolve(current, id_position=current_id_position()), routed
+
+
+def _package_turn(
+    state: ExecutionPipelineState,
+    legs: tuple[OMSOrder, ...],
+    at: float,
+    assets: tuple[str, ...],
+    policy: FillPolicy,
+    rates: FxRates,
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """One package's turn at the close of instant ``at``."""
+
+    current = state
+    if not all(leg.is_open for leg in legs):
+        # A leg ended otherwise -- an expiry, a settlement, a split -- and the
+        # package ends with it: its legs become terminal together.
+        for leg in legs:
+            if leg.is_open:
+                current = _end_unfilled(current, leg, at)
+        return current, _Routed(orders=tuple(current.oms.orders.find(leg.order_id) for leg in legs))
+    if any(leg.expire_at is not None and at >= leg.expire_at for leg in legs):
+        # Its day ended unfilled: every leg expires with it, as a day order does.
+        for leg in legs:
+            current = _expire(current, leg, at)
+        return current, _Routed(orders=tuple(current.oms.orders.find(leg.order_id) for leg in legs))
+    first = legs[0]
+    after, from_ = first.metadata.get(_PACKAGE_AFTER), first.metadata.get(_PACKAGE_FROM)
+    if (after is not None and at <= float(after)) or (from_ is not None and at < float(from_)):
+        return current, _NO_ROUTING
+    if any(leg.asset_id not in assets or not _ready(leg, at) for leg in legs):
+        return current, _NO_ROUTING  # an instant that prices every leg, after its latency
+    if _rest_over(first, at):
+        return _end_package(current, legs, at)
+    events = _instant_events(current.market.events, at)
+    decided: list[tuple[OMSOrder, MarketEvent, Decimal, FillDecision]] = []
+    for leg in legs:
+        leg_event = events[leg.asset_id]
+        price = _opening(current, leg, leg_event)
+        if price is None:
+            price = current.market_prices[leg.asset_id]
+        if _venue_blocks(current, leg.asset_id, at, price):
+            return current, _NO_ROUTING  # a block on any leg blocks the package: it rests
+        decided.append(
+            (
+                leg,
+                leg_event,
+                price,
+                _decide_fill(policy, leg, leg_event, price, _whole_units(current)),
+            )
+        )
+    if not all(
+        decision.status is FillStatus.FULL_FILL
+        and (decision.quantity is None or decision.quantity >= leg.remaining_quantity)
+        for leg, _, _, decision in decided
+    ):
+        return _package_unfilled(current, legs, at)
+    reports: list[ExecutionReport] = []
+    fills: list[CoreFill] = []
+    trades: list[CoreTrade] = []
+    for leg, leg_event, price, _ in decided:
+        whole = FillDecision(FillStatus.FULL_FILL, leg.remaining_quantity)
+        current, new_reports = _execute_order(
+            current, leg, whole, leg_event, price=price, stamped_at_event=_latency_spent(current)
+        )
+        current, new_fills, new_trades = _apply_reports(current, leg, new_reports, rates)
+        reports.extend(new_reports)
+        fills.extend(new_fills)
+        trades.extend(new_trades)
+    return current, _Routed(
+        orders=tuple(current.oms.orders.find(leg.order_id) for leg in legs),
+        reports=tuple(reports),
+        fills=tuple(fills),
+        trades=tuple(trades),
+    )
+
+
+def _package_unfilled(
+    state: ExecutionPipelineState, legs: tuple[OMSOrder, ...], at: float
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """A turn at which not every leg would fill in full: none fills (ADR-0062 section 5).
+
+    Withdrawn after it, every leg together, unless the run declares a resting
+    remainder (ADR-0060), when the package keeps its turns until its rest ends.
+    """
+
+    rest = state.config.remainder
+    if rest is None:
+        return _end_package(state, legs, at)
+    current = state
+    first = legs[0]
+    if rest.events is not None:
+        held = first.metadata.get(_REST_TURNS)
+        if held is None:
+            entries = {_REST_TURNS: str(rest.events)}  # its rest begins: that many more turns
+        else:
+            left = int(held) - 1
+            if left <= 0:
+                return _end_package(current, legs, at)
+            entries = {_REST_TURNS: str(left)}
+    else:
+        if _REST_UNTIL in first.metadata:
+            return current, _NO_ROUTING
+        assert rest.seconds is not None
+        entries = {_REST_UNTIL: repr(at + rest.seconds)}
+    for leg in legs:
+        current = evolve(current, oms=OMSEngine.annotate(current.oms, leg.order_id, entries))
+    return current, _NO_ROUTING
+
+
+def _end_package(
+    state: ExecutionPipelineState, legs: tuple[OMSOrder, ...], at: float
+) -> tuple[ExecutionPipelineState, _Routed]:
+    """Withdraw every leg of a package that did not fill, and free what each held."""
+
+    current = state
+    for leg in legs:
+        current = _end_unfilled(current, current.oms.orders.find(leg.order_id), at)
+    return current, _Routed(orders=tuple(current.oms.orders.find(leg.order_id) for leg in legs))
+
+
+def _instant_events(events: AppendOnlyLog[MarketEvent], at: float) -> dict[str, MarketEvent]:
+    """Each asset's last event at instant ``at``, read back from the newest by index."""
+
+    found: dict[str, MarketEvent] = {}
+    index = len(events) - 1
+    while index >= 0 and events[index].timestamp == at:
+        priced = _market_price(events[index])
+        if priced is not None and priced[0] not in found:
+            found[priced[0]] = events[index]
+        index -= 1
+    return found
 
 
 def _for_orders(intents: tuple[Intent, ...]) -> tuple[Intent, ...]:
@@ -6161,6 +7189,11 @@ def _working_shares(
 #: The settlement models of what expires: futures and options (FUT-012).
 _EXPIRING: Final = frozenset({SettlementModel.FUTURES_VARIATION, SettlementModel.OPTION_PREMIUM})
 
+#: What is closed at a final payment the caller states, whatever its economics: a
+#: bond at its redemption (v4.1.1, FUT-010) and, since v4.3.0 (ADR-0065), a swap,
+#: an FRA and a repo at the price their terms state (``backtesting.rates_payments``).
+_REDEEMED: Final = frozenset({AssetType.BOND, AssetType.SWAP, AssetType.FRA, AssetType.REPO})
+
 _NO_LOTS: Mapping[str, LotSpecification] = MappingProxyType({})
 _NO_MINIMUMS: Mapping[str, Decimal] = MappingProxyType({})
 _NO_MULTIPLIERS: Mapping[str, Decimal] = MappingProxyType({})
@@ -6290,6 +7323,17 @@ def _instant_assets(events: AppendOnlyLog[MarketEvent], at: float) -> tuple[str,
     return tuple(sorted(assets))
 
 
+def _wants_child_fills(strategies: StrategyRuntimeState) -> bool:
+    """Whether a running strategy subscribed to child fills defines ``on_child_fill`` (ADR-0061)."""
+
+    held = strategies.strategies
+    return any(
+        held[strategy_id].status is StrategyStatus.RUNNING
+        and defines_on_child_fill(held[strategy_id].instance)
+        for strategy_id in strategies.reach.reaching(Topic.CHILD_FILLS)
+    )
+
+
 def _wants_feedback(strategies: StrategyRuntimeState) -> bool:
     """Whether any running strategy subscribed to fills or to orders."""
 
@@ -6384,6 +7428,7 @@ def _feedback_events(
                             side=order.side.value,
                             attributed_quantity=share,
                             execution_id=report.execution_id,
+                            package_id=order.metadata.get(_PACKAGE, ""),
                         ),
                     )
                 )
@@ -6399,6 +7444,7 @@ def _feedback_events(
                         order.status.value,
                         quantity=order.quantity,
                         filled_quantity=order.filled_quantity,
+                        package_id=order.metadata.get(_PACKAGE, ""),
                     ),
                 )
             )
@@ -6515,13 +7561,19 @@ def _simulate_fill(
     decision = _decide_fill(policy, order, event, base, _whole_units(state))
     if _kills(order, decision):
         return _end_unfilled(state, order, event.timestamp), (), (), ()
-    current, reports = _execute_order(state, order, decision, event, price=base)
+    current, reports = _execute_order(
+        state, order, decision, event, price=base, stamped_at_event=_latency_spent(state)
+    )
     # A rejected, expired or unfilled execution produces no report. The order
     # never trades, so close it out of the OMS instead of leaving it open
     # forever awaiting a fill, and retire both ledgers it holds. The order is
     # terminal by the time _release_if_terminal is asked, which is what lets
     # that one function serve every terminal transition.
     if not reports and decision.status in _NON_TRADING_STATUSES:
+        if decision.status is FillStatus.NO_FILL and _resting(order):
+            # A resting remainder's turn that filled nothing: it counts against
+            # the rest, and the remainder works on until its rest ends (ADR-0060).
+            return _spend_turn(current, order, event.timestamp), (), (), ()
         current = evolve(
             current,
             oms=_close_unfilled_order(current.oms, order, decision.status, event.timestamp),
@@ -6529,8 +7581,169 @@ def _simulate_fill(
         current = _release_if_terminal(current, order.order_id, event.timestamp)
 
     current, fills, trades = _apply_reports(current, order, reports, rates)
-    current = _withdraw_partial_remainder(current, order, event.timestamp)
+    current = _after_turn(current, order, event.timestamp)
     return current, reports, fills, trades
+
+
+#: Where a resting remainder's allowance is kept, in its order's metadata
+#: (ADR-0060): the turns it may still take, or the instant its rest ends.
+_REST_TURNS: Final = "remainder_turns"
+_REST_UNTIL: Final = "remainder_until"
+
+
+def _resting(order: OMSOrder) -> bool:
+    """Whether ``order`` is a remainder resting under a declared ``RestRemainder``."""
+
+    return _REST_TURNS in order.metadata or _REST_UNTIL in order.metadata
+
+
+def _after_turn(
+    state: ExecutionPipelineState, order: OMSOrder, timestamp: float
+) -> ExecutionPipelineState:
+    """What a market turn leaves: withdrawn, unless the run rests remainders (ADR-0060).
+
+    Under ``RestRemainder`` the first partial fill starts the remainder's rest,
+    recorded on the order, and every later turn spends it. An immediate order
+    is withdrawn after its first turn whatever the policy.
+    """
+
+    rest = state.config.remainder
+    if rest is None or order.time_in_force in _IMMEDIATE:
+        return _withdraw_partial_remainder(state, order, timestamp)
+    current = state.oms.orders.find(order.order_id)
+    if current.status is not OrderStatus.PARTIALLY_FILLED:
+        return state
+    if _resting(current):
+        return _spend_turn(state, current, timestamp)
+    if rest.events is not None:
+        entry = {_REST_TURNS: str(rest.events)}
+    else:
+        assert rest.seconds is not None  # a RestRemainder states exactly one
+        entry = {_REST_UNTIL: repr(timestamp + rest.seconds)}
+    return evolve(state, oms=OMSEngine.annotate(state.oms, order.order_id, entry))
+
+
+def _spend_turn(
+    state: ExecutionPipelineState, order: OMSOrder, timestamp: float
+) -> ExecutionPipelineState:
+    """Spend one of a resting remainder's turns; withdraw it when its rest is over."""
+
+    current = state.oms.orders.find(order.order_id)
+    turns = current.metadata.get(_REST_TURNS)
+    if turns is not None:
+        left = int(turns) - 1
+        if left <= 0:
+            return _withdraw_partial_remainder(state, current, timestamp)
+        return evolve(
+            state, oms=OMSEngine.annotate(state.oms, current.order_id, {_REST_TURNS: str(left)})
+        )
+    return state
+
+
+def _rest_over(order: OMSOrder, timestamp: float) -> bool:
+    """Whether a remainder resting by seconds reached its end before this turn."""
+
+    until = order.metadata.get(_REST_UNTIL)
+    return until is not None and timestamp >= float(until)
+
+
+#: Times in force whose orders end at their first attempt, whatever a
+#: ``RestRemainder`` says (ADR-0060).
+_IMMEDIATE: Final = frozenset({TimeInForce.IOC, TimeInForce.FOK})
+
+#: Where an order kept from the market by its latency records the instant it
+#: may first meet it, in its metadata (ADR-0060).
+_READY_AT: Final = "latency_ready_at"
+#: How a fund's order fills at its NAV: in full (ADR-0076).
+_DEALT_IN_FULL: Final = ImmediateFill()
+
+#: Where an order kept from the market by its latency records the instant of
+#: its first turn after it: the one turn that can be an arriving one (ADR-0060).
+_FIRST_TURN: Final = "latency_first_turn_at"
+
+#: The latency model a fill is simulated with once its latency was spent
+#: waiting for its event: stamped at that event (ADR-0060).
+_NO_LATENCY: Final = ConstantLatency(0.0)
+
+
+def _await_latency(
+    state: ExecutionPipelineState, order: OMSOrder, decided: float, now: float
+) -> tuple[ExecutionPipelineState, OMSOrder | None]:
+    """Hold ``order`` until its latency has passed, under ``POST_LATENCY_EVENT``.
+
+    ``(state, None)`` -- the order goes on as it would -- under ``STAMP``, or
+    when the latency model's draw puts it in the market by ``now``: a
+    same-event order with no latency trades at its event, as it always has.
+    """
+
+    if state.config.latency_pricing is not LatencyPricing.POST_LATENCY_EVENT:
+        return state, None
+    model = _simulator_for(state, order).latency_model
+    ready = decided + model.calculate(str(order.order_id.value), decided)
+    if ready <= now:
+        return state, None
+    annotated = evolve(
+        state, oms=OMSEngine.annotate(state.oms, order.order_id, {_READY_AT: repr(ready)})
+    )
+    return annotated, annotated.oms.orders.find(order.order_id)
+
+
+def _ready(order: OMSOrder, timestamp: float) -> bool:
+    """Whether ``order`` may meet the market at ``timestamp``: its latency has passed."""
+
+    ready = order.metadata.get(_READY_AT)
+    return ready is None or timestamp >= float(ready)
+
+
+def _arrives_within(order: OMSOrder, event: MarketEvent) -> bool:
+    """Whether ``order``'s latency ended within ``event``'s bar: its turn there is an arriving one.
+
+    Under ``POST_LATENCY_EVENT`` an order that reached the market inside an
+    intraday bar of its asset was not in it at the bar's open or through its
+    range before then: at its first turn it meets the bar's close alone, as an
+    order placed at that bar does, and from then it is in the market. A
+    daily-or-longer bar is a session, which the order meets from its open: its
+    interval holds the break between sessions, and a latency is taken to be
+    shorter than that break (ADR-0060).
+    """
+
+    ready = order.metadata.get(_READY_AT)
+    if ready is None or _FIRST_TURN in order.metadata or not isinstance(event, BarClosed):
+        return False
+    bar = event.bar
+    seconds = bar.timeframe.seconds
+    if bar.asset_id != order.asset_id or bar.timeframe.unit in _SESSION_UNITS or seconds is None:
+        return False
+    return bar.timestamp - seconds < float(ready)
+
+
+def _first_turn(
+    state: ExecutionPipelineState, order: OMSOrder, timestamp: float
+) -> tuple[ExecutionPipelineState, OMSOrder]:
+    """``order`` at its first turn after its latency, recorded as having had it (ADR-0060).
+
+    Unchanged for an order its latency never kept, and for one already recorded:
+    only the first turn can be an arriving one, whatever a later event's
+    interval holds -- a coarser bar's, say.
+    """
+
+    if _READY_AT not in order.metadata or _FIRST_TURN in order.metadata:
+        return state, order
+    oms = OMSEngine.annotate(state.oms, order.order_id, {_FIRST_TURN: repr(timestamp)})
+    return evolve(state, oms=oms), oms.orders.find(order.order_id)
+
+
+def _arrived_at(order: OMSOrder) -> float:
+    """When ``order`` reached the market: when placed, or when its latency ended (ADR-0060)."""
+
+    ready = order.metadata.get(_READY_AT)
+    return order.created_at if ready is None else float(ready)
+
+
+def _latency_spent(state: ExecutionPipelineState) -> bool:
+    """Whether a simulated fill is stamped at its event: its latency was spent waiting."""
+
+    return state.config.latency_pricing is LatencyPricing.POST_LATENCY_EVENT
 
 
 #: The daily-or-longer interval units: a bar of one of these opens and closes a
@@ -6577,9 +7790,25 @@ def _settlement_calendar(
     return record, state.config.calendars.calendar_for(record.exchange)
 
 
-def _settlement_calendar_refusal(state: ExecutionPipelineState, asset_id: str) -> str | None:
-    """Why an order in ``asset_id`` cannot settle, or ``None`` (FUT-015)."""
+def _settlement_calendar_refusal(
+    state: ExecutionPipelineState, asset_id: str, instant: float | None = None
+) -> str | None:
+    """Why an order in ``asset_id`` cannot settle, or ``None`` (FUT-015).
 
+    For an FX pair (ADR-0067), at ``instant``: why its value date cannot be
+    found, by the calendars the run declares.
+    """
+
+    fx = _fx_record(state, asset_id)
+    if fx is not None:
+        assert isinstance(fx.terms, FxTerms)  # the registry's fx_pairs says so
+        if instant is None:
+            return None
+        try:
+            _fx_value_date(state, fx, fx.terms, instant)
+        except RuntimeValidationError as exc:
+            return str(exc)
+        return None
     found = _settlement_calendar(state, asset_id)
     if found is None or found[1] is not None:
         return None
@@ -6610,6 +7839,223 @@ def _settles_at(state: ExecutionPipelineState, asset_id: str, timestamp: float) 
     return settles_at(calendar, record.settlement, day)
 
 
+def _calendars_by_id(state: ExecutionPipelineState) -> dict[str, MarketCalendar]:
+    """The calendars the run declares, by ``calendar_id``: how an FX deal names its own.
+
+    Every calendar :class:`~alphalab.runtime.calendars.VenueCalendars` holds, a
+    venue's or the default. One id names one calendar.
+    """
+
+    declared = state.config.calendars
+    found: dict[str, MarketCalendar] = {}
+    listed = [*declared.by_exchange.values()]
+    if declared.default is not None:
+        listed.append(declared.default)
+    for calendar in listed:
+        held = found.setdefault(calendar.calendar_id, calendar)
+        if held != calendar:
+            raise RuntimeValidationError(
+                f"Two different calendars are declared as {calendar.calendar_id}; an FX deal "
+                "names its calendars by id, so one id is one calendar."
+            )
+    return found
+
+
+def _fx_value_date(
+    state: ExecutionPipelineState, record: InstrumentRecord, terms: FxTerms, timestamp: float
+) -> tuple[date, float]:
+    """An FX deal struck at ``timestamp``: its value date and that date's instant (ADR-0067).
+
+    The trade day is the session of the listing venue's calendar the deal
+    belongs to -- the local date, outside one. The value date is counted by the
+    pair's declared rule, over the calendars it names, each found by its
+    ``calendar_id`` among those the run declares. The instant is the value
+    date's first open in the listing venue's calendar, as a T+n settlement's is
+    (FUT-015).
+
+    Raises:
+        RuntimeValidationError: If the venue's calendar or a calendar the rule
+            names is not declared; an outright date is before the trade day, or
+            is not a business day of every calendar the deal settles in; or the
+            venue does not trade on the value date.
+    """
+
+    named = f"{record.symbol} on {record.exchange}"
+    venue = state.config.calendars.calendar_for(record.exchange)
+    if venue is None:
+        raise RuntimeValidationError(
+            f"{named} settles at a value date counted from its trade day, and no calendar is "
+            f"declared for {record.exchange}: declare it on ExecutionPipelineConfig.calendars."
+        )
+    rule = terms.value_dates
+    declared = _calendars_by_id(state)
+    missing = [i for i in dict.fromkeys((*rule.counted, *rule.settles)) if i not in declared]
+    if missing:
+        raise RuntimeValidationError(
+            f"{named} counts its value date in {', '.join(missing)}, and the run declares no "
+            "calendar by that id; none is assumed open. Declare each on "
+            "ExecutionPipelineConfig.calendars."
+        )
+    dates = ValueDateRule(
+        rule.spot_lag,
+        tuple(declared[i] for i in rule.counted),
+        tuple(declared[i] for i in rule.settles),
+    )
+    day = venue.trading_day_of(timestamp) or venue.local_datetime(timestamp).date()
+    try:
+        if rule.outright is not None:
+            value = rule.outright
+            if value < day:
+                raise RuntimeValidationError(
+                    f"{named} is valued {value.isoformat()}, and a deal struck on "
+                    f"{day.isoformat()} cannot settle before it."
+                )
+            if not is_business_day(value, dates.settles):
+                raise RuntimeValidationError(
+                    f"{named} is valued {value.isoformat()}, which is not a business day of "
+                    f"every calendar it settles in ({', '.join(rule.settles)})."
+                )
+        elif rule.tenor is not None:
+            assert rule.convention is not None and rule.end_of_month is not None
+            value = forward_value_date(
+                day, dates, rule.tenor, rule.convention, end_of_month=rule.end_of_month
+            )
+        else:
+            value = spot_value_date(day, dates)
+    except ConventionViolationError as exc:
+        raise RuntimeValidationError(f"{named}'s value date cannot be found: {exc}") from exc
+    bounds = venue.session_bounds(value)
+    if bounds is None:
+        raise RuntimeValidationError(
+            f"{named} struck on {day.isoformat()} is valued {value.isoformat()}, which "
+            f"{venue.calendar_id} does not trade on; when on a closed day a deal settles is "
+            "not assumed."
+        )
+    if terms.kind is FxKind.NDF and _ndf_fixes_on(state, terms, value) < day:
+        raise RuntimeValidationError(
+            f"{named} struck on {day.isoformat()} would fix on "
+            f"{_ndf_fixes_on(state, terms, value).isoformat()}, before it is struck."
+        )
+    return value, bounds[0]
+
+
+def _ndf_fixes_on(state: ExecutionPipelineState, terms: FxTerms, value_date: date) -> date:
+    """An NDF's fixing date: its stated lag before its value date, in the calendars it settles in.
+
+    ADR-0067 section 4. The calendars are the run's, found by ``calendar_id``,
+    which :func:`_fx_value_date` has checked are declared.
+    """
+
+    assert terms.fixing is not None  # FxTerms requires an NDF's
+    declared = _calendars_by_id(state)
+    try:
+        return subtract_business_days(
+            value_date, terms.fixing.fixing_lag, [declared[i] for i in terms.value_dates.settles]
+        )
+    except ConventionViolationError as exc:
+        raise RuntimeValidationError(f"An NDF's fixing date cannot be found: {exc}") from exc
+
+
+def _fx_refusal(state: ExecutionPipelineState, record: InstrumentRecord) -> str | None:
+    """Why a declared FX pair cannot be traded by this run at all, or ``None`` (ADR-0067)."""
+
+    terms = record.terms
+    assert isinstance(terms, FxTerms)
+    named = f"{record.symbol} on {record.exchange}"
+    if terms.kind is FxKind.NDF:
+        assert terms.fixing is not None  # FxTerms requires an NDF's
+        settles = terms.fixing.settlement_currency
+        if settles in state.config.settlement_currencies:
+            return None
+        return (
+            f"{named} settles the difference from its fixing in {settles}, and this pipeline "
+            f"does not settle {settles}. Add {settles!r} to "
+            "ExecutionPipelineConfig.also_settles to trade it here."
+        )
+    if terms.base not in state.config.settlement_currencies:
+        return (
+            f"{named} exchanges {terms.base} for {terms.quote}, and this pipeline does not "
+            f"settle {terms.base}: an FX deal moves both currencies. Add {terms.base!r} to "
+            "ExecutionPipelineConfig.also_settles to trade it here."
+        )
+    return None
+
+
+def _require_ndfs_fixed(state: ExecutionPipelineState, at: float) -> None:
+    """Stop a step that finds an NDF at its value date unfixed (ADR-0067 section 4).
+
+    An NDF's fixing is a rate supplied from the source the deal names, and none
+    is invented: a deal no fixing was booked for by its value date stops the
+    run, with the reason. A registry declaring no FX pair costs one emptiness
+    check.
+    """
+
+    registry = state.config.instruments
+    if registry is None or not registry.fx_pairs:
+        return
+    for entry in state.portfolio.unsettled:
+        if entry.fixes_on is None or entry.settles_at > at:
+            continue
+        record = _fx_record(state, entry.asset_id)
+        named = entry.asset_id if record is None else f"{record.symbol} on {record.exchange}"
+        raise RuntimeValidationError(
+            f"{named}'s NDF deal {entry.transaction_id} fixes on {entry.fixes_on.isoformat()} "
+            f"and reached its value date at {entry.settles_at!r} with no fixing booked. A fixing "
+            "is a rate supplied from the source the deal names, and none is invented: supply "
+            "it (ScheduledFixing, ExecutionPipeline.fix_ndf)."
+        )
+
+
+def _book_fx_deal(
+    state: ExecutionPipelineState,
+    report: ExecutionReport,
+    record: InstrumentRecord,
+    terms: FxTerms,
+    signed_quantity: Decimal,
+) -> PortfolioState:
+    """An FX fill, booked as the two currencies it exchanges (ADR-0067).
+
+    Seam 2's counterpart for the base currency, beside
+    :func:`_require_settlement_currency`'s for the quote: a venue's fill is
+    refused rather than booked in a currency this pipeline does not settle.
+    """
+
+    refusal = _fx_refusal(state, record)
+    if refusal is not None:
+        raise RuntimeValidationError(
+            f"Execution report {report.execution_id} is not booked: {refusal}"
+        )
+    value_date, instant = _fx_value_date(state, record, terms, report.timestamp)
+    if terms.kind is FxKind.NDF:
+        assert terms.fixing is not None  # FxTerms requires an NDF's
+        return PortfolioEngine.apply_ndf_deal(
+            state.portfolio,
+            report.asset_id,
+            signed_quantity,
+            report.fill_price,
+            report.commission,
+            report.timestamp,
+            terms.base,
+            terms.quote,
+            terms.fixing.settlement_currency,
+            value_date=value_date,
+            settles_at=instant,
+            fixes_on=_ndf_fixes_on(state, terms, value_date),
+        )
+    return PortfolioEngine.apply_fx_deal(
+        state.portfolio,
+        report.asset_id,
+        signed_quantity,
+        report.fill_price,
+        report.commission,
+        report.timestamp,
+        terms.base,
+        terms.quote,
+        value_date=value_date,
+        settles_at=instant,
+    )
+
+
 def _terms_refusal(
     state: ExecutionPipelineState, request: OrderRequest, instant: float
 ) -> str | None:
@@ -6629,9 +8075,12 @@ def _terms_refusal(
             f"The order would be placed at {instant!r}, and its terms expire it at "
             f"{terms.expire_at!r}."
         )
-    unsettleable = _settlement_calendar_refusal(state, request.asset_id)
+    unsettleable = _settlement_calendar_refusal(state, request.asset_id, instant)
     if unsettleable is not None:
         return unsettleable
+    undealt = _fund_refusal(state, request, instant)
+    if undealt is not None:
+        return undealt
     if state.config.routing is ExecutionRouting.EXTERNAL:
         return None
     if state.config.routing is ExecutionRouting.ALGORITHMIC:
@@ -6818,9 +8267,9 @@ def _within_limit(order: OMSOrder, price: Decimal) -> bool:
 def _taker_price(
     state: ExecutionPipelineState, order: OMSOrder, event: MarketEvent, base: Decimal
 ) -> Decimal:
-    """What taking the market at ``event`` would cost per unit, by the run's cost model."""
+    """What taking the market at ``event`` would cost per unit, by its venue's cost model."""
 
-    simulator = state.config.simulator
+    simulator = _simulator_for(state, order)
     bid, ask = _available_quote(event)
     context = simulator.context(
         _instruction(order, state),
@@ -6872,7 +8321,15 @@ def _work_resting(
     if decision.status is FillStatus.NO_FILL:
         current = _end_unfilled(state, order, event.timestamp) if one_shot else state
         return current, (), (), ()
-    current, reports = _execute_order(state, order, decision, event, price=price, passive=passive)
+    current, reports = _execute_order(
+        state,
+        order,
+        decision,
+        event,
+        price=price,
+        passive=passive,
+        stamped_at_event=_latency_spent(state),
+    )
     if not reports and decision.status in _NON_TRADING_STATUSES:
         current = evolve(
             current,
@@ -6902,9 +8359,11 @@ def _work_order(
 ]:
     """One simulated order's turn at ``event`` (ledger EXE-003).
 
-    ``arriving`` is the order's first turn, at the event it was placed on; it
-    sees only that event's price, since everything else the event shows -- a
-    bar's range -- happened before the order existed. The rules:
+    ``arriving`` is the order's first turn, at the event it was placed on -- or,
+    kept from the market by its latency, at the intraday bar it reached the
+    market within (ADR-0060); it sees only that event's price, since everything
+    else the event shows -- a bar's open and range -- happened before the order
+    was there. The rules:
 
     * **Expired** -- a good-til-date or day order at or past ``expire_at`` --
       expires before anything else is considered.
@@ -6931,6 +8390,10 @@ def _work_order(
     terms = order.terms
     if order.expire_at is not None and timestamp >= order.expire_at:
         return _expire(state, order, timestamp), (), (), ()
+    if state.config.remainder is not None and _rest_over(order, timestamp):
+        # A remainder resting by seconds whose rest ended before this event:
+        # withdrawn without a turn (ADR-0060).
+        return _withdraw_partial_remainder(state, order, timestamp), (), (), ()
     market_price = state.market_prices[order.asset_id]
     one_shot = terms.is_immediate
     if _venue_blocks(state, order.asset_id, timestamp, market_price):
@@ -6951,7 +8414,14 @@ def _work_order(
         )
 
     if order.order_type is OrderType.MARKET:
-        return _simulate_fill(state, order, event, policy, rates)
+        return _simulate_fill(
+            state,
+            order,
+            event,
+            policy,
+            rates,
+            price=None if arriving else _opening(state, order, event),
+        )
 
     current = state
     execution_price: Decimal | None = None
@@ -6993,6 +8463,75 @@ def _work_order(
         one_shot=one_shot,
         cap=None if queue_turn is None else queue_turn.eligible,
     )
+
+
+#: The fill timings under which every simulated order is held to its asset's
+#: next event: it has no turn at the event that decided it (EXE-001, ADR-0060).
+_HELD_TIMINGS: Final = frozenset({FillTiming.NEXT_EVENT, FillTiming.NEXT_OPEN})
+
+
+def _opening(state: ExecutionPipelineState, order: OMSOrder, event: MarketEvent) -> Decimal | None:
+    """The open a market order's turn at a bar takes under ``NEXT_OPEN``, or ``None``.
+
+    ``None`` -- the event's own price -- under any other timing, and at any
+    event other than a bar of the order's asset: a quote, trade or tick has no
+    open (ADR-0060 section 1).
+    """
+
+    if (
+        state.config.fill_timing is FillTiming.NEXT_OPEN
+        and isinstance(event, BarClosed)
+        and event.bar.asset_id == order.asset_id
+    ):
+        return event.bar.open
+    return None
+
+
+def _outside_session(state: ExecutionPipelineState, event: MarketEvent, asset_id: str) -> bool:
+    """Whether ``event`` is an intraday bar outside its venue's sessions, under ``NEXT_OPEN``.
+
+    Only with a calendar declared for ``asset_id``'s listing venue, or a default
+    one: without it every bar is in session, as every run before ADR-0060
+    assumed. A daily, weekly or monthly bar is a session, and always in one. An
+    intraday bar is in session when one window of the trading day its interval
+    starts in holds the whole interval, from its start to its stamp
+    (ADR-0060 section 2).
+    """
+
+    if state.config.fill_timing is not FillTiming.NEXT_OPEN or not isinstance(event, BarClosed):
+        return False
+    bar = event.bar
+    seconds = bar.timeframe.seconds
+    if bar.timeframe.unit in _SESSION_UNITS or seconds is None:
+        return False
+    calendar = state.config.calendars.calendar_for(_listing_exchange(state, asset_id))
+    if calendar is None:
+        return False
+    start = bar.timestamp - seconds
+    day = calendar.trading_day_of(start)
+    if day is None:
+        return True
+    return not any(
+        opened <= start and bar.timestamp <= closed
+        for opened, closed in calendar.session_windows_on(day)
+    )
+
+
+def _expire_due(
+    state: ExecutionPipelineState, asset_id: str, timestamp: float, queue: QueueBook | None
+) -> tuple[ExecutionPipelineState, _Routed, QueueBook | None]:
+    """Expire the orders in ``asset_id`` due by ``timestamp``, and give no other a turn."""
+
+    current = state
+    expired: list[OMSOrder] = []
+    for order_id in state.oms.working_orders_for(asset_id):
+        order = current.oms.orders.find(order_id)
+        if order.expire_at is not None and timestamp >= order.expire_at:
+            current = _expire(current, order, timestamp)
+            expired.append(current.oms.orders.find(order_id))
+            if queue is not None:
+                queue = queue.without(str(order_id.value))
+    return current, _Routed(orders=tuple(expired)), queue
 
 
 def _auctions_declared(state: ExecutionPipelineState) -> bool:
@@ -7146,7 +8685,9 @@ def _computed_uncross(
     own = [
         order
         for order in (state.oms.orders.find(i) for i in state.oms.working_orders_for(asset_id))
-        if order.created_at < ended and order.order_type in (OrderType.MARKET, OrderType.LIMIT)
+        if _arrived_at(order) < ended
+        and order.order_type in (OrderType.MARKET, OrderType.LIMIT)
+        and _PACKAGE not in order.metadata
     ]
     zero = Decimal("0")
 
@@ -7277,11 +8818,23 @@ def _uncross(
     trades: list[CoreTrade] = []
     for order_id in state.oms.working_orders_for(asset_id):
         order = current.oms.orders.find(order_id)
-        if order.created_at >= ended:
-            # Placed after the halt ended, so it did not rest through it: its
-            # turn is continuous trading's, as at any other event.
+        if _PACKAGE in order.metadata:
+            continue  # a leg trades with its package, never in an auction alone (ADR-0062)
+        if not _ready(order, event.timestamp):
+            # Still on its way to the market (ADR-0060): it takes no part -- but
+            # one whose life ends meanwhile expires, as at any event.
+            if order.expire_at is not None and event.timestamp >= order.expire_at:
+                current = _expire(current, order, event.timestamp)
+                orders.append(current.oms.orders.find(order_id))
+            continue
+        arriving = _arrives_within(order, event)
+        current, order = _first_turn(current, order, event.timestamp)
+        if _arrived_at(order) >= ended:
+            # Placed -- or, kept by its latency, arrived -- after the halt ended,
+            # so it did not rest through it: its turn is continuous trading's, as
+            # at any other event.
             current, new_reports, new_fills, new_trades = _work_order(
-                current, order, event, policy, rates, arriving=False
+                current, order, event, policy, rates, arriving=arriving
             )
             orders.append(current.oms.orders.find(order_id))
             reports.extend(new_reports)
@@ -7341,6 +8894,11 @@ def _fill_working_orders(
     halt = _auction_due(state, event, asset_id) if _auctions_declared(state) else None
     if halt is not None:
         return _reopen(state, event, asset_id, halt, policy, rates, queue)
+    if _outside_session(state, event, asset_id):
+        # A pre- or post-market bar under NEXT_OPEN: the venue's orders are not in
+        # its market, so none has a turn and no queue moves -- but what is due to
+        # expire expires, as it would at any event (ADR-0060 section 2).
+        return _expire_due(state, asset_id, event.timestamp, queue)
     current = state
     observation = None if queue is None else _queue_observation(event)
     orders: list[OMSOrder] = []
@@ -7349,11 +8907,36 @@ def _fill_working_orders(
     trades: list[CoreTrade] = []
     for order_id in state.oms.working_orders_for(asset_id):
         order = current.oms.orders.find(order_id)
+        if _PACKAGE in order.metadata:
+            # A leg is worked with its package, at a slice close (ADR-0062).
+            continue
+        if not _ready(order, event.timestamp):
+            # Still on its way to the market (ADR-0060): no turn, no queue place --
+            # but an order whose life ends meanwhile expires, as at any event.
+            if order.expire_at is not None and event.timestamp >= order.expire_at:
+                current = _expire(current, order, event.timestamp)
+                orders.append(current.oms.orders.find(order_id))
+                if queue is not None:
+                    queue = queue.without(str(order_id.value))
+            continue
+        # An order whose latency ended within this bar meets its close alone (ADR-0060).
+        arriving = _arrives_within(order, event)
+        current, order = _first_turn(current, order, event.timestamp)
+        if _fund_record(current, asset_id) is not None:
+            # A fund's order deals in full at its NAV, whatever size it shows (ADR-0076).
+            current, new_reports, new_fills, new_trades = _work_order(
+                current, order, event, _DEALT_IN_FULL, rates, arriving=False
+            )
+            orders.append(current.oms.orders.find(order_id))
+            reports.extend(new_reports)
+            fills.extend(new_fills)
+            trades.extend(new_trades)
+            continue
         turn = None
         key = ""
         if queue is not None and observation is not None:
             key = str(order_id.value)
-            if _queued(order):
+            if _queued(order) and not arriving:
                 held = queue.position_of(key)
                 limit = order.limit_price
                 assert limit is not None  # a queued order is a limit order
@@ -7364,7 +8947,7 @@ def _fill_working_orders(
                 if turn.position != held:
                     queue = queue.placed(key, turn.position)
         current, new_reports, new_fills, new_trades = _work_order(
-            current, order, event, policy, rates, arriving=False, queue_turn=turn
+            current, order, event, policy, rates, arriving=arriving, queue_turn=turn
         )
         after = current.oms.orders.find(order_id)
         if queue is not None and observation is not None:
@@ -7373,6 +8956,7 @@ def _fill_working_orders(
                 queue = queue.without(key)
             elif turn is None and _queued(after):
                 # A stop-limit triggered at this event rests from here: it joins now.
+                # So does an order that reached the market within this bar (ADR-0060).
                 limit = after.limit_price
                 assert limit is not None
                 queue = queue.placed(key, queue.model.join(after.side, limit, observation))
@@ -7451,7 +9035,9 @@ def _queue_after_step(
     the step began placing orders: the working orders of an asset are kept in
     the order they were placed. An order placed outside a market event of its
     asset -- by a timer, a slice or an observation -- has no event of its own
-    to join at, and starts its first turn from an unknown queue instead.
+    to join at, and starts its first turn from an unknown queue instead. So does
+    one still on its way to the market (``POST_LATENCY_EVENT``, ADR-0060), which
+    joins at the bar its latency ended within when that is where it arrives.
 
     Orders that end at their turn leave the book there
     (:func:`_fill_working_orders`); one ended otherwise -- a settlement, a
@@ -7470,7 +9056,7 @@ def _queue_after_step(
         if queue.position_of(key) is not None:
             continue
         order = state.oms.orders.find(order_id)
-        if not _queued(order):
+        if not _queued(order) or not _ready(order, event.timestamp):
             continue
         limit = order.limit_price
         assert limit is not None  # a queued order is a limit order
@@ -8072,6 +9658,7 @@ def _execute_order(
     *,
     price: Decimal | None = None,
     passive: bool = False,
+    stamped_at_event: bool = False,
 ) -> tuple[ExecutionPipelineState, tuple[ExecutionReport, ...]]:
     """Simulate the decided fill, priced against what the event actually showed.
 
@@ -8082,15 +9669,20 @@ def _execute_order(
     price the fill starts from when it is not the market's; ``passive`` a
     resting order filled at it (see
     :meth:`~alphalab.execution.simulator.ExecutionSimulator.simulate_fill`).
+    ``stamped_at_event`` stamps the fill at the event itself, the latency having
+    been spent waiting for it (``POST_LATENCY_EVENT``, ADR-0060).
     """
 
     before = len(state.execution.history)
+    simulator = _simulator_for(state, order)
+    if stamped_at_event:
+        simulator = replace(simulator, latency_model=_NO_LATENCY)
     instruction = _instruction(order, state)
     quantity = decision.quantity if decision.quantity is not None else order.remaining_quantity
     bid, ask = _available_quote(event) if event is not None else (None, None)
     execution = ExecutionEngine.simulate(
         state.execution,
-        state.config.simulator,
+        simulator,
         instruction,
         quantity,
         instruction.price if price is None else price,
@@ -8297,18 +9889,24 @@ def _apply_report_to_portfolio(
     # sector parity across the four environments is structural rather than a
     # convention two call sites have to keep. See ADR-0027 decision 6.
     sector = _sector_for(state, report.asset_id)
-    portfolio = PortfolioEngine.apply_fill(
-        state.portfolio,
-        report.asset_id,
-        signed_quantity,
-        report.fill_price,
-        report.commission,
-        report.timestamp,
-        report.currency,
-        economics=_economics_of(state, report.asset_id),
-        settles_at=_settles_at(state, report.asset_id, report.timestamp),
-        financed=_purchased_on_margin(state, report.asset_id, signed_quantity),
-    )
+    fx = _fx_record(state, report.asset_id)
+    if fx is not None:
+        # ADR-0067: an FX deal books the two currencies it exchanges, and no position.
+        assert isinstance(fx.terms, FxTerms)  # the registry's fx_pairs says so
+        portfolio = _book_fx_deal(state, report, fx, fx.terms, signed_quantity)
+    else:
+        portfolio = PortfolioEngine.apply_fill(
+            state.portfolio,
+            report.asset_id,
+            signed_quantity,
+            report.fill_price,
+            report.commission,
+            report.timestamp,
+            report.currency,
+            economics=_economics_of(state, report.asset_id),
+            settles_at=_settles_at(state, report.asset_id, report.timestamp),
+            financed=_purchased_on_margin(state, report.asset_id, signed_quantity),
+        )
     risk = _sync_risk_from_portfolio(
         state.risk, portfolio, state.config.instruments, rates, as_of=report.timestamp
     )
@@ -8433,10 +10031,107 @@ def _instruction(order: OMSOrder, state: ExecutionPipelineState) -> OrderInstruc
         order.remaining_quantity,
         state.market_prices[order.asset_id],
         order.side,
-        state.config.venue,
+        # The venue the order was routed to (ADR-0061), or the run's label.
+        order.metadata.get(_VENUE, state.config.venue),
         currency,
         # The account's unit for the settlement currency, so a simulated fill's
         # cash costs are rounded where the portfolio will book them.
+        minor_units=state.config.account.currency_units.minor_units(currency),
+    )
+
+
+#: Where an order records the venue it was routed to, how that venue was chosen
+#: -- by its terms, the run's router or its listing venue -- and when, in its
+#: metadata: the routing record, which every snapshot carries (ADR-0061).
+_VENUE: Final = "venue"
+_VENUE_BY: Final = "venue_by"
+_VENUE_AT: Final = "venue_at"
+
+
+def _venue_for(
+    state: ExecutionPipelineState, request: OrderRequest, event: MarketEvent | None, instant: float
+) -> tuple[str, str] | str | None:
+    """Where ``request`` is routed among the declared venues, and how (ADR-0061).
+
+    ``(code, how)``; a sentence when no declared venue routes it; ``None`` when
+    the run declares no venues, or routes to a real venue, and nothing is
+    routed. The first of: the venue its terms name; the run's router; its
+    instrument's listing venue, when declared.
+    """
+
+    venues = state.config.venues
+    if not venues or state.config.routing is ExecutionRouting.EXTERNAL:
+        return None
+    named = request.terms.venue
+    if named is not None:
+        if named in venues:
+            return named, "terms"
+        return f"The order names venue {named}, and the run declares only {', '.join(venues)}."
+    router = state.config.router
+    if router is not None:
+        price = state.market_prices[request.asset_id]
+        priced = None if event is None else _market_price(event)
+        own = priced is not None and priced[0] == request.asset_id and event is not None
+        bid, ask = _available_quote(event) if own and event is not None else (None, None)
+        available = _available_quantity(event, request.side) if own and event is not None else None
+
+        def cost_at(code: str) -> Decimal:
+            simulator = venues[code].simulator
+            context = simulator.context(
+                _request_instruction(state, request, code),
+                request.quantity,
+                price,
+                instant,
+                bid,
+                ask,
+                available,
+            )
+            return simulator.costs.quote(context).total(request.quantity)
+
+        return router.choose(tuple(venues), cost_at), "router"
+    listing = _listing_exchange(state, request.asset_id)
+    if listing is not None and listing in venues:
+        return listing, "listing"
+    return (
+        f"No declared venue routes the order: it names none, the run declares no router, and "
+        f"its instrument's listing venue, {listing or 'unregistered'}, is not among "
+        f"{', '.join(venues)}."
+    )
+
+
+def _record_venue(
+    state: ExecutionPipelineState, order: OMSOrder, venue: tuple[str, str], instant: float
+) -> tuple[ExecutionPipelineState, OMSOrder]:
+    """``order`` with its routing record -- the venue, how it was chosen, when (ADR-0061)."""
+
+    code, how = venue
+    entries = {_VENUE: code, _VENUE_BY: how, _VENUE_AT: repr(instant)}
+    oms = OMSEngine.annotate(state.oms, order.order_id, entries)
+    return evolve(state, oms=oms), oms.orders.find(order.order_id)
+
+
+def _simulator_for(state: ExecutionPipelineState, order: OMSOrder) -> ExecutionSimulator:
+    """The simulator ``order``'s fills are priced and stamped by: its venue's, or the run's."""
+
+    venue = order.metadata.get(_VENUE)
+    return state.config.simulator if venue is None else state.config.venues[venue].simulator
+
+
+def _request_instruction(
+    state: ExecutionPipelineState, request: OrderRequest, venue: str
+) -> OrderInstruction:
+    """``request`` as an instruction to ``venue``, for a router to price (ADR-0061)."""
+
+    currency = _settlement_currency_for(state, request.asset_id)
+    return OrderInstruction(
+        request.order_id,
+        request.strategy_id,
+        request.asset_id,
+        request.quantity,
+        state.market_prices[request.asset_id],
+        request.side,
+        venue,
+        currency,
         minor_units=state.config.account.currency_units.minor_units(currency),
     )
 
@@ -8609,6 +10304,16 @@ def _settlement_refusal(
             ),
             timestamp=timestamp,
         )
+    if isinstance(record.terms, FxTerms):
+        refused = _fx_refusal(state, record)
+        if refused is not None:
+            return SettlementRefusal(
+                asset_id=asset_id,
+                instrument_currency=currency,
+                settlement_currency=settlement,
+                detail=f"{refused} The request was dropped before it reached the OMS.",
+                timestamp=timestamp,
+            )
     if currency in permitted:
         # Since v3.11 a request must also be one the book can be kept by: a
         # future or an option declaring no economics has a multiplier and a

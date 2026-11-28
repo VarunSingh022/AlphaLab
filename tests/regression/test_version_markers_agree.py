@@ -5,8 +5,12 @@ The version is declared once, in ``alphalab/common/_version.py`` (REP-001), and
 documents restate it for a reader, and nothing held them: at 3.12.0
 ``nowandfuture.md``'s identity table still said 3.9.0, three releases on, and
 ``docs/README.md``'s Version block once read ``v2.5.0`` for twelve releases.
-Each marker is read here and held to ``alphalab.__version__`` -- or, where a
-document names the release series, to its major and minor version.
+Each marker is read here and held to the release the documents describe -- or,
+where a document names the release series, to its major and minor version.
+That is ``alphalab.__version__``, except while the next release is developed
+under its own version (v4.3): the markers then name the newest release the
+CHANGELOG dates until the release commit moves them
+(``test_release_facing_versions.DOCUMENTED``).
 """
 
 from __future__ import annotations
@@ -16,10 +20,10 @@ from pathlib import Path
 
 import pytest
 
-import alphalab
+from tests.regression.test_release_facing_versions import DOCUMENTED
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = alphalab.__version__
+VERSION = DOCUMENTED
 SERIES = ".".join(VERSION.split(".")[:2])
 
 #: (document, a pattern whose one group is the full version it states).
@@ -56,10 +60,14 @@ def _stated(document: str, pattern: str) -> set[str]:
 @pytest.mark.parametrize(("document", "pattern"), MARKERS)
 def test_every_version_marker_names_the_package_version(document: str, pattern: str) -> None:
     stated = _stated(document, pattern)
-    assert stated == {VERSION}, f"{document} states {sorted(stated)}; the package is {VERSION}"
+    assert stated == {VERSION}, (
+        f"{document} states {sorted(stated)}; the documents describe {VERSION}"
+    )
 
 
 @pytest.mark.parametrize(("document", "pattern"), SERIES_MARKERS)
 def test_every_series_marker_names_the_package_series(document: str, pattern: str) -> None:
     stated = _stated(document, pattern)
-    assert stated == {SERIES}, f"{document} states v{sorted(stated)}; the package is v{SERIES}"
+    assert stated == {SERIES}, (
+        f"{document} states v{sorted(stated)}; the documents describe v{SERIES}"
+    )

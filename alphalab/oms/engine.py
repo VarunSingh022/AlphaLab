@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from decimal import Decimal
 
 from alphalab.common.evolve import evolve
@@ -365,6 +366,19 @@ class OMSEngine:
     # =====================================================
     # Replace
     # =====================================================
+
+    @staticmethod
+    def annotate(state: OMSState, order_id: OrderId, entries: Mapping[str, str]) -> OMSState:
+        """Record ``entries`` in a working order's metadata, replacing what they name.
+
+        Not a lifecycle transition -- the order's status does not move -- so no
+        event is logged; the fact lives on the order, which a snapshot carries,
+        as :meth:`trigger`'s does. The pipeline records here how long a resting
+        remainder may still work (ADR-0060).
+        """
+
+        order = OMSEngine._get(state, order_id)
+        return OMSEngine._store(state, evolve(order, metadata={**order.metadata, **entries}))
 
     @staticmethod
     def trigger(state: OMSState, order_id: OrderId, timestamp: float) -> OMSState:

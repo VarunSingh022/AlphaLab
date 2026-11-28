@@ -12,6 +12,11 @@ imports the module it names and calls the callable it names with the job's
 ``kwargs``, and nothing restricts which importable module or callable that is.
 ``task_path`` and ``kwargs`` must therefore never come from untrusted input:
 whoever chooses them chooses the code a worker runs, with the host's privileges.
+
+Superseded in v4.3 (ADR-0072, D-54-6): a cycle given a
+:class:`~alphalab.common.registry.RunnerRegistry` looks a task up by name in the
+registry the researcher built in code, and refuses a name it does not hold before
+anything is imported. ``resolve_task`` and ``run_task`` stay, unchanged, until 5.0.
 """
 
 import importlib

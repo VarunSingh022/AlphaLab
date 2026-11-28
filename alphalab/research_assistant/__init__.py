@@ -8,7 +8,9 @@ pure function of its inputs:
 
 - generation: enumerate a researcher-defined parameter grid into
   ``StrategyCandidate`` points (``generate_candidates``) -- through
-  ``alphalab.research``'s ``ParameterSpace``, the one search space, since v3.12.
+  ``alphalab.research``'s ``ParameterSpace``, the one search space, since v3.12 --
+  and, since v4.3, give the trial ledger the space of exactly those candidates
+  (``candidate_space``), so an experiment runs one recorded trial per candidate.
 - evaluation: score every candidate through a caller-supplied evaluator (a
   backtest wrapper, a walk-forward harness, ...) and rank the results
   (``evaluate_candidates``, ``rank_evaluations``, ``top_k``).
@@ -43,6 +45,7 @@ from alphalab.research_assistant.generation import (
     ParameterSpace,
     StrategyCandidate,
     candidate_count,
+    candidate_space,
     generate_candidates,
     parameter_space,
 )
@@ -62,6 +65,7 @@ __all__ = [
     "best_evaluation",
     "build_report",
     "candidate_count",
+    "candidate_space",
     "evaluate_candidates",
     "generate_candidates",
     "parameter_space",

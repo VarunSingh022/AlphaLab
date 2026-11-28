@@ -117,12 +117,21 @@ from alphalab.instrument.margin import (
     PerPositionMargin,
     ScenarioMargin,
 )
+from alphalab.instrument.membership import (
+    HistoricalUniverse,
+    MembershipChange,
+    MembershipKind,
+    universe_from_pack,
+    universe_from_primitives,
+    universe_to_primitives,
+)
 from alphalab.instrument.record import (
     DatedAlias,
     InstrumentRecord,
     normalize_key_field,
     normalize_sector_label,
 )
+from alphalab.instrument.reference import settlement_from_pack
 from alphalab.instrument.registry import (
     InstrumentRegistry,
     classification_history,
@@ -140,6 +149,7 @@ from alphalab.instrument.registry import (
     register_dated_alias,
     register_instrument,
     register_instruments,
+    register_universe,
     sector_as_of,
 )
 from alphalab.instrument.terms import (
@@ -148,6 +158,10 @@ from alphalab.instrument.terms import (
     ContractTerms,
     Deliverable,
     FutureTerms,
+    FxKind,
+    FxTerms,
+    FxValueDateRule,
+    NdfFixing,
     OptionTerms,
     TermsAdjustment,
 )
@@ -177,6 +191,10 @@ __all__ = [
     "DimensionClassification",
     "DimensionHistory",
     "FutureTerms",
+    "FxKind",
+    "FxTerms",
+    "FxValueDateRule",
+    "HistoricalUniverse",
     "InstrumentEconomics",
     "InstrumentError",
     "InstrumentInputError",
@@ -189,6 +207,9 @@ __all__ = [
     "MarginRequirement",
     "MarginScenario",
     "MarginTerms",
+    "MembershipChange",
+    "MembershipKind",
+    "NdfFixing",
     "OptionPricing",
     "OptionRisk",
     "OptionTerms",
@@ -223,5 +244,10 @@ __all__ = [
     "register_dated_alias",
     "register_instrument",
     "register_instruments",
+    "register_universe",
     "sector_as_of",
+    "settlement_from_pack",
+    "universe_from_pack",
+    "universe_from_primitives",
+    "universe_to_primitives",
 ]

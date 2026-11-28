@@ -62,3 +62,20 @@ def test_every_documented_package_imports_exactly_what_the_table_states() -> Non
         if edges != _imports(package)
     }
     assert not wrong, f"docs/ARCHITECTURE.md's dependency table is not the import graph: {wrong}"
+
+
+def test_nothing_imports_the_rebalancing_package() -> None:
+    """ADR-0063 section 6: a run reaches a rebalancing strategy through ``StrategyProtocol``.
+
+    Its own edges are its row of the table, which the test above reads; this
+    holds the other direction, which the table cannot state.
+    """
+
+    importers = sorted(
+        path.name
+        for path in PACKAGE.iterdir()
+        if (path / "__init__.py").exists()
+        and path.name != "rebalancing"
+        and "rebalancing" in _imports(path.name)
+    )
+    assert importers == []

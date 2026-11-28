@@ -499,7 +499,8 @@ def test_the_session_round_trips_and_the_session_schema_did_not_move() -> None:
     payload = dict(deserialize(serialize(capture_run(state))))
 
     assert payload["schema_version"] == RUN_SNAPSHOT_SCHEMA == 5
-    assert payload["pipeline"]["schema_version"] == PIPELINE_SNAPSHOT_SCHEMA == 8
+    # Version 8: the run declares none of M8's execution options (ADR-0060).
+    assert payload["pipeline"]["schema_version"] == 8 == PIPELINE_SNAPSHOT_SCHEMA - 1
     assert restore_run(run_from_primitives(payload), _objects(config, strategy)) == state
 
 
@@ -787,8 +788,8 @@ def test_the_readable_versions_are_every_one_ever_written() -> None:
     "not recorded" is what its upgrade says of their configuration (PER-008).
     """
 
-    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4, 5, 6, 7, 8)
-    assert PIPELINE_SNAPSHOT_SCHEMA == 8
+    assert READABLE_PIPELINE_SCHEMAS == (1, 2, 3, 4, 5, 6, 7, 8, 9)
+    assert PIPELINE_SNAPSHOT_SCHEMA == 9
 
 
 def test_a_schema_one_payload_restores_a_non_declaring_strategy() -> None:

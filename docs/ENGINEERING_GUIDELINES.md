@@ -507,6 +507,28 @@ Every pull request should
 
 Large unrelated changes should be split into multiple pull requests.
 
+An approved programme of work is delivered differently: on one long-lived
+integration branch, through one Draft pull request, in many commits that are each
+one logical change and each leave every gate green (`CONTRIBUTING.md`, *Pull
+Requests*). The programme's progress register (`docs/work/<version>/`) records
+what each commit delivered, its validation and the hosted results, and the pull
+request's description mirrors it.
+
+Such a release is developed under its own version (since v4.3). The package,
+the public-API manifest and its history copy, the release certificate and the
+ledger are the release's from the commit that sets the version, so every
+commit after it can record what it changes; the CHANGELOG leads with
+`# [<version>] - Unreleased`. `release_preflight.development_problems`, which
+the suite runs, holds that tree to everything a release is held to but the
+heading's date, and `release_preflight.py version` -- the release gate --
+refuses it for that heading, so a development tree is never tagged. Until the
+release commit, the documents a reader installs from (the README,
+`docs/INTEGRATION.md`, the version markers) keep describing the newest release
+the CHANGELOG dates, which is the one that can be installed; none calls the
+release being developed unreleased or a candidate. The release commit dates the
+heading and moves those documents in one change, and the suite then holds the
+tree to the release state.
+
 ---
 
 # Release Checklist
@@ -562,7 +584,7 @@ candidate commit **before** publication, and publishes nothing:
 | CI gates | `ci.yml`, called with that commit as `ref` -- every checkout in it takes the given SHA, never the event's (under a pull request, the merge) -- ruff, `mypy .`, `pytest -W error`, every example, `certify_release.py --check`, the build, `twine check --strict`, both artifacts installed and smoke-tested |
 | Benchmarks | `benchmarks.yml`, called for that commit |
 | CodeQL gate | an analysis of that commit, not uploaded; fails on an error-level or high-severity finding |
-| Distributions | a fresh build; `twine check --strict`; `release_preflight.py distributions`: the two expected file names and no others, the archives' metadata and contents, `SHA256SUMS-<version>`, each artifact installed alone and run through `tests/installed_smoke.py` from outside the checkout; uploaded as the run's artifact for 30 days |
+| Distributions | a fresh build; `twine check --strict`; `release_preflight.py distributions`: the two expected file names and no others, the archives' metadata and contents, `SHA256SUMS-<version>`; since v4.3 the commit and tree the artifacts were built from, named in the record, every file of the wheel's package and of the sdist held to that commit's bytes, and both artifacts rebuilt from `git archive` of the commit alone to the same bytes; each artifact installed alone and run through `tests/installed_smoke.py` from outside the checkout; uploaded as the run's artifact for 30 days |
 | Verdict | fails unless every job above succeeded |
 
 **Three ways to run it, each on one exact commit.**

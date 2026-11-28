@@ -131,7 +131,13 @@ from alphalab.backtesting.schedule import (
     ScheduledDistribution,
     ScheduledSettlement,
 )
-from alphalab.backtesting.state import AlgorithmicResult, BacktestResult, QueuedResult, ReplayResult
+from alphalab.backtesting.state import (
+    AlgorithmicQueuedResult,
+    AlgorithmicResult,
+    BacktestResult,
+    QueuedResult,
+    ReplayResult,
+)
 from alphalab.common.exceptions import AlphaLabValidationError
 from alphalab.common.point_in_time import PointInTimeStamp
 from alphalab.conventions.lot import LotSpecification
@@ -739,6 +745,21 @@ def backtest(
     *,
     observations: Iterable[ObservationDelivery[Any]] = (),
     schedule: RunSchedule = EMPTY_SCHEDULE,
+    execution: ExecutionPlan,
+    queue: QueueModel,
+) -> AlgorithmicQueuedResult: ...
+
+
+@overload
+def backtest(
+    config: RunConfig,
+    dataset: Dataset,
+    strategy_state: StrategyRuntimeState,
+    context_factory: ContextFactory,
+    policy: NormalizationPolicy,
+    *,
+    observations: Iterable[ObservationDelivery[Any]] = (),
+    schedule: RunSchedule = EMPTY_SCHEDULE,
     execution: ExecutionPlan | None,
     queue: QueueModel | None = None,
 ) -> BacktestResult: ...
@@ -777,7 +798,9 @@ def backtest(
     :mod:`alphalab.backtesting.algorithmic`. ``queue`` (v4.1.1, ledger
     FUT-011) governs resting limit orders by a queue model, and the result is
     then a :class:`~alphalab.backtesting.QueuedResult` naming it; see
-    :mod:`alphalab.backtesting.queueing`.
+    :mod:`alphalab.backtesting.queueing`. Both together (v4.3, ADR-0061) queue
+    the plan's resting limit children, and the result is an
+    :class:`~alphalab.backtesting.AlgorithmicQueuedResult` holding both books.
     """
 
     return BacktestEngine.run(

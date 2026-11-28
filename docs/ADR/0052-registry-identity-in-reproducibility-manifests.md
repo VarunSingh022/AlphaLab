@@ -2,12 +2,16 @@
 
 ## Status
 
-**Proposed -- awaiting the maintainer's decision** (ledger FUT-042, phase 6).
-Nothing in this record is implemented beyond what already exists: the default
-`manifest_for_run` still names the registry by type alone, and
-`manifest_for_run(instruments=True)` (REP-006) keeps working exactly as it
-does. This record sets out the options, what each does to every identity and
-certification already made, and the one decision that remains.
+**Accepted** (2026-11-10): **option C, opt-in, in v4.3; the default flip held
+for 5.0** -- the v4.3.0 plan's decision D-F42, which the owner delegated to its
+milestone and which was taken under that delegation (`docs/work/v4.3.0`). Since
+v4.3 `manifest_for_run(identity_version=2)` makes a version-2 manifest, as
+ADR-0053 section 6 states; version 1 stays the default, so every manifest made
+before, and every default manifest made since, keeps its identity, its
+verification and its assessment. Until this record was decided it read:
+"Proposed -- awaiting the maintainer's decision", with nothing implemented
+beyond `manifest_for_run(instruments=True)` (REP-006). The options below are as
+they were weighed.
 
 ---
 

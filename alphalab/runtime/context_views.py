@@ -93,7 +93,7 @@ from alphalab.risk.limits import RiskLimits
 from alphalab.risk.margin import MarginStatus
 from alphalab.risk.state import RiskState
 from alphalab.risk.surfaces import ObservedSurface, select
-from alphalab.runtime.exceptions import HistoryNotRetainedError
+from alphalab.runtime.exceptions import HistoryNotRetainedError, RuntimeValidationError
 
 __all__ = [
     "HistoryView",
@@ -869,6 +869,38 @@ class UniverseView:
         if self._registry is None:
             return ()
         return tuple(self._registry.instruments)
+
+    def members(self, universe: str, at: float) -> frozenset[str]:
+        """The assets in the historical universe ``universe`` at ``at``, as known now (ADR-0059).
+
+        Known now: only the membership changes announced by this context's own
+        instant are read, so a strategy never sees a change before it is
+        announced. ``at`` may be past, present or future: a future instant
+        reads the changes already announced for it. A run with no registry has
+        no universe, and answers none, as :attr:`configured` says.
+
+        Raises:
+            RuntimeValidationError: If the registry carries no historical
+                universe of that name -- it is refused, not answered with every
+                instrument -- or this view has no instant to read it as of.
+        """
+
+        if self._registry is None:
+            return frozenset()
+        history = self._registry.universes.get(universe)
+        if history is None:
+            carried = ", ".join(sorted(self._registry.universes)) or "none"
+            raise RuntimeValidationError(
+                f"The registry carries no historical universe {universe!r} (it carries "
+                f"{carried}). Membership is refused rather than answered with every "
+                "instrument, which is today's survivors applied to the past."
+            )
+        if self._as_of is None:
+            raise RuntimeValidationError(
+                "This universe view has no instant, so there is no 'known now' to read "
+                "membership as of."
+            )
+        return history.members(at, as_of=self._as_of)
 
     def __contains__(self, asset_id: object) -> bool:
         """Whether ``asset_id`` names an instrument this run's registry declares."""

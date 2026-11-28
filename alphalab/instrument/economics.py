@@ -35,7 +35,15 @@ __all__ = [
 
 #: The asset types that *are* cash equities when nothing else is declared.
 _FULLY_PAID: Final = frozenset(
-    {AssetType.EQUITY, AssetType.CRYPTO, AssetType.FOREX, AssetType.CASH}
+    {
+        AssetType.EQUITY,
+        AssetType.CRYPTO,
+        AssetType.FOREX,
+        AssetType.CASH,
+        # v4.3.0 (ADR-0076): a fund's unit and an ETF's share are paid in full.
+        AssetType.ETF,
+        AssetType.FUND,
+    }
 )
 
 

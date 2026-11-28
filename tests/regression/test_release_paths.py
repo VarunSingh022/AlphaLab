@@ -221,12 +221,16 @@ def test_the_command_line_takes_a_relative_dist_as_release_yml_gives_it(
             VERSION,
             "--record",
             f"built dist/VERIFICATION-{VERSION}.txt",
+            # These artifacts are built here from no commit; v4.3's source checks
+            # are held by test_release_correspondence.py.
+            "--no-source",
         ]
     )
 
     assert status == 0
     record = (work / "built dist" / f"VERIFICATION-{VERSION}.txt").read_text(encoding="utf-8")
     assert "PASSED" in record and record.count("install: exit 0") == 2
+    assert "- source: not checked -- no commit was given (--no-source)" in record
 
 
 def test_it_runs_from_outside_the_source_tree(

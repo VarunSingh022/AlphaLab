@@ -63,7 +63,7 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Final
 
 from alphalab.common.persistent_map import PersistentMap
@@ -95,6 +95,11 @@ from alphalab.instrument.margin import (
     margin_model_from_primitives,
     margin_model_to_primitives,
     margin_to_primitives,
+)
+from alphalab.instrument.membership import (
+    HistoricalUniverse,
+    universe_from_primitives,
+    universe_to_primitives,
 )
 from alphalab.instrument.record import DatedAlias, InstrumentRecord
 from alphalab.instrument.registry import (
@@ -254,6 +259,22 @@ class InstrumentRegistrySnapshot:
     #: :func:`~alphalab.instrument.controls.controls_to_primitives` writes them,
     #: or ``None`` (v4.2.0, ledger FUT-020).
     controls: Mapping[str, Any] | None = None
+    #: Each historical universe, by name, as
+    #: :func:`~alphalab.instrument.membership.universe_to_primitives` writes it
+    #: (v4.3, ADR-0059). Written only when there is one.
+    universes: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+
+    def __serializable__(self) -> dict[str, Any]:
+        """Every field, and ``universes`` only when a universe is carried.
+
+        A registry without one is written, and so digested, exactly as v4.2.1
+        wrote it (ADR-0059).
+        """
+
+        stored = {item.name: getattr(self, item.name) for item in fields(self)}
+        if not self.universes:
+            del stored["universes"]
+        return stored
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +363,10 @@ def capture(registry: InstrumentRegistry) -> InstrumentRegistrySnapshot:
         schema_version=INSTRUMENT_SNAPSHOT_SCHEMA,
         margin_model=margin_model_to_primitives(registry.margin_model),
         controls=controls_to_primitives(registry.controls),
+        universes={
+            name: universe_to_primitives(universe)
+            for name, universe in sorted(registry.universes.items())
+        },
     )
 
 
@@ -455,7 +480,29 @@ def restore(snapshot: InstrumentRegistrySnapshot) -> InstrumentRegistry:
         ),
         margin_model=_margin_model(snapshot.margin_model),
         controls=_controls(snapshot.controls),
+        universes=_universes(snapshot.universes, registry.instruments),
     )
+
+
+def _universes(
+    value: Mapping[str, Mapping[str, Any]], instruments: Mapping[str, Any]
+) -> PersistentMap[str, HistoricalUniverse]:
+    """The historical universes a snapshot carries, each held to the registry's instruments."""
+
+    universes: dict[str, HistoricalUniverse] = {}
+    for name, changes in sorted(value.items()):
+        try:
+            universe = universe_from_primitives(name, changes)
+        except InstrumentInputError as error:
+            raise StateDecodeError(f"universes.{name}: {error}") from None
+        unknown = sorted(universe.assets - set(instruments))
+        if unknown:
+            raise StateDecodeError(
+                f"universes.{name} names {', '.join(unknown)}, which the snapshot's registry "
+                "does not hold."
+            )
+        universes[name] = universe
+    return PersistentMap(universes)
 
 
 # ---------------------------------------------------------------------------
@@ -755,4 +802,16 @@ def from_primitives(payload: Mapping[str, Any]) -> InstrumentRegistrySnapshot:
         margin_model=_optional_mapping(payload.get("margin_model"), "margin_model"),
         # Written since v4.2.0 (FUT-020); absent from every earlier payload.
         controls=_optional_mapping(payload.get("controls"), "controls"),
+        # Written since v4.3.0 (ADR-0059), and only when a universe is carried.
+        universes=_universe_payloads(payload.get("universes")),
     )
+
+
+def _universe_payloads(value: Any) -> dict[str, Mapping[str, Any]]:
+    if value is None:
+        return {}
+    universes = as_mapping(value, "universes")
+    return {
+        as_str(name, "universes"): as_mapping(record, f"universes.{name}")
+        for name, record in universes.items()
+    }

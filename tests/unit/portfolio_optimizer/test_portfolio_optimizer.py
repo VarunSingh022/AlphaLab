@@ -230,6 +230,32 @@ def test_rebalance_schedule() -> None:
     assert check_schedule_rebalance(0.0, 86400.0 * 7, RebalanceTrigger.WEEKLY) is True
 
 
+def test_the_standalone_rules_are_documented_as_superseded() -> None:
+    """ADR-0063 section 6: superseded in documentation, unchanged, and no warning raised."""
+
+    import warnings
+
+    from alphalab.portfolio_optimizer import rebalance
+    from alphalab.portfolio_optimizer.manager import PortfolioManager
+
+    replacements = {
+        rebalance: ":mod:`alphalab.rebalancing`'s triggers",
+        RebalanceTrigger: ":class:`alphalab.rebalancing.CalendarTrigger`",
+        check_threshold_rebalance: ":class:`alphalab.rebalancing.ThresholdTrigger`",
+        check_schedule_rebalance: ":class:`alphalab.rebalancing.CalendarTrigger`",
+        PortfolioManager.rebalance: ":class:`alphalab.rebalancing.RebalancingStrategy`",
+        PortfolioEngine.rebalance: ":class:`alphalab.rebalancing.RebalancingStrategy`",
+    }
+    for surface, replacement in replacements.items():
+        text = " ".join((surface.__doc__ or "").split())
+        assert "Superseded since 4.3, unchanged until 5.0" in text, surface
+        assert replacement in text, surface
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert check_threshold_rebalance({"A": 0.56}, {"A": 0.5}) is True
+        assert check_schedule_rebalance(0.0, 86400.0 * 30, RebalanceTrigger.MONTHLY) is True
+
+
 # --- COST ESTIMATOR TESTS (10 Assertions) ---
 
 

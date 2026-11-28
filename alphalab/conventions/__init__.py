@@ -23,7 +23,10 @@ days. It takes a :class:`~alphalab.conventions.settlement.TradingDayCalendar`
 -- a one-method structural protocol that
 :class:`alphalab.data.calendar.MarketCalendar` already satisfies -- so the
 calendar authority stays where it is and is *passed in*. The precedent is
-:class:`alphalab.common.point_in_time.PointInTimeRecord`.
+:class:`alphalab.common.point_in_time.PointInTimeRecord`. Business-day
+conventions, tenors and FX value dates (v4.3,
+:mod:`~alphalab.conventions.business_days`, ADR-0067) take their calendars the
+same way, each rule declared.
 
 Nothing here ships an exchange's data
 --------------------------------------
@@ -34,7 +37,28 @@ takes on rates: the mechanism is AlphaLab's, the data is the application's, and 
 table baked in here would be wrong within a year while looking authoritative.
 """
 
-from alphalab.conventions.daycount import DayCount, day_count_days, days_in_year, year_fraction
+from alphalab.conventions.business_days import (
+    BusinessDayConvention,
+    Tenor,
+    TenorUnit,
+    ValueDateRule,
+    add_business_days,
+    add_tenor,
+    adjust,
+    forward_value_date,
+    is_business_day,
+    spot_value_date,
+    subtract_business_days,
+)
+from alphalab.conventions.daycount import (
+    DayCount,
+    DayCountTerms,
+    day_count_days,
+    days_in_year,
+    require_accrual_basis,
+    required_terms,
+    year_fraction,
+)
 from alphalab.conventions.economics import (
     CASH_EQUITY,
     InstrumentEconomics,
@@ -69,12 +93,14 @@ from alphalab.conventions.tick import (
 __all__ = [
     "CASH_EQUITY",
     "MAX_SETTLEMENT_SEARCH_DAYS",
+    "BusinessDayConvention",
     "Compounding",
     "ContractNotional",
     "ConventionError",
     "ConventionInputError",
     "ConventionViolationError",
     "DayCount",
+    "DayCountTerms",
     "InstrumentEconomics",
     "LotSpecification",
     "MarketConvention",
@@ -82,21 +108,33 @@ __all__ = [
     "SettlementBasis",
     "SettlementModel",
     "SettlementRule",
+    "Tenor",
+    "TenorUnit",
     "TickBand",
     "TickSchedule",
     "TickValue",
     "TradingDayCalendar",
+    "ValueDateRule",
+    "add_business_days",
+    "add_tenor",
+    "adjust",
     "compound_factor",
     "contract_notional",
     "day_count_days",
     "days_in_year",
     "discount_factor",
     "economics_from_primitives",
+    "forward_value_date",
+    "is_business_day",
     "is_on_tick",
     "lots_in",
+    "require_accrual_basis",
+    "required_terms",
     "round_down_to_lot",
     "round_to_tick",
     "settlement_date",
+    "spot_value_date",
+    "subtract_business_days",
     "tick_value",
     "year_fraction",
 ]

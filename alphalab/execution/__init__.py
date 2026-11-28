@@ -102,9 +102,12 @@ from alphalab.execution.policy import (
     FillPolicy,
     FillTiming,
     ImmediateFill,
+    LatencyPricing,
     LiquidityCappedFill,
     LiquidityContext,
+    RestRemainder,
     StaticFill,
+    StrictLiquidityCappedFill,
 )
 from alphalab.execution.quality import (
     EXECUTION_QUALITY_SCHEME,
@@ -168,6 +171,7 @@ from alphalab.execution.slippage import (
 )
 from alphalab.execution.state import ExecutionState
 from alphalab.execution.validation import validate_execution_parameters
+from alphalab.execution.venue_models import CheapestVenue, VenueExecution, VenueRouter
 from alphalab.execution.views import all_reports, report, reports_for_asset, reports_for_order
 
 __all__ = [
@@ -192,6 +196,7 @@ __all__ = [
     "CapacityConstraint",
     "CapacityModel",
     "CapacityResult",
+    "CheapestVenue",
     "ChildOrder",
     "ChildProgress",
     "ClockSource",
@@ -235,6 +240,7 @@ __all__ = [
     "IntervalVolume",
     "LatencyMeasurement",
     "LatencyModel",
+    "LatencyPricing",
     "LifecycleMark",
     "LinearImpact",
     "LiquidityCappedFill",
@@ -266,6 +272,7 @@ __all__ = [
     "QuotedHalfSpread",
     "ReferencePrice",
     "RejectionRate",
+    "RestRemainder",
     "RouteCandidate",
     "RouteDecision",
     "RouteLeg",
@@ -284,14 +291,17 @@ __all__ = [
     "SpreadModel",
     "SquareRootImpact",
     "StaticFill",
+    "StrictLiquidityCappedFill",
     "TaxModel",
     "TimelineMark",
     "TrancheRandomization",
     "Urgency",
     "UrgencyEstimate",
+    "VenueExecution",
     "VenueProfile",
     "VenueQuality",
     "VenueQuote",
+    "VenueRouter",
     "VolumeProfile",
     "algorithm_configuration_id",
     "all_reports",

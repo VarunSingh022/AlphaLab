@@ -30,8 +30,10 @@ The queue book is driver state, threaded through
 execution plan's book is, so the run's record and ``result_id`` are what they
 would be without it, and :class:`~alphalab.backtesting.state.QueuedResult` names
 the model in its execution assumptions. A queue model works simulated orders
-only: it is refused beside an execution plan, whose children it would not see,
-and on a run that routes to a venue.
+only, and is refused on a run that routes to a venue. Beside an execution plan
+(v4.3, ADR-0061) it governs the plan's limit children instead, each resting
+child joining its level from the event it was placed at, and the result is an
+:class:`~alphalab.backtesting.state.AlgorithmicQueuedResult` holding both books.
 
 What is governed, and what is not
 ---------------------------------
@@ -58,8 +60,9 @@ from collections.abc import Mapping
 from decimal import Decimal
 from typing import Any, Final
 
+from alphalab.backtesting.algorithmic import AlgorithmBook, _resting_children
 from alphalab.backtesting.exceptions import BacktestError
-from alphalab.backtesting.state import QueuedResult
+from alphalab.backtesting.state import AlgorithmicQueuedResult, QueuedResult
 from alphalab.common.persistent_map import PersistentMap
 from alphalab.execution.queue import QueueBook, QueueModel, QueuePosition
 from alphalab.runtime.assumptions import describe
@@ -86,24 +89,22 @@ class QueueModelError(BacktestError):
 def queued_run(config: RunConfig, model: QueueModel | None) -> QueueBook | None:
     """The empty book a run under ``model`` starts with, or ``None`` without one.
 
+    Under an execution plan the book holds the plan's resting limit children
+    (v4.3, ADR-0061): the run's own orders are the plan's parents, which never
+    rest.
+
     Raises:
-        QueueModelError: If the run does not simulate its orders -- it routes
-            to a venue, or works them in an execution plan's children.
+        QueueModelError: If the run does not simulate its orders: it routes to a
+            venue.
     """
 
     if model is None:
         return None
     routing = config.pipeline.routing
-    if routing is not ExecutionRouting.SIMULATED:
+    if routing is ExecutionRouting.EXTERNAL:
         raise QueueModelError(
-            f"A queue model governs simulated resting orders, and this run routes "
-            f"{routing.name}: "
-            + (
-                "an execution plan's children are not governed by it. Give the run one or "
-                "the other."
-                if routing is ExecutionRouting.ALGORITHMIC
-                else "its orders are its venue's to fill."
-            )
+            "A queue model governs simulated resting orders, and this run routes EXTERNAL: "
+            "its orders are its venue's to fill."
         )
     return QueueBook(model)
 
@@ -117,6 +118,16 @@ def queued_result(state: RunState, queue: QueueBook) -> QueuedResult:
 
     working = (str(order_id.value) for order_id in state.pipeline.oms.active_orders)
     return QueuedResult(run=RunEngine.finalize(state), queue=queue.keeping(working))
+
+
+def _planned_result(
+    state: RunState, book: AlgorithmBook, queue: QueueBook
+) -> AlgorithmicQueuedResult:
+    """The finished run, its algorithm book, and its queue holding the children still resting."""
+
+    return AlgorithmicQueuedResult(
+        run=RunEngine.finalize(state), algorithms=book, queue=queue.keeping(_resting_children(book))
+    )
 
 
 def capture_queue(book: QueueBook) -> dict[str, Any]:

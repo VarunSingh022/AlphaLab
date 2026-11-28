@@ -82,7 +82,7 @@ from alphalab.portfolio.corporate_actions import (
     OptionExpiry,
     Split,
 )
-from alphalab.portfolio.fx import NO_RATES, FxRates
+from alphalab.portfolio.fx import NO_RATES, FxRate, FxRates
 from alphalab.portfolio.settlement import DeliveryConvention, PaymentChange
 from alphalab.risk.surfaces import ObservedSurface
 from alphalab.runtime.assumptions import ExecutionAssumptions, execution_assumptions
@@ -95,6 +95,8 @@ from alphalab.runtime.execution_pipeline import (
     ExecutionPipelineState,
     ExecutionRouting,
     UnpricedAsset,
+    _instant_assets,
+    _packages_working,
     held_past_expiry,
     price_refusal,
     retained,
@@ -762,9 +764,16 @@ class RunEngine:
             return state
         if state.last_slice_at is not None and at <= state.last_slice_at:
             return state
-        if not wants_slices(pipeline.strategy):
+        # A package works at a slice close whether or not a strategy wants the
+        # slice (ADR-0062); a run with neither closes nothing. With no order
+        # working at all, no package is: one test, which every run pays.
+        if not wants_slices(pipeline.strategy) and not (
+            pipeline.oms.active_orders and _packages_working(pipeline, _instant_assets(events, at))
+        ):
             return state
-        closed, _, _ = ExecutionPipeline.close_slice(pipeline, context_factory, rates)
+        closed, _, _ = ExecutionPipeline.close_slice(
+            pipeline, context_factory, rates, fill_policy=state.config.fill_policy
+        )
         return evolve(state, pipeline=closed, last_slice_at=at)
 
     @staticmethod
@@ -1106,6 +1115,27 @@ class RunEngine:
 
         clock = state.current_timestamp if timestamp is None else timestamp
         pipeline = ExecutionPipeline.expire_option(state.pipeline, expiry, clock, rates)
+        return evolve(
+            state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
+        )
+
+    @staticmethod
+    @in_accounting_context
+    def fix_ndf(
+        state: RunState,
+        asset_id: str,
+        fixing: FxRate,
+        timestamp: float | None = None,
+        rates: FxRates = NO_RATES,
+    ) -> RunState:
+        """Fix every open NDF in ``asset_id`` that fixes on ``fixing``'s day (v4.3.0, ADR-0067).
+
+        ``timestamp`` defaults to the run's current instant. See
+        :meth:`~alphalab.runtime.execution_pipeline.ExecutionPipeline.fix_ndf`.
+        """
+
+        clock = state.current_timestamp if timestamp is None else timestamp
+        pipeline = ExecutionPipeline.fix_ndf(state.pipeline, asset_id, fixing, clock, rates)
         return evolve(
             state, pipeline=pipeline, current_timestamp=max(state.current_timestamp, clock)
         )

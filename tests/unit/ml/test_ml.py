@@ -1,6 +1,8 @@
 """Comprehensive tests for the Machine Learning Engine: linalg, regression,
 classification, cross-validation, evaluation, and the Feature Store bridge."""
 
+from collections.abc import Callable
+
 import pytest
 
 from alphalab.feature_store import (
@@ -46,6 +48,45 @@ from alphalab.ml import (
 # --------------------------------------------------------------------------- #
 # linalg
 # --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("helper", "replacement"),
+    [
+        (transpose, "``tuple(zip(*matrix, strict=True))``"),
+        (matmul, "``sum(x * y for x, y in zip(row, column))``"),
+        (identity, "``tuple(tuple(float(i == j) for j in range(n)) for i in range(n))``"),
+        (matrix_inverse, ":func:`alphalab.common.linalg.least_squares`"),
+        (
+            k_fold_split,
+            ":func:`alphalab.research.cross_validation_splits` with ``CVMethod.PURGED``",
+        ),
+        (walk_forward_split, ":func:`alphalab.research.walk_forward_splits`"),
+    ],
+    ids=lambda value: getattr(value, "__name__", ""),
+)
+def test_each_deprecated_helper_documents_its_deprecation_and_replacement(
+    helper: Callable[..., object], replacement: str
+) -> None:
+    """GAP-48: deprecated in documentation (plan V.3); the package raises no warning."""
+
+    text = " ".join((helper.__doc__ or "").split())
+    assert "Deprecated since 4.3, removed in 5.0:" in text
+    assert replacement in text
+
+
+def test_the_stated_replacements_return_what_the_helpers_did() -> None:
+    a = ((1.0, 2.0, 3.0), (4.0, 5.0, 6.0))
+    b = ((0.5, -1.0), (2.0, 0.25), (-3.0, 1.5))
+    assert tuple(zip(*a, strict=True)) == transpose(a)
+    product = tuple(
+        tuple(
+            sum(x * y for x, y in zip(row, column, strict=True)) for column in zip(*b, strict=True)
+        )
+        for row in a
+    )
+    assert product == matmul(a, b)
+    assert tuple(tuple(float(i == j) for j in range(3)) for i in range(3)) == identity(3)
 
 
 def test_matrix_inverse_matches_hand_computed_2x2() -> None:

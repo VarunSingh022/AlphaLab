@@ -20,6 +20,9 @@ class TransactionType(Enum):
     #: v4.2.0, phase 3 (FUT-023): interest or a fee accrued for one day and
     #: not yet posted -- moving no cash; its period posts the sum once.
     ACCRUAL = auto()
+    #: v4.3.0 (ADR-0067): one currency's leg of an FX deal, which moves two
+    #: currencies and no position. Its quantity is the cash, signed.
+    FX_LEG = auto()
 
 
 class PositionSide(Enum):

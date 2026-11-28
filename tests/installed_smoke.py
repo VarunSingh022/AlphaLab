@@ -38,6 +38,40 @@ from typing import Any
 
 SOURCE_TREE = Path(__file__).resolve().parents[1]
 
+#: The examples run against the installed artifact, in the order they run.
+EXAMPLES = (
+    "11_unified_backtest.py",
+    "70_build_a_strategy.py",
+    "71_pause_and_resume_a_replay.py",
+    "72_compose_a_multi_asset_strategy.py",
+    "73_train_and_trade_a_model.py",
+    "74_evaluate_an_execution_algorithm.py",
+    "75_exercise_assign_and_deliver.py",
+    "76_a_financed_long_short_book.py",
+    "77_a_short_squeezed_by_its_lender.py",
+    "78_a_tender_split_between_holders.py",
+    "79_bid_into_a_reopening_auction.py",
+    "80_a_ledgered_sweep.py",
+    "81_search_train_and_trade_a_model.py",
+    "82_research_execution_across_venues.py",
+    "83_rebalance_a_factor_neutral_book.py",
+    "84_carry_a_book_of_fx_forwards.py",
+    "85_trade_a_duration_neutral_curve_book.py",
+)
+
+
+def _numbered(names: tuple[str, ...]) -> str:
+    """The examples' numbers as runs, ``11 and 70 to 85``, so the summary follows the list."""
+
+    runs: list[list[int]] = []
+    for number in (int(name.split("_", 1)[0]) for name in names):
+        if runs and number == runs[-1][1] + 1:
+            runs[-1][1] = number
+        else:
+            runs.append([number, number])
+    parts = [str(low) if low == high else f"{low} to {high}" for low, high in runs]
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
 
 def _source_modules() -> set[str]:
     """Every module the source tree defines, by dotted name."""
@@ -150,20 +184,13 @@ def main(expected_version: str) -> None:
     # a venue's and an issuer's declared terms; and a short squeezed by its
     # lender's recall, through a halt and its reopening auction; and a tender
     # split between holders, prorated, its payment delayed and corrected; and
-    # (phase 5) a bid into a reopening auction from the venue's indications.
-    for name in (
-        "11_unified_backtest.py",
-        "70_build_a_strategy.py",
-        "71_pause_and_resume_a_replay.py",
-        "72_compose_a_multi_asset_strategy.py",
-        "73_train_and_trade_a_model.py",
-        "74_evaluate_an_execution_algorithm.py",
-        "75_exercise_assign_and_deliver.py",
-        "76_a_financed_long_short_book.py",
-        "77_a_short_squeezed_by_its_lender.py",
-        "78_a_tender_split_between_holders.py",
-        "79_bid_into_a_reopening_auction.py",
-    ):
+    # (phase 5) a bid into a reopening auction from the venue's indications;
+    # and (v4.3) a ledgered sweep, its trials run in spawned workers that refuse
+    # the network, every trial counted, one record reproduced and the lockbox
+    # read once; and (v4.3, S-07) a model searched by successive halving through
+    # the ledger, trained on what was known before the lockbox, and traded by its
+    # artifact.
+    for name in EXAMPLES:
         # Loaded as a module, registered first: a dataclass with postponed
         # annotations looks its module up in sys.modules while it is built.
         spec = importlib.util.spec_from_file_location(
@@ -192,8 +219,8 @@ def main(expected_version: str) -> None:
     print(
         f"installed alphalab {installed} at {location.parent}: pip check clean, no runtime "
         f"requirement, {len(imported)} modules, {public} public names as the manifest records, "
-        "py.typed present, examples 11 and 70 to 79 and the consumer contract ran with the "
-        "network refused"
+        f"py.typed present, examples {_numbered(EXAMPLES)} and the consumer contract ran with "
+        "the network refused"
     )
 
 

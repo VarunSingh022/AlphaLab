@@ -45,14 +45,40 @@ NAMED: dict[str, tuple[str, ...]] = {
     # Phase 3 (FUT-026): a repriced option's carry, by name, in a margin model.
     "alphalab.options.carry.CarryKind": ("DIVIDEND_YIELD", "FOREIGN_RATE", "FUTURES"),
     # v4.2.0 (ledger FUT-018): an instrument's borrow terms, by their day count.
-    "alphalab.conventions.daycount.DayCount": ("ACT_365_FIXED", "ACT_360", "THIRTY_360_US"),
+    # v4.3.0 (plan N21, GAP-36): the world's day counts, appended -- every name
+    # an earlier release wrote reads back unchanged.
+    "alphalab.conventions.daycount.DayCount": (
+        "ACT_365_FIXED",
+        "ACT_360",
+        "THIRTY_360_US",
+        "THIRTY_E_360",
+        "THIRTY_E_360_ISDA",
+        "ACT_ACT_ISDA",
+        "ACT_ACT_ICMA",
+        "ACT_365_LEAP",
+        "NO_LEAP_365",
+        "BUSINESS_252",
+    ),
     # v4.2.0 (ledger FUT-017): an instrument's margin terms, by their basis.
     "alphalab.instrument.margin.MarginBasis": ("VALUE_RATE", "PER_CONTRACT"),
+    # v4.3.0 (ADR-0059): a historical universe's changes, by their kind.
+    "alphalab.instrument.membership.MembershipKind": ("ADDITION", "REMOVAL", "DELISTING"),
     # v4.1.1 (ledger FUT-013), found by the v4.2.0 scanner, which reads
     # terms_from_primitives: an option's declared terms, by name.
     "alphalab.options.enums.ExerciseStyle": ("AMERICAN", "EUROPEAN", "BERMUDAN"),
     "alphalab.options.enums.OptionType": ("CALL", "PUT"),
     "alphalab.options.expiration.SettlementStyle": ("PHYSICAL", "CASH"),
+    # v4.3.0 (ADR-0067): an FX deal's declared terms, by name -- its kind and,
+    # for a tenor, the business-day convention its value date lands by.
+    "alphalab.instrument.terms.FxKind": ("SPOT", "FORWARD", "NDF"),
+    # v4.3.0 (ADR-0065): a linker's declared terms, by how its reference index is read.
+    "alphalab.rates.terms.Indexation": ("MONTHLY", "DAILY_INTERPOLATED"),
+    "alphalab.conventions.business_days.BusinessDayConvention": (
+        "FOLLOWING",
+        "MODIFIED_FOLLOWING",
+        "PRECEDING",
+        "UNADJUSTED",
+    ),
     # v4.2.0 (ledger FUT-015): an instrument's settlement rule, by its basis.
     "alphalab.conventions.settlement.SettlementBasis": (
         "TRADE_DATE",
@@ -83,7 +109,14 @@ NAMED: dict[str, tuple[str, ...]] = {
         "EXPIRED",
     ),
     "alphalab.experiment_tracking.tracker.RunStatus": ("RUNNING", "COMPLETED", "FAILED"),
-    "alphalab.lifecycle.evidence.ValidationMethod": ("BACKTEST", "RESEARCH", "EXTERNAL", "STUDY"),
+    # v4.3 (ADR-0073 section 8): EXPERIMENT appended; no earlier name moved.
+    "alphalab.lifecycle.evidence.ValidationMethod": (
+        "BACKTEST",
+        "RESEARCH",
+        "EXTERNAL",
+        "STUDY",
+        "EXPERIMENT",
+    ),
     "alphalab.market.source.OrderingGuarantee": ("CHRONOLOGICAL", "UNORDERED"),
     "alphalab.model_registry.registry.ModelStage": ("NONE", "STAGING", "PRODUCTION", "ARCHIVED"),
     "alphalab.portfolio.fx_feed.FxFeedOutcome": ("APPLIED", "DUPLICATE", "SUPERSEDED"),
@@ -102,6 +135,8 @@ NAMED: dict[str, tuple[str, ...]] = {
         "EXCHANGE",
         # Phase 3 (FUT-023): a day's interest or fee accrued, not yet posted.
         "ACCRUAL",
+        # v4.3.0 (ADR-0067): one currency's leg of an FX deal.
+        "FX_LEG",
     ),
     "alphalab.runtime.execution_pipeline.ExecutionRouting": (
         "SIMULATED",
@@ -112,6 +147,19 @@ NAMED: dict[str, tuple[str, ...]] = {
         "NO_PRICE_OBSERVED",
         "NOT_REGISTERED",
         "REGISTERED_BUT_UNPRICED",
+    ),
+    # v4.3 (ADR-0063 section 6): a rebalancing strategy's declared state writes
+    # each rebalance's construction status and cardinality outcome.
+    "alphalab.portfolio_optimizer.construction.CardinalityOutcome": (
+        "WITHIN",
+        "RESTRICTED",
+        "UNRESOLVED",
+    ),
+    "alphalab.portfolio_optimizer.construction.ConstructionStatus": (
+        "OPTIMAL",
+        "INFEASIBLE",
+        "ITERATION_LIMIT",
+        "NUMERICAL_FAILURE",
     ),
     # v4.1 (ledger FUT-001): a paused replay's cursor is written with its status.
     "alphalab.replay.state.ReplayStatus": ("READY", "RUNNING", "PAUSED", "STOPPED", "COMPLETED"),
@@ -173,6 +221,13 @@ VALUES: dict[str, tuple[str, ...]] = {
         "cash",
         "bond",
         "index",
+        # v4.3.0 (ADR-0076): an ETF and an open-ended fund.
+        "etf",
+        "fund",
+        # v4.3.0 (ADR-0065): a swap, an FRA and a repo, booked by their declared terms.
+        "swap",
+        "fra",
+        "repo",
     ),
     "alphalab.core.enums.OrderStatus": (
         "new",
@@ -187,7 +242,13 @@ VALUES: dict[str, tuple[str, ...]] = {
     ),
     "alphalab.core.enums.Side": ("buy", "sell"),
     "alphalab.data.feed.TradeAggressor": ("BUYER", "SELLER"),
-    "alphalab.execution.policy.FillTiming": ("same_event", "next_event"),
+    "alphalab.execution.policy.FillTiming": ("same_event", "next_event", "next_open"),
+    # v4.3.0 (ADR-0060, plan WS-11): what a run's latency model does, which a
+    # pipeline snapshot declaring it writes.
+    "alphalab.execution.policy.LatencyPricing": ("stamp", "post_latency_event"),
+    # v4.3.0 (ADR-0064, plan WS-08): a tree ensemble's loss, which every
+    # captured model states and GradientBoostedTrees.restore reads back.
+    "alphalab.ml.models.BoostingLoss": ("squared", "logistic"),
     "alphalab.risk.models.RiskSeverity": ("HIGH", "CRITICAL"),
 }
 
@@ -222,6 +283,8 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "HoldersRecorded",
         "LifecycleTransitioned",
         "OrderEvent",
+        # v4.3 (ADR-0062): written only when a strategy's package is refused.
+        "PackageRefused",
         "SliceClosed",
         # Phase 5 (FUT-038): written only when an action's terms are corrected.
         "TermsAnnounced",
@@ -267,7 +330,11 @@ EVENT_TAGS: dict[str, tuple[str, ...]] = {
         "CashWithdrawn",
         # Phase 5 (FUT-037): written only when a delivery is amended.
         "DeliveryAmended",
+        # v4.3.0 (ADR-0067): written only by a run that books an FX deal, or an NDF.
+        "FxDealBooked",
         "MarketValueUpdated",
+        "NdfDealt",
+        "NdfFixed",
         # Phase 4 (FUT-034): written only by a run whose payment was amended.
         "PaymentAmended",
         "PortfolioValuationUpdated",

@@ -46,7 +46,7 @@ one. See ADR-0022.
 
 import os
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from random import Random
@@ -251,10 +251,14 @@ def id_scope(seed: int | None) -> AbstractContextManager[None]:
     A seeded run mints reproducible ids; an unseeded one keeps ``uuid4``.
     Entering the scope is what makes "the same run twice" mean the same orders
     and fills, not merely the same P&L.
+
+    Either way the scope is the run's own. An unseeded scope installs ``uuid4``
+    rather than inheriting the stream around it, so a run declared unseeded but
+    started inside another seeded scope neither mints from that stream nor moves
+    it -- the rule ADR-0029 D6 set for persistence. Until v4.3 an unseeded scope
+    was a no-op, and such a run consumed the outer stream's identifiers (DET-007).
     """
 
-    if seed is None:
-        return nullcontext()
     return use_id_source(id_source(seed))
 
 

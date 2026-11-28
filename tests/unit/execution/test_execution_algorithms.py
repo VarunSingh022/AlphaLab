@@ -132,19 +132,46 @@ def test_twap_partitions_the_window_into_equal_intervals() -> None:
 @pytest.mark.parametrize(
     ("quantity", "slices", "expected"),
     [
-        ("10", 3, ["4", "3", "3"]),
+        # Increments computed to 34 digits: slice 2's is 0.333...334, so it takes the unit.
+        ("10", 3, ["3", "4", "3"]),
         ("11", 3, ["4", "4", "3"]),
         ("12", 3, ["4", "4", "4"]),
         ("1", 4, ["1", "0", "0", "0"]),
         ("2", 5, ["1", "1", "0", "0", "0"]),
     ],
 )
-def test_the_remainder_goes_to_the_earliest_slices(
+def test_the_remainder_goes_to_the_largest_remainders_as_computed(
     quantity: str, slices: int, expected: list[str]
 ) -> None:
+    """Largest remainders of the 34-digit increments; exact ties to the earliest (EXE-015)."""
+
     schedule = plan_schedule(D(quantity), TWAP(slices, Urgency.neutral()), _terms())
     assert [s.quantity for s in schedule.slices] == [D(q) for q in expected]
     assert schedule.slices[-1].target == D(quantity)
+
+
+@pytest.mark.parametrize("context", ["prec 12", "prec 28", "prec 80", "ROUND_DOWN"])
+@pytest.mark.parametrize(("quantity", "slices"), [("10", 3), ("100", 7), ("11", 3)])
+def test_a_schedule_is_the_same_under_any_ambient_context(
+    quantity: str, slices: int, context: str
+) -> None:
+    """EXE-015: a direct call allocates as a run does, whatever the caller's decimal context."""
+
+    import decimal
+
+    hostile = {
+        "prec 12": decimal.Context(prec=12),
+        "prec 28": decimal.Context(prec=28),
+        "prec 80": decimal.Context(prec=80),
+        "ROUND_DOWN": decimal.Context(rounding=decimal.ROUND_DOWN),
+    }[context]
+    from alphalab.common.arithmetic import ACCOUNTING_CONTEXT
+
+    with decimal.localcontext(ACCOUNTING_CONTEXT):
+        in_a_run = plan_schedule(D(quantity), TWAP(slices, Urgency.neutral()), _terms())
+    with decimal.localcontext(hostile):
+        direct = plan_schedule(D(quantity), TWAP(slices, Urgency.neutral()), _terms())
+    assert [s.quantity for s in direct.slices] == [s.quantity for s in in_a_run.slices]
 
 
 def test_the_increment_is_respected_and_a_parent_off_it_is_refused() -> None:
@@ -254,7 +281,8 @@ def test_a_twap_run_releases_at_slice_starts_and_catches_up_what_did_not_fill() 
     state = start_algorithm(_parent("10"), TWAP(3, Urgency.neutral()), _terms())
     state, released = release_children(state, 0.0)
     (first,) = released
-    assert (first.quantity, first.expires_at, first.sequence) == (D("4"), 100.0, 1)
+    # Ten over three slices is 3, 4, 3, as a run allocates it (EXE-015); 7 is due by slice 2.
+    assert (first.quantity, first.expires_at, first.sequence) == (D("3"), 100.0, 1)
 
     state, nothing = release_children(state, 50.0)
     assert nothing == (), "the first slice's target is already committed"

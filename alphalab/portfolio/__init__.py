@@ -95,6 +95,11 @@ from .fx_research import currency_exposures as currency_exposures
 from .fx_research import forward_points as forward_points
 from .fx_research import hedge_notional as hedge_notional
 from .ledger import TransactionLedger as TransactionLedger
+from .lots import Lot as Lot
+from .lots import LotMatch as LotMatch
+from .lots import LotRelief as LotRelief
+from .lots import LotReport as LotReport
+from .lots import relieve_lots as relieve_lots
 from .margin import MarginEngine as MarginEngine
 from .multi_strategy import BOOK_VALUATION_SCHEME as BOOK_VALUATION_SCHEME
 from .multi_strategy import MULTI_STRATEGY_BOOK_SCHEME as MULTI_STRATEGY_BOOK_SCHEME
@@ -167,6 +172,10 @@ __all__ = [
     "InstrumentValuation",
     "InsufficientFundsError",
     "InvalidTransactionError",
+    "Lot",
+    "LotMatch",
+    "LotRelief",
+    "LotReport",
     "MarginEngine",
     "MarketValueUpdated",
     "MissingRateError",
@@ -208,6 +217,7 @@ __all__ = [
     "forward_points",
     "hedge_notional",
     "holding_notional",
+    "relieve_lots",
     "settlement_exposures",
     "value_book",
 ]

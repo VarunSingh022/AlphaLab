@@ -12,6 +12,12 @@ release-facing rules those findings came from, deriving the expected version
 from ``alphalab/common/_version.py`` (REP-001) and naming the file and line of
 each breach.
 
+Since v4.3 the expected version is the release the documents describe
+(``DOCUMENTED``): the package's, except while the next release is developed
+under its own version, when they describe the newest release the CHANGELOG
+dates -- the one a reader can install -- until the release commit moves them
+(``docs/audit/scripts/release_preflight.py``, ``development_problems``).
+
 Deliberately outside these rules, because their versions are history:
 ``CHANGELOG.md``, ``docs/ADR/``, ``docs/audit/``, ``docs/work/``,
 ``docs/api/history/``, ``tests/fixtures/`` (payloads earlier releases wrote),
@@ -24,6 +30,7 @@ whose fingerprints the examples print, not claims about the running release.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import re
 from pathlib import Path
 
@@ -32,7 +39,27 @@ import pytest
 from alphalab.common._version import __version__ as VERSION
 
 ROOT = Path(__file__).resolve().parents[2]
-MAJOR = VERSION.split(".", 1)[0]
+
+
+def _documented_release() -> str:
+    """The release the documents describe: ``release_preflight.documented_release`` (v4.3)."""
+
+    path = ROOT / "docs" / "audit" / "scripts" / "release_preflight.py"
+    spec = importlib.util.spec_from_file_location("release_preflight_documented", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    documented = module.documented_release()
+    assert isinstance(documented, str), "CHANGELOG.md dates no release"
+    return documented
+
+
+#: The release a reader's documents describe. It is the package's version, except while
+#: the next release is developed (v4.3, ``release_preflight.development_problems``): then
+#: the package is the next release's and these documents still describe the newest one
+#: the CHANGELOG dates -- what a reader can install -- until the release commit moves them.
+DOCUMENTED = _documented_release()
+MAJOR = DOCUMENTED.split(".", 1)[0]
 
 #: The documents a reader takes as describing the release they hold.
 RELEASE_FACING = (
@@ -80,7 +107,7 @@ def _other_versions_claimed_current(line: str) -> list[str]:
 
     if not _CURRENT_CLAIM.search(line):
         return []
-    return [found for found in _VERSION_NAMED.findall(line) if found != VERSION]
+    return [found for found in _VERSION_NAMED.findall(line) if found != DOCUMENTED]
 
 
 def _lines(document: str) -> list[tuple[int, str]]:
@@ -93,17 +120,19 @@ def _breaches(document: str, pattern: re.Pattern[str]) -> list[str]:
         f"{document}:{number}: {line.strip()[:120]}"
         for number, line in _lines(document)
         for found in pattern.findall(line)
-        if found != VERSION
+        if found != DOCUMENTED
     ]
 
 
 def test_the_version_is_the_one_the_package_declares() -> None:
-    """The guard on the guard: the expected version is read, not written here."""
+    """The guard on the guard: the versions are read, not written here."""
 
     import alphalab
 
     assert re.fullmatch(r"\d+\.\d+\.\d+", VERSION)
     assert alphalab.__version__ == VERSION
+    documented, package = (tuple(map(int, found.split("."))) for found in (DOCUMENTED, VERSION))
+    assert documented <= package, "the documents describe this release or the one it follows"
 
 
 @pytest.mark.parametrize("document", RELEASE_FACING)
@@ -111,7 +140,7 @@ def test_every_release_link_and_pin_names_this_release(document: str) -> None:
     """A download URL, a tag reference, an artifact name or a pin names this release."""
 
     breaches = [line for pattern in _RELEASE_REFERENCES for line in _breaches(document, pattern)]
-    assert not breaches, f"release references to another version than {VERSION}:\n" + "\n".join(
+    assert not breaches, f"release references to another version than {DOCUMENTED}:\n" + "\n".join(
         breaches
     )
 
@@ -123,7 +152,7 @@ def test_no_document_calls_another_version_current(document: str) -> None:
         for number, line in _lines(document)
         if _other_versions_claimed_current(line)
     ]
-    assert not breaches, f"'current'/'latest' claims for another version than {VERSION}:\n" + (
+    assert not breaches, f"'current'/'latest' claims for another version than {DOCUMENTED}:\n" + (
         "\n".join(breaches)
     )
 
@@ -132,12 +161,14 @@ def test_every_version_on_a_current_release_line_is_read() -> None:
     """v4.2.0's README line, with this release first: the version after it is found (TST-024)."""
 
     published = (
-        f"**Current Release:** **v{VERSION} (release candidate, not yet published; the "
+        f"**Current Release:** **v{DOCUMENTED} (release candidate, not yet published; the "
         "published tag is v4.1.0) — every timed input on every driver**"
     )
 
     assert _other_versions_claimed_current(published) == ["4.1.0"]
-    assert _other_versions_claimed_current(f"**Current Release:** **v{VERSION} — additive**") == []
+    assert (
+        _other_versions_claimed_current(f"**Current Release:** **v{DOCUMENTED} — additive**") == []
+    )
     assert _other_versions_claimed_current("v4.1.0 added replay pause and resume.") == []
 
 
@@ -157,9 +188,9 @@ def test_a_header_and_a_footer_state_no_other_release(document: str) -> None:
         f"{document}:{number}: {line.strip()[:120]}"
         for number, line in edges
         for found in re.findall(r"\bv?(\d+\.\d+\.\d+)\b", line)
-        if found != VERSION
+        if found != DOCUMENTED
     ]
-    assert not breaches, f"a header or footer names another release than {VERSION}:\n" + (
+    assert not breaches, f"a header or footer names another release than {DOCUMENTED}:\n" + (
         "\n".join(breaches)
     )
 
@@ -181,7 +212,7 @@ def test_the_security_policy_supports_this_major_line_alone() -> None:
     assert rows, "SECURITY.md's supported-versions table moved; this test reads it"
     supported = sorted(version for version, answer in rows.items() if answer == "✅ Yes")
     assert supported == [f"{MAJOR}.x"], (
-        f"SECURITY.md supports {supported}; the package is {VERSION}"
+        f"SECURITY.md supports {supported}; the documents describe {DOCUMENTED}"
     )
 
 
@@ -235,6 +266,25 @@ def test_no_benchmark_or_example_banner_names_another_release() -> None:
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str):
                     found = re.match(r"AlphaLab v(\d+\.\d+(?:\.\d+)?)\b", node.value)
-                    if found and not VERSION.startswith(found.group(1)):
+                    if found and not DOCUMENTED.startswith(found.group(1)):
                         breaches.append(f"{folder}/{path.name}:{node.lineno}: {node.value[:80]}")
     assert not breaches, "\n".join(breaches)
+
+
+def test_the_security_policy_states_that_a_spawned_worker_is_not_a_sandbox() -> None:
+    """SECURITY.md and the worker it describes state the trial-isolation boundary (BDY-029).
+
+    A spawned trial's worker refuses the network before it imports the
+    researcher's code, and that is all it does: a process is not a sandbox
+    (ADR-0056 principle 3). Only the statement keeps a host from reading more
+    into it, so it is held here, in the policy and in the worker's docstring.
+    """
+
+    from alphalab.lifecycle import _trial_worker
+
+    policy = " ".join((ROOT / "SECURITY.md").read_text(encoding="utf-8").split())
+    assert "A spawned trial's worker refuses the network, and is not a sandbox" in policy
+    assert "A separate process is not a secure sandbox" in policy
+    worker = " ".join((_trial_worker.__doc__ or "").split())
+    assert "A separate process is not a secure sandbox" in worker
+    assert "BDY-029" in worker

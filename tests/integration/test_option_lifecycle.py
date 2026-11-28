@@ -761,8 +761,10 @@ def test_terms_round_trip_through_a_registry_payload() -> None:
         assert restored.instruments[record.asset_id].terms == record.terms
         assert restored.instruments[record.asset_id].asset_id == record.asset_id
     assert terms_from_primitives(terms_to_primitives(AM_CALL.terms)) == AM_CALL.terms
-    with pytest.raises(InstrumentInputError, match="kind 'swap'"):
-        terms_from_primitives({"kind": "swap"})
+    # A kind this build does not write ("swap" was this example until v4.3, which
+    # added swap terms: ADR-0065).
+    with pytest.raises(InstrumentInputError, match="kind 'cap'"):
+        terms_from_primitives({"kind": "cap"})
 
 
 def test_terms_do_not_change_what_an_instrument_is() -> None:
