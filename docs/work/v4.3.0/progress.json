@@ -1393,6 +1393,19 @@
       "compatibility": "Additive: eight exports (3,167); MarketCalendar's binding gains coverage, named in the CHANGELOG. A membership pack's digest, and every calendar payload and configuration_id without coverage, is unchanged. One unit test that used Holiday as an example of an unknown entry type now uses FeeSchedule.",
       "record": "docs/ADR/0059-historical-universes-and-reference-data-packs.md (settled points 6 to 10); CHANGELOG; the packs module's docstring.",
       "tests": "tests/integration/test_venues_from_packs.py (5): GR-1 -- New York, London and Tokyo from the synthetic pack, three zones and Tokyo's lunch break; purchases settling T+1 over Labor Day, T+2 over the summer bank holiday and T+2 over Respect for the Aged Day, each at its venue's next open; a closure announced the day before the pack was taken held by it; a venue, a day, and a run outside the pack refused; a tampered pack refused. tests/unit/data/test_venue_packs.py (16): the codec and the loader and their refusals, a calendar's sessions, holidays and coverage, coverage persisted only when stated, an overnight calendar refusing the day before its coverage, and nine readers' refusals."
+    },
+    {
+      "id": "TD-88",
+      "date": "2026-11-28",
+      "workstream": "WS-13",
+      "title": "A run's provenance cites the reference packs its inputs were read from, written and hashed only when cited (plan G.1.3, ADR-0053 section 8)",
+      "problem": "Plan G.1.3: a run that used a pack cites its digest in RunProvenance (R53-5). RunProvenance had no place for it, and its decoder requires every field, so a field added the ordinary way would have moved every stored record or needed a schema step.",
+      "alternatives": "(a) A schema step, RUN_PROVENANCE_SCHEMA 1 to 2, writing an empty list into every record: every stored record's bytes and its readers move for a field most runs never use. (b) Cite packs in the schedule's binding: a schedule is not where a calendar or a record came from. (c) An optional packs field, written and hashed only when a run cites a pack -- as a registry's universes are -- and read as none when absent.",
+      "decision": "(c). RunProvenance.packs: PackCitation values, sorted by id and version, each given once; a pack=id|version|digest line of the canonical key per citation; __serializable__ writes the field only when there are citations; provenance_from_primitives reads it when present. run_provenance and payload_provenance take packs=.",
+      "rationale": "What a pack's data became is already identified -- calendars in the configuration_id, records in the registry digest -- so the citation adds where it came from, and only a run that read a pack carries one. Every stored record and provenance_id made before is unchanged.",
+      "compatibility": "RunProvenance, run_provenance and payload_provenance gain a field and a parameter, named in the CHANGELOG. No stored record, provenance_id or schema version moves.",
+      "record": "docs/ADR/0053-run-and-input-provenance.md (section 8); CHANGELOG.",
+      "tests": "tests/unit/backtesting/test_provenance_cites_packs.py (4): a cited pack a line of the canonical key, in order, the id moved; the citations read back with the stored record; a record citing none storing no packs field and no pack line; a citation given twice, or a value that is not one, refused. The existing provenance suites pass unchanged."
     }
   ],
   "plan_changes": [
@@ -2586,6 +2599,11 @@
         {
           "milestone": "M10",
           "item": "A venue from a reference pack, and the loader (TD-87, ADR-0059 settled points 6 to 10, GR-1): VenueSession, Holiday and SettlementCycle entries; calendar_from_pack with coverage refused outside; settlement_from_pack; load_pack; GR-1's three venues in three zones from a synthetic pack",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M10",
+          "item": "A run cites the reference packs it read (TD-88, ADR-0053 section 8, plan G.1.3): RunProvenance.packs, a pack line of the canonical key per citation, written only when cited",
           "status": "Local validation passed"
         }
       ],
@@ -3805,7 +3823,7 @@
   },
   "state": {
     "updated": "2026-11-28",
-    "remote_head": "689a1aa",
+    "remote_head": "ca73c49",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -5331,6 +5349,24 @@
         "workflow": "Optional Distributions",
         "run": 46115574122,
         "result": "success"
+      },
+      {
+        "sha": "5093723",
+        "workflow": "Continuous Integration",
+        "run": 46117043688,
+        "result": "success: all six quality-gate cells (S-05 end to end)"
+      },
+      {
+        "sha": "5093723",
+        "workflow": "CodeQL",
+        "run": 46117043656,
+        "result": "success"
+      },
+      {
+        "sha": "5093723",
+        "workflow": "Optional Distributions",
+        "run": 46117043659,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
@@ -5829,6 +5865,10 @@
     {
       "date": "2026-11-28",
       "entry": "689a1aa pushed: lot relief (TD-86). 5416d36 passed hosted CI. GR-1 is validated locally (TD-87): a reference pack now states a venue's sessions, holidays and settlement cycle; a calendar read from one holds the pack's range as its coverage and refuses a day outside it, inside a run too; and the loader reads a pack's JSON with its digest checked first. Citing a pack in RunProvenance (plan G.1.3, R53-5) needs the stored record's schema step and follows."
+    },
+    {
+      "date": "2026-11-28",
+      "entry": "ca73c49 pushed: GR-1 (TD-87). 5093723 passed hosted CI. A run's provenance now cites the reference packs it read (TD-88), written and hashed only when cited, so no stored record or provenance_id moves."
     }
   ]
 }

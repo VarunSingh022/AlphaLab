@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `689a1aa` |
+| Remote head | `ca73c49` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M10: WS-27's records at the close (GR-3, S-05, GAP-23); then WS-13's lot relief (GAP-50), fund and ETF types and GR-1's packs, WS-14's rates (ADR-0065, GR-6, S-06), WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for 5416d36 and the next push is read at the next boundary. |
@@ -306,6 +306,9 @@ Never:
 | `5416d36` | Continuous Integration | 46115574139 | success: all six quality-gate cells (NDF settlement) |
 | `5416d36` | CodeQL | 46115574165 | success |
 | `5416d36` | Optional Distributions | 46115574122 | success |
+| `5093723` | Continuous Integration | 46117043688 | success: all six quality-gate cells (S-05 end to end) |
+| `5093723` | CodeQL | 46117043656 | success |
+| `5093723` | Optional Distributions | 46117043659 | success |
 
 ## Continuation log
 
@@ -432,6 +435,7 @@ Never:
 - **2026-11-28** 5416d36 pushed: NDF settlement (TD-85), after its gate found the schedule-digest pins needed the new fixing kind pinned from v4.3.0, the release that adds it; the digest of every kind's entries together stays v4.2.1's over its twenty kinds. S-05 is validated locally: example 84 carries a book of AUD and NZD forwards rolled as swaps through 2025, and its E2E reconciles cash per currency to the tally of the fills, checks every value date against both calendars -- three holidays by hand -- and adds up what the book earned. docs/FX.md is the FX guide. WS-27's acceptance, GR-3 and S-05, is ready for M10's close.
 - **2026-11-28** 5093723 pushed: S-05 end to end and the FX guide. Lot relief (TD-86, GAP-50) is validated locally: relieve_lots reads an asset's gains and open lots from the book's own record by a stated method, average cost reproducing the book's relief to the cent, and Section 104's later matches exact because they are read rather than booked. The book is unchanged.
 - **2026-11-28** 689a1aa pushed: lot relief (TD-86). 5416d36 passed hosted CI. GR-1 is validated locally (TD-87): a reference pack now states a venue's sessions, holidays and settlement cycle; a calendar read from one holds the pack's range as its coverage and refuses a day outside it, inside a run too; and the loader reads a pack's JSON with its digest checked first. Citing a pack in RunProvenance (plan G.1.3, R53-5) needs the stored record's schema step and follows.
+- **2026-11-28** ca73c49 pushed: GR-1 (TD-87). 5093723 passed hosted CI. A run's provenance now cites the reference packs it read (TD-88), written and hashed only when cited, so no stored record or provenance_id moves.
 
 ## Milestones
 
@@ -1370,6 +1374,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0059-historical-universes-and-reference-data-packs.md (settled points 6 to 10); CHANGELOG; the packs module's docstring.
 - **Tests:** tests/integration/test_venues_from_packs.py (5): GR-1 -- New York, London and Tokyo from the synthetic pack, three zones and Tokyo's lunch break; purchases settling T+1 over Labor Day, T+2 over the summer bank holiday and T+2 over Respect for the Aged Day, each at its venue's next open; a closure announced the day before the pack was taken held by it; a venue, a day, and a run outside the pack refused; a tampered pack refused. tests/unit/data/test_venue_packs.py (16): the codec and the loader and their refusals, a calendar's sessions, holidays and coverage, coverage persisted only when stated, an overnight calendar refusing the day before its coverage, and nine readers' refusals.
 
+### TD-88: A run's provenance cites the reference packs its inputs were read from, written and hashed only when cited (plan G.1.3, ADR-0053 section 8) (WS-13, 2026-11-28)
+
+- **Problem:** Plan G.1.3: a run that used a pack cites its digest in RunProvenance (R53-5). RunProvenance had no place for it, and its decoder requires every field, so a field added the ordinary way would have moved every stored record or needed a schema step.
+- **Alternatives:** (a) A schema step, RUN_PROVENANCE_SCHEMA 1 to 2, writing an empty list into every record: every stored record's bytes and its readers move for a field most runs never use. (b) Cite packs in the schedule's binding: a schedule is not where a calendar or a record came from. (c) An optional packs field, written and hashed only when a run cites a pack -- as a registry's universes are -- and read as none when absent.
+- **Decision:** (c). RunProvenance.packs: PackCitation values, sorted by id and version, each given once; a pack=id|version|digest line of the canonical key per citation; __serializable__ writes the field only when there are citations; provenance_from_primitives reads it when present. run_provenance and payload_provenance take packs=.
+- **Rationale:** What a pack's data became is already identified -- calendars in the configuration_id, records in the registry digest -- so the citation adds where it came from, and only a run that read a pack carries one. Every stored record and provenance_id made before is unchanged.
+- **Compatibility:** RunProvenance, run_provenance and payload_provenance gain a field and a parameter, named in the CHANGELOG. No stored record, provenance_id or schema version moves.
+- **Recorded in:** docs/ADR/0053-run-and-input-provenance.md (section 8); CHANGELOG.
+- **Tests:** tests/unit/backtesting/test_provenance_cites_packs.py (4): a cited pack a line of the canonical key, in order, the id moved; the citations read back with the stored record; a record citing none storing no packs field and no pack line; a citation given twice, or a value that is not one, refused. The existing provenance suites pass unchanged.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1623,7 +1637,8 @@ Evidence:
 - [Hosted CI passed] M3: Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught
 - [Hosted CI passed] M10: Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in
 - [Pushed] M10: Lot relief (TD-86, GAP-50): relieve_lots reads an asset's gains and open lots by a stated LotRelief -- average cost as the book relieves it, FIFO, LIFO, highest and lowest cost, Section 104's same-day, 30-day and pool rules -- the book unchanged
-- [Local validation passed] M10: A venue from a reference pack, and the loader (TD-87, ADR-0059 settled points 6 to 10, GR-1): VenueSession, Holiday and SettlementCycle entries; calendar_from_pack with coverage refused outside; settlement_from_pack; load_pack; GR-1's three venues in three zones from a synthetic pack
+- [Pushed] M10: A venue from a reference pack, and the loader (TD-87, ADR-0059 settled points 6 to 10, GR-1): VenueSession, Holiday and SettlementCycle entries; calendar_from_pack with coverage refused outside; settlement_from_pack; load_pack; GR-1's three venues in three zones from a synthetic pack
+- [Local validation passed] M10: A run cites the reference packs it read (TD-88, ADR-0053 section 8, plan G.1.3): RunProvenance.packs, a pack line of the canonical key per citation, written only when cited
 
 Evidence:
 

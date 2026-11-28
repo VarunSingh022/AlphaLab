@@ -1594,6 +1594,13 @@ entry below says otherwise.
   three zones from it, each settling by its own cycle over its own holiday,
   and refuses a missing venue, a day outside the pack and a tampered pack. A
   calendar that states no coverage writes and answers what it always did.
+* **A run cites the reference packs it read** [plan G.1.3, WS-13, ADR-0053
+  section 8]. `run_provenance` and `payload_provenance` take `packs=`, each a
+  pack's `citation`, and `RunProvenance` records them. Each is a
+  `pack=id|version|digest` line of its canonical key, so a record citing a
+  pack is another record than one citing none. A record citing none stores no
+  `packs` field and hashes as before: no stored record or `provenance_id`
+  moves, and `RUN_PROVENANCE_SCHEMA` stays 1.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

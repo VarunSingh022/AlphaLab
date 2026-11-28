@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Final
 
 from alphalab.alt_data.streaming import ObservationDelivery
@@ -44,7 +44,16 @@ from alphalab.backtesting.exceptions import BacktestError
 from alphalab.backtesting.schedule import RunSchedule, ScheduleKind
 from alphalab.backtesting.state import BacktestResult
 from alphalab.common.constants import DEFAULT_ENCODING
-from alphalab.persistence.decode import as_int, as_mapping, as_optional_str, as_str, require
+from alphalab.common.serialization import to_serializable
+from alphalab.data.packs import PackCitation
+from alphalab.persistence.decode import (
+    as_int,
+    as_mapping,
+    as_optional_str,
+    as_sequence,
+    as_str,
+    require,
+)
 from alphalab.persistence.exceptions import StateDecodeError
 from alphalab.persistence.serializer import serialize
 from alphalab.persistence.upgrade import SchemaHistory
@@ -114,6 +123,10 @@ class RunProvenance:
         instruments_digest: The digest of the instrument registry the run held
             (:func:`~alphalab.instrument.snapshot.registry_digest`), or ``None``
             for one that held none or a payload read without its registry.
+        packs: The reference packs the run's inputs were read from, by their
+            citation -- id, version and digest (v4.3, plan G.1.3, ADR-0059).
+            Recorded and hashed only when there are any, so a record that
+            cites none is the record it always was.
         produced_at: When the record was made, as the caller says; kept and
             never part of the identity, which describes the run and not the
             moment it was described.
@@ -128,6 +141,7 @@ class RunProvenance:
     produced_at: float | None = field(default=None, compare=False)
     scheme: str = RUN_PROVENANCE_SCHEME
     schema_version: int = RUN_PROVENANCE_SCHEMA
+    packs: tuple[PackCitation, ...] = ()
 
     def __post_init__(self) -> None:
         if self.subject_kind not in _SUBJECT_KINDS:
@@ -139,13 +153,33 @@ class RunProvenance:
             value = getattr(self, name)
             if value is not None and (len(value) != 64 or value.strip("0123456789abcdef")):
                 raise ValueError(f"{name} is a SHA-256 digest in lowercase hex, not {value!r}.")
+        packs = tuple(self.packs)
+        if not all(isinstance(pack, PackCitation) for pack in packs):
+            raise ValueError(f"packs are PackCitations, not {packs!r}.")
+        if len({(pack.pack_id, pack.version) for pack in packs}) != len(packs):
+            raise ValueError("A pack is cited once: two citations name one pack and version.")
+        object.__setattr__(
+            self, "packs", tuple(sorted(packs, key=lambda p: (p.pack_id, p.version)))
+        )
+
+    def __serializable__(self) -> dict[str, Any]:
+        """The stored record: ``packs`` written only when there are any."""
+
+        # Field by field, as the serializer converts a dataclass: converting
+        # ``self`` would ask this projection again.
+        return {
+            f.name: to_serializable(getattr(self, f.name))
+            for f in fields(self)
+            if f.name != "packs" or self.packs
+        }
 
     @property
     def canonical_key(self) -> str:
         """What :attr:`provenance_id` hashes: one ``label=value`` line per field, in order.
 
         ``produced_at`` is not in it; ``instruments`` appears only when a
-        registry digest is recorded.
+        registry digest is recorded, and a ``pack`` line for each pack cited,
+        in order, only when one is.
         """
 
         lines = [
@@ -157,6 +191,7 @@ class RunProvenance:
         ]
         if self.instruments_digest is not None:
             lines.append(f"instruments={self.instruments_digest}")
+        lines.extend(f"pack={p.pack_id}|{p.version}|{p.digest}" for p in self.packs)
         return "\n".join(lines)
 
     @property
@@ -176,6 +211,21 @@ class RunProvenance:
         """What identifies it there: its :attr:`provenance_id`."""
 
         return self.provenance_id
+
+
+def _citations(value: Any) -> tuple[PackCitation, ...]:
+    out = []
+    for index, item in enumerate(as_sequence(value, "packs")):
+        where = f"packs[{index}]"
+        cited = as_mapping(item, where)
+        out.append(
+            PackCitation(
+                as_str(require(cited, "pack_id"), f"{where}.pack_id"),
+                as_str(require(cited, "version"), f"{where}.version"),
+                as_str(require(cited, "digest"), f"{where}.digest"),
+            )
+        )
+    return tuple(out)
 
 
 def provenance_from_primitives(payload: Mapping[str, Any]) -> RunProvenance:
@@ -208,6 +258,7 @@ def provenance_from_primitives(payload: Mapping[str, Any]) -> RunProvenance:
             produced_at=None if produced is None else float(produced),
             scheme=as_str(require(payload, "scheme"), "scheme"),
             schema_version=as_int(require(payload, "schema_version"), "schema_version"),
+            packs=_citations(payload.get("packs", ())),
         )
     except ValueError as refused:
         raise StateDecodeError(f"run provenance: {refused}") from None
@@ -316,6 +367,7 @@ def run_provenance(
     observations: Iterable[ObservationDelivery[Any]] = (),
     result_id: str | None = None,
     produced_at: float | None = None,
+    packs: Iterable[PackCitation] = (),
 ) -> RunProvenance:
     """The provenance of a finished run: its schedule and registry, bound to its ``result_id``.
 
@@ -330,6 +382,8 @@ def run_provenance(
             (R53-7). Computed here when not given. Not checked here:
             :func:`verify_provenance` recomputes it.
         produced_at: When the record is made, kept and never hashed.
+        packs: The reference packs the run's calendars, records or universes
+            were read from, cited (plan G.1.3): each pack's ``citation``.
 
     Raises:
         ProvenanceError: If the run's own record contradicts the schedule --
@@ -349,6 +403,7 @@ def run_provenance(
         schedule=_binding(effective),
         instruments_digest=_registry_digest(result.run),
         produced_at=produced_at,
+        packs=tuple(packs),
     )
 
 
@@ -359,6 +414,7 @@ def payload_provenance(
     observations: Iterable[ObservationDelivery[Any]] = (),
     instruments_digest: str | None = None,
     produced_at: float | None = None,
+    packs: Iterable[PackCitation] = (),
 ) -> RunProvenance:
     """The provenance of a run snapshot's or a checkpoint's payload, bound to its own text.
 
@@ -377,6 +433,7 @@ def payload_provenance(
         schedule=_binding(_effective(schedule, observations)),
         instruments_digest=instruments_digest,
         produced_at=produced_at,
+        packs=tuple(packs),
     )
 
 

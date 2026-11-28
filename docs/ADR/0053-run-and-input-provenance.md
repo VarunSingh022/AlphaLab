@@ -166,6 +166,25 @@ is **tamper-evident, not substitution-proof**:
 | A chain continued under another schedule | The envelope's binding is compared before anything is restored |
 | A consistent forgery of run, schedule and provenance | **Not detected.** These are integrity digests, not signatures. Authenticity is the host's, and only a rerun detects substitution |
 
+## 8. A run cites the reference packs it read (settled at M10, 2026-11-28; plan G.1.3)
+
+A run whose calendars, records or universes were read from reference packs
+(ADR-0059) cites each pack in its provenance. The citation is the pack's id,
+version and digest, given to `run_provenance` or `payload_provenance` as
+`packs=`.
+
+- The citations are lines of the canonical key, `pack=id|version|digest`, in
+  order of id and version. So a record citing a pack is another record than
+  one citing none.
+- They are stored with the record. A record that cites none has no `packs`
+  field and no `pack` line, so it is the record it always was: no stored
+  record and no `provenance_id` moves, and `RUN_PROVENANCE_SCHEMA` stays 1.
+- A pack is cited once.
+- What a pack's data became is identified already, by the calendars in the
+  run's `configuration_id` and the records in its registry digest. The
+  citation records where it came from. As section 7 says of every digest
+  here, a citation is evidence and not authentication.
+
 # Departures from the plan's text, and why
 
 - **No `schedule_digest` on `run_snapshot.restore`.** R53-1 named both restores.
