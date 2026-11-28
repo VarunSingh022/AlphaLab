@@ -2450,6 +2450,10 @@
       "InstrumentValuation": "class alphalab.portfolio.multi_strategy.InstrumentValuation(holding: 'InstrumentHolding', market_value: 'Decimal', reporting_value: 'Decimal', gross_reporting_value: 'Decimal') -> None",
       "InsufficientFundsError": "class alphalab.portfolio.exceptions.InsufficientFundsError",
       "InvalidTransactionError": "class alphalab.portfolio.exceptions.InvalidTransactionError",
+      "Lot": "class alphalab.portfolio.lots.Lot(acquisitions: 'tuple[str, ...]', acquired_at: 'float | None', quantity: 'Decimal', cost: 'Decimal') -> None",
+      "LotMatch": "class alphalab.portfolio.lots.LotMatch(disposal: 'str', disposed_at: 'float', acquisitions: 'tuple[str, ...]', rule: 'str', quantity: 'Decimal', proceeds: 'Decimal', cost: 'Decimal', gain: 'Decimal', provisional: 'bool' = False) -> None",
+      "LotRelief": "enum alphalab.portfolio.lots.LotRelief[AVERAGE_COST, FIFO, LIFO, HIGHEST_COST, LOWEST_COST, SECTION_104]",
+      "LotReport": "class alphalab.portfolio.lots.LotReport(asset_id: 'str', currency: 'str', method: 'LotRelief', matches: 'tuple[LotMatch, ...]', open_lots: 'tuple[Lot, ...]') -> None",
       "MULTI_STRATEGY_BOOK_SCHEME": "value builtins.str",
       "MarginEngine": "class alphalab.portfolio.margin.MarginEngine()",
       "MarketValueUpdated": "class alphalab.portfolio.events.MarketValueUpdated(timestamp: float, account_id: str, prices: collections.abc.Mapping[str, decimal.Decimal]) -> None",
@@ -2493,6 +2497,7 @@
       "forward_points": "function alphalab.portfolio.fx_research.forward_points(spot: 'FxRate', forward: 'FxRate') -> 'Decimal'",
       "hedge_notional": "function alphalab.portfolio.fx_research.hedge_notional(exposure: 'Decimal', hedge_ratio: 'Decimal', currency: 'str', units: 'CurrencyUnits' = CurrencyUnits({})) -> 'Decimal'",
       "holding_notional": "function alphalab.portfolio.contracts.holding_notional(holding: 'ContractHolding') -> 'ContractNotional'",
+      "relieve_lots": "function alphalab.portfolio.lots.relieve_lots(state: 'PortfolioState', asset_id: 'str', method: 'LotRelief', *, economics: 'InstrumentEconomics | None' = None, day_of: 'Callable[[float], date] | None' = None) -> 'LotReport'",
       "settlement_exposures": "function alphalab.portfolio.contracts.settlement_exposures(holdings: 'Sequence[ContractHolding]', rates: 'FxRates', as_of: 'float') -> 'tuple[SettlementExposure, ...]'",
       "value_book": "function alphalab.portfolio.multi_strategy.value_book(book: 'MultiStrategyBook', *, reporting_currency: 'str', rates: 'FxRates', as_of: 'float') -> 'BookValuation'"
     },

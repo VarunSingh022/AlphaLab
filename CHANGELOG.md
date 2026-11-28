@@ -1556,6 +1556,26 @@ entry below says otherwise.
   deal books, cash trade-date, settled and available, forwards valued, a
   rollover as a swap, NDFs, S-05, and what is not here. The example also joins
   the installed smoke test.
+* **Lot relief, by a stated method** [plan WS-13, GAP-50]. The book relieves
+  a position's basis at average cost, as it always has. `relieve_lots` reads
+  one asset's gains and open lots from the book's own ledger and event log, by
+  a `LotRelief` the caller states:
+  * `AVERAGE_COST`: the book's own relief, replayed through `Position`, the
+    same figures to the minor unit;
+  * `FIFO` and `LIFO`: the earliest or the latest acquisitions first;
+  * `HIGHEST_COST` and `LOWEST_COST`: specific identification by a standing
+    rule, the dearest or the cheapest units first;
+  * `SECTION_104`: the United Kingdom's share identification. A disposal is
+    matched with the same day's acquisitions first, then with the next 30
+    days', earliest first, and then with the section 104 pool at its average
+    cost. A disposal within 30 days of the last day read is marked
+    `provisional`, since a later acquisition could still be matched with it.
+
+  A `LotReport` holds each `LotMatch`, with what it was matched against, its
+  proceeds, cost and gain before commission, and the `Lot`s still held. It is
+  refused for a trimmed record, a future, and a holding exchange of or into
+  the asset. Under `SECTION_104` it is also refused for a short, a split, and a
+  call that states no trade day. A wash-sale rule is out of scope (plan G).
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

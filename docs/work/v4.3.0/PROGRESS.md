@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `5416d36` |
+| Remote head | `5093723` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M10: WS-27's records at the close (GR-3, S-05, GAP-23); then WS-13's lot relief (GAP-50), fund and ETF types and GR-1's packs, WS-14's rates (ADR-0065, GR-6, S-06), WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for 5416d36 and the next push is read at the next boundary. |
@@ -427,6 +427,7 @@ Never:
 - **2026-11-24** 8737a71 pushed: two-currency booking (TD-83), after its gate found the pipeline's table of registry reads needed the one keyed read the FX index guards. f33ee56 passed hosted CI on all six cells. Rollover as a swap (TD-84) is validated locally: an FX package's legs are refused as single FX orders are with the other legs counted, placed in settlement order, and spend no buying power; GR-3's rollover is checked by hand, and each of the three rules was removed in turn to see the tests fail.
 - **2026-11-28** Resumed after the usage limit; the scratch had survived, the tree was clean at 0315467, and 8737a71 and 0315467 had passed hosted CI on all six cells with CodeQL and Optional Distributions. NDF settlement (TD-85) is validated locally: the deal recorded at its trade, the fixing a supplied FxRate from the deal's source booked by ExecutionPipeline.fix_ndf or a ScheduledFixing, the difference pending to the value date, and a deal unfixed at its value date stopping the run. An NDF is in the book at nothing before its fixing, recorded as ADR-0067's known limitation 2.
 - **2026-11-28** 5416d36 pushed: NDF settlement (TD-85), after its gate found the schedule-digest pins needed the new fixing kind pinned from v4.3.0, the release that adds it; the digest of every kind's entries together stays v4.2.1's over its twenty kinds. S-05 is validated locally: example 84 carries a book of AUD and NZD forwards rolled as swaps through 2025, and its E2E reconciles cash per currency to the tally of the fills, checks every value date against both calendars -- three holidays by hand -- and adds up what the book earned. docs/FX.md is the FX guide. WS-27's acceptance, GR-3 and S-05, is ready for M10's close.
+- **2026-11-28** 5093723 pushed: S-05 end to end and the FX guide. Lot relief (TD-86, GAP-50) is validated locally: relieve_lots reads an asset's gains and open lots from the book's own record by a stated method, average cost reproducing the book's relief to the cent, and Section 104's later matches exact because they are read rather than booked. The book is unchanged.
 
 ## Milestones
 
@@ -1345,6 +1346,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0067-fx-instruments-and-value-dates.md (settled point 5, known limitation 2: an NDF is in the book at nothing before its fixing); CHANGELOG; the settlement module's docstring; test_persisted_enum_names; test_sector_classification_reaches_attribution's table of registry reads; test_schedule_digest_pins.
 - **Tests:** tests/unit/portfolio/test_ndf_deals.py (12): the deal moving only its commission and recording its fixing's inputs; pending past its value date until fixed; a buyer's and a seller's difference in dollars; the quote's case rounded half-even (1.225 to 1.22); the difference pending to the value date and the deal settling then; the rebuilt index and the snapshot before and after the fixing; the refusals. tests/integration/test_ndf_settlement.py (6): a USD/INR NDF by hand -- struck 2 July, spot moved by the Fourth of July, fixed on 5 August at a scheduled 84.00, 5,952.38 USD settled on 7 August -- and a fixing from another source, of another day, of the inverted pair or supplied before it is true, and a deal reaching its value date unfixed, each stopping the run. tests/unit/conventions/test_business_days.py gains subtract_business_days. test_schedule_digest_pins pins the new fixing kind's digest from v4.3.0, the release that adds it, and keeps the digest of every kind's entries together over v4.2.1's twenty kinds, as v4.2.1 computed it.
 
+### TD-86: Lot relief read from the book's own record by a stated method -- average cost, FIFO, LIFO, highest and lowest cost, and Section 104's same-day, 30-day and pool rules -- while the book relieves at average cost (plan G, GAP-50) (WS-13, 2026-11-28)
+
+- **Problem:** GAP-50: the book relieves a basis proportionally, and no other method exists. Plan G names average cost (today's), FIFO, LIFO, specific identification and UK Section 104 pooling as a declared choice per account, wash sales out of scope; WS-13's migration line keeps today's proportional method as the default, identity unchanged. Section 104 matches a disposal with the same day's acquisitions and the next 30 days' before the pool, so a disposal can be matched against an acquisition made after it.
+- **Alternatives:** (a) Book each method in positions, the account declaring it: every persisted position and the fill path change, and Section 104's later matches would restate a gain already booked, which an event-time book cannot do. (b) Keep a lot ledger beside the book: two sources of one truth. (c) Read lot relief from the book's own ledger and event log by a method the caller states, the book staying average cost: every method exact, Section 104's later matches included, and a disposal still within 30 days of the last day read marked provisional.
+- **Decision:** (c). alphalab.portfolio.lots: LotRelief (AVERAGE_COST, FIFO, LIFO, HIGHEST_COST, LOWEST_COST, SECTION_104); relieve_lots(state, asset_id, method, *, economics, day_of) returns a LotReport of LotMatches -- what each was matched against, its rule, quantity, proceeds, cost, gain before commission, and provisional -- and the open Lots. Average cost replays Position itself, so it is the book's to the minor unit. Specific identification is by a standing rule, the dearest or the cheapest units first. Refused: a record a retention policy trimmed, a future, a holding exchange of or into the asset; under Section 104, a short, a split, and no day_of.
+- **Rationale:** Plan G's declared choice is declared at each reading, with no default (AC-12), and the book's own relief, the migration line's default, is untouched in identity and bytes. Reading rather than booking is what makes Section 104 exact. Per-order designation of lots needs a lot named on an intent, which nothing carries; standing rules are what an automated book states.
+- **Compatibility:** Additive: five exports (3,159). Nothing booked, persisted or identified changes.
+- **Recorded in:** CHANGELOG; the module's docstring.
+- **Tests:** tests/unit/portfolio/test_lot_relief.py (17): one record of six fills relieved by every method, by hand -- average cost 803.59, FIFO 800.00, LIFO 870.00, highest cost 470.00, lowest cost 960.00, Section 104 683.33 -- each with its open cost, and realized less open cost the same under every method; average cost equal to the book's gain at every fill and its open basis; each match's acquisitions, proceeds and cost under FIFO and Section 104, its last sale provisional; a short, a reversal and a split under average cost and FIFO; eight refusals.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1597,6 +1608,7 @@ Evidence:
 - [Hosted CI passed] M3: data.packs.ReferencePack: source, coverage, licence, typed entries, content digest; universe_from_pack
 - [Hosted CI passed] M3: Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught
 - [Hosted CI passed] M10: Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in
+- [Local validation passed] M10: Lot relief (TD-86, GAP-50): relieve_lots reads an asset's gains and open lots by a stated LotRelief -- average cost as the book relieves it, FIFO, LIFO, highest and lowest cost, Section 104's same-day, 30-day and pool rules -- the book unchanged
 
 Evidence:
 
@@ -1677,7 +1689,7 @@ Evidence:
 - [Pushed] M10: Two-currency booking (TD-83, ADR-0067 settled point 3): PortfolioEngine.apply_fx_deal books FX_LEG legs pending to the value date and an FxDealBooked event, no position; in a run, value dates from the venue's trade day over calendars declared by id, refusals before an order exists, funded and not financed
 - [Pushed] M10: Rollover as a swap (TD-84, ADR-0067 settled point 4): an FX package's legs refused as single FX orders are with the other legs counted, placed in settlement order, and no buying power spent; GR-3's rollover by hand
 - [Pushed] M10: NDF settlement (TD-85, ADR-0067 settled point 5): the deal recorded at its trade, a supplied fixing (ExecutionPipeline.fix_ndf, ScheduledFixing) booking the difference pending to the value date, and a deal unfixed at its value date stopping the run
-- [Local validation passed] M10: S-05 end to end: example 84 carries a book of AUD and NZD forwards rolled as swaps through 2025 (examples/_fx_carry_book.py); its E2E holds every deal as two currencies, each value date by both calendars, each roll settling with the forward it closes, cash per currency equal to the tally of the fills, and what the book earned adding up; the FX guide, docs/FX.md
+- [Pushed] M10: S-05 end to end: example 84 carries a book of AUD and NZD forwards rolled as swaps through 2025 (examples/_fx_carry_book.py); its E2E holds every deal as two currencies, each value date by both calendars, each roll settling with the forward it closes, cash per currency equal to the tally of the fills, and what the book earned adding up; the FX guide, docs/FX.md
 
 ### WS-29: Release engineering and v4.3.0 artifacts
 
