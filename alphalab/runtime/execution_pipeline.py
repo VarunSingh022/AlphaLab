@@ -2556,7 +2556,9 @@ class ExecutionPipeline:
         The contract must be one the run's registry declares, with a last
         trading instant at or before ``timestamp``, and a future or an option
         -- what settles at expiry -- or a bond, redeemed at maturity at the
-        price ``settlement`` states (v4.1.1, FUT-010). Then, as at a split, an order still working
+        price ``settlement`` states (v4.1.1, FUT-010), or a swap, an FRA or a
+        repo, closed at its final payment at the price its terms state (v4.3.0,
+        ADR-0065). Then, as at a split, an order still working
         in it is cancelled and what it held freed (refused under external
         routing, where the venue reports what became of its orders); the
         position is closed at the settlement price with no commission, by the
@@ -2597,11 +2599,12 @@ class ExecutionPipeline:
                 "would close positions while the contract still trades."
             )
         economics = economics_for(record.asset_type, record.economics, named)
-        redeemed = record.asset_type is AssetType.BOND
+        redeemed = record.asset_type in _REDEEMED
         if economics.settlement not in _EXPIRING and not redeemed:
             raise RuntimeValidationError(
                 f"{named} settles as {economics.settlement.value}: only a future or an option "
-                "is settled at expiry, and a bond redeemed at maturity."
+                "is settled at expiry, and a bond, a swap, an FRA or a repo at its final "
+                "payment."
             )
         price = settlement.price
         if price < 0 and not economics.allows_negative_prices:
@@ -7185,6 +7188,11 @@ def _working_shares(
 
 #: The settlement models of what expires: futures and options (FUT-012).
 _EXPIRING: Final = frozenset({SettlementModel.FUTURES_VARIATION, SettlementModel.OPTION_PREMIUM})
+
+#: What is closed at a final payment the caller states, whatever its economics: a
+#: bond at its redemption (v4.1.1, FUT-010) and, since v4.3.0 (ADR-0065), a swap,
+#: an FRA and a repo at the price their terms state (``backtesting.rates_payments``).
+_REDEEMED: Final = frozenset({AssetType.BOND, AssetType.SWAP, AssetType.FRA, AssetType.REPO})
 
 _NO_LOTS: Mapping[str, LotSpecification] = MappingProxyType({})
 _NO_MINIMUMS: Mapping[str, Decimal] = MappingProxyType({})

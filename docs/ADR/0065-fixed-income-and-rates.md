@@ -297,6 +297,61 @@ Building section 4 for swaps and FRAs settled seven more points.
     A floater valued on a payment date is worth par again
     (`tests/unit/rates/test_securities_and_credit.py`).
 
+# Settled at implementation (2026-11-28): on the run's path
+
+Building section 5 settled six more points. They are held by
+`tests/integration/test_rates_booking.py`, which reconciles a swap's, an
+FRA's, a repo's and a floater's cash to the minor unit by hand.
+
+24. **Payments are the schedule's own entries.**
+    `backtesting.rates_payments.rates_payments` turns one record's terms into
+    what the run already books:
+    - each coupon is a per-unit `ScheduledDistribution`, `INTEREST`, received
+      on a long and paid on a short;
+    - the final payment is a `ScheduledSettlement` closing every position at
+      the price the terms state: an FRA's settlement at its start, a repo's
+      repayment at its end, a floater's redemption and a linker's indexed
+      principal at maturity, and a swap at nothing after its last coupon.
+
+    `settle_contract` closes a swap, an FRA and a repo at a final payment, as
+    it closes a bond at redemption. A final price is per unit of the quoted
+    price, so the stated amount per unit held is divided by the record's
+    multiplier. A record that trades past its final payment is refused, since
+    its settlement closes positions that could still trade.
+25. **A swap's payments are netted.** Where its fixed and floating legs pay
+    on one date, the two coupons are one payment, as a swap's are. The
+    schedule also refuses two entries of one kind for one asset at one
+    instant. A receiver pays on a date its floating coupon is larger.
+26. **Fixings and prints arrive as published observations.** Each
+    `PublishedFixing` and `PublishedPrint` carries the instant it was
+    published. A payment reads only what was published by its own instant,
+    the latest when a value was republished, and two values published at one
+    instant are refused. A fixing or a print a payment needs that is not
+    supplied, or was published after it, is refused when the schedule is
+    built: never assumed, and never read early. Only payments from the
+    window's start to its end are placed, so a run over part of an
+    instrument's life needs only that part's fixings.
+27. **When a payment is booked** is its date at a stated time of day on a
+    stated zone's clock (`PaymentTime`), as a daily accrual's cutoff is stated
+    (FUT-023). A coupon is booked before the instant's records. A final
+    settlement is booked after them, so a last coupon is paid before the
+    position closes.
+28. **Accrual is stated, and cash moves at payment.** Section 5 says a
+    position's accrual is "an accrual (`ACCRUAL`, phase 3)". Phase 3 accrues
+    a period day by day on the balance each day leaves, and posts the sum.
+    A coupon is not that. It is paid in full to whoever holds the instrument
+    when it pays, and a buyer pays what has accrued in the price. A daily
+    `ACCRUAL` would split a coupon by days held, which no rates market does.
+    So what a position has accrued is stated by its conventions
+    (`Valuation.accrued`, `swap_accrued`), and its coupon's cash is booked at
+    its payment date to its holder. This is a departure from the section's
+    text, made under the owner's delegation (ADR-0056), and recorded here.
+29. **A rates position is marked by the researcher's prices**, as section 5
+    says: the price series a run is given, which a researcher may compute off
+    curves (`value_swap` and the rest), each `Valuation` carrying its curves'
+    identities. The cash ledger stays the book of record, and no curve is
+    read inside a run.
+
 # Compatibility
 
 - Additive. A package, terms, appended `AssetType` members, and cash-flow
@@ -323,6 +378,9 @@ recorded below.
    linker is valued as its real flows at real rates, and its deflation floor
    is applied only where a principal is paid. Pricing the floor needs an
    inflation volatility model, which is not built at M10.
+4. **A coupon pays at its period's end** (settled points 7 and 24). A payment
+   lag, or a payment calendar other than the accrual's, is not modelled: each
+   period pays on its last accrual date.
 
 # Consequences
 

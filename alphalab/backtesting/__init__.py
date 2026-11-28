@@ -92,6 +92,13 @@ from alphalab.backtesting.provenance import (
     verify_provenance,
 )
 from alphalab.backtesting.queueing import QueueModelError
+from alphalab.backtesting.rates_payments import (
+    PaymentTime,
+    PublishedFixing,
+    PublishedPrint,
+    RatesPayments,
+    rates_payments,
+)
 from alphalab.backtesting.replay import (
     PausedReplay,
     ReplayBacktest,
@@ -214,13 +221,17 @@ __all__ = [
     "PaidExchange",
     "PausedReplay",
     "PaymentAmendment",
+    "PaymentTime",
     "PriceTimeQueue",
     "ProvenanceError",
+    "PublishedFixing",
+    "PublishedPrint",
     "QueueBook",
     "QueueModel",
     "QueueModelError",
     "QueuedResult",
     "RateChange",
+    "RatesPayments",
     "ReplayBacktest",
     "ReplayProgress",
     "ReplayResult",
@@ -268,6 +279,7 @@ __all__ = [
     "performance_report",
     "provenance_from_primitives",
     "publish",
+    "rates_payments",
     "realized_pnl",
     "run_captured",
     "run_provenance",

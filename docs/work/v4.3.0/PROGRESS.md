@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `c709ad0` |
+| Remote head | `f18bf3c` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M10: WS-14's rates -- instruments by declared terms (SwapTerms, FraTerms, FloaterTerms, LinkerTerms, RepoTerms; AssetType SWAP, FRA, REPO), on-path cash-flow booking with fixings as observations, credit curves, S-06 and the rates guide -- then WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for the next push is read at the next boundary. |
@@ -321,6 +321,9 @@ Never:
 | `049d1c3` | Continuous Integration | 46122499181 | success: all six quality-gate cells (funds and ETFs) |
 | `049d1c3` | CodeQL | 46122499175 | success |
 | `049d1c3` | Optional Distributions | 46122499230 | success |
+| `3cae814` | Continuous Integration | 46141303238 | success: all six quality-gate cells (rates curves and bootstrap, GR-6) |
+| `3cae814` | CodeQL | 46141303230 | success |
+| `3cae814` | Optional Distributions | 46141303246 | success |
 
 ## Continuation log
 
@@ -452,6 +455,7 @@ Never:
 - **2026-11-28** 049d1c3 pushed. 689a1aa, ca73c49, ad5a88e and 049d1c3 passed hosted CI: all six quality-gate cells, CodeQL and the optional distributions. Release Preflight skipped by design. WS-13's M10 items are recorded as Hosted CI passed. WS-14 began: the rates package's curves and bootstrap (TD-90). GR-6 reproduces Hull's Tables 4.3 and 4.4 to the decimals published, and his two-year swap rate.
 - **2026-11-28** 3cae814 pushed: the rates package's curves and bootstrap, GR-6 reproduced (TD-90). Swaps and FRAs by declared terms followed (TD-91). A split or a holding exchange beside a working swap read an option's adjustments from it and failed. Both checks now pass over any terms but an option's.
 - **2026-11-28** 9c67eb3's gate failed one test of 14,893: an option-lifecycle test used "swap" as its unknown terms kind, which swap terms made known. The unpushed commit was amended to use "cap" (c709ad0) and gated again. Floaters, linkers, repos and credit followed (TD-92).
+- **2026-11-28** c709ad0 and f18bf3c pushed. 3cae814 passed hosted CI: all six cells, CodeQL and the distributions. A rates position's payments reach the run's path (TD-93): its coupons as per-unit distributions netted per date, its final payment as a settlement, and its fixings as published observations read point-in-time.
 
 ## Milestones
 
@@ -1440,6 +1444,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** docs/ADR/0065-fixed-income-and-rates.md (settled points 18 to 23, known limitation 3); CHANGELOG.
 - **Tests:** tests/unit/rates/test_securities_and_credit.py (14) and tests/unit/instrument/test_rates_records.py (5).
 
+### TD-93: A rates position's payments booked by the run's own entries -- per-unit coupon distributions netted per date and a final settlement -- from fixings published as observations, and accrual stated, not posted day by day (ADR-0065 section 5) (WS-14, 2026-11-28)
+
+- **Problem:** Section 5 asks that a rates position book its cash flows on their payment dates from its terms, with fixings arriving as observations and a missing fixing refused when a payment needs it; and that accrual be stated by convention, 'as an accrual (ACCRUAL, phase 3)'.
+- **Alternatives:** (a) New engine operations computing coupons inside the run from the record and a fixing store in RunState: a new field in every snapshot. (b) A helper turning a record's terms and the published fixings into the schedule's existing distributions and settlements, read point-in-time where the schedule is built. (c) Phase 3's daily ACCRUAL per position, posted at payment: it splits a coupon by days held, which no rates market does.
+- **Decision:** (b). rates_payments returns RatesPayments: per-unit INTEREST distributions, a swap's legs netted on common dates, and a final ScheduledSettlement at the price its terms state divided by the record's multiplier. Fixings and prints are PublishedFixing and PublishedPrint with their publication instants; a payment reads only what was published by its instant, and a missing or late one is refused. settle_contract closes a swap, an FRA and a repo at a final payment, as it closes a bond. Accrual is stated by convention (Valuation.accrued, swap_accrued), and a coupon's cash is booked at payment to its holder: a recorded departure from section 5's text.
+- **Rationale:** The run already books per-unit distributions and settlements, checkpoints and digests them, so no state, snapshot or identity scheme changes. The point-in-time rule is the schedule's own, checked before the run, where a refusal names the payment and the fixing.
+- **Compatibility:** Additive: a backtesting module and five exports; settle_contract accepts three more asset types, which no earlier record could be. No identity, digest or persisted byte moves.
+- **Recorded in:** docs/ADR/0065-fixed-income-and-rates.md (settled points 24 to 29, known limitation 4); CHANGELOG.
+- **Tests:** tests/integration/test_rates_booking.py (6).
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1703,15 +1717,17 @@ Evidence:
 
 ### WS-14: Fixed income and rates
 
-- [Pushed] M10: The rates package's curves and bootstrap (TD-90, ADR-0065 settled points 1 to 10, N13, GR-6): DiscountCurve under a required Interpolation (log-linear discount factors, linear zero rates), extrapolation refused unless stated; bootstrap_curve from deposits, FRAs, futures with a stated convexity adjustment, par swaps and bonds, each pillar solved by Brent's method to a stated tolerance, OIS discounting by a stated discount curve; GR-6 reproduces Hull's Tables 4.3 and 4.4 and his two-year swap rate
+- [Hosted CI passed] M10: The rates package's curves and bootstrap (TD-90, ADR-0065 settled points 1 to 10, N13, GR-6): DiscountCurve under a required Interpolation (log-linear discount factors, linear zero rates), extrapolation refused unless stated; bootstrap_curve from deposits, FRAs, futures with a stated convexity adjustment, par swaps and bonds, each pillar solved by Brent's method to a stated tolerance, OIS discounting by a stated discount curve; GR-6 reproduces Hull's Tables 4.3 and 4.4 and his two-year swap rate
 - [Pushed] M10: Swaps and FRAs by declared terms (TD-91, ADR-0065 settled points 11 to 17, GAP-51 in part): AssetType.SWAP and FRA; SwapTerms and FraTerms on the record, outside its identity key; value_swap and value_fra off a stated discount and projection curve, a known fixing read as supplied and refused when absent; swap parity at inception; accrual by convention; the FRA's settlement in Decimal
-- [Local validation passed] M10: Floaters, linkers, repos and credit (TD-92, ADR-0065 settled points 18 to 23, known limitation 3, GAP-51 in part): AssetType.REPO and RepoTerms; FloaterTerms and LinkerTerms as a bond's coupon terms; value_floater, value_linker off a real curve, value_repo; a linker's reference index from monthly prints by lag and indexation in Decimal; spread and hazard curves with a stated recovery
+- [Pushed] M10: Floaters, linkers, repos and credit (TD-92, ADR-0065 settled points 18 to 23, known limitation 3, GAP-51 in part): AssetType.REPO and RepoTerms; FloaterTerms and LinkerTerms as a bond's coupon terms; value_floater, value_linker off a real curve, value_repo; a linker's reference index from monthly prints by lag and indexation in Decimal; spread and hazard curves with a stated recovery
+- [Local validation passed] M10: A rates position's payments on the run's path (TD-93, ADR-0065 settled points 24 to 29, known limitation 4): rates_payments turns a record's terms into per-unit coupon distributions, netted per date, and a final settlement closing at the price the terms state; fixings and prints as published observations read point-in-time, a missing or late one refused; settle_contract closes a swap, an FRA and a repo
 
 Evidence:
 
 - alphalab.rates (imports common and conventions only): curve.py, quotes.py, schedule.py, bootstrap.py. tests/unit/rates (46): each interpolation held to its definition, a pillar read back bit for bit, extrapolation refused unless stated and each kind by its definition, a parallel shift exact under every method; GR-6 -- Hull, Options, Futures, and Other Derivatives, 8th ed., Tables 4.3 and 4.4 to the three decimals published under both interpolations, and the two-year swap zero rate of 4.953%; every quote type repriced to 1e-11; a projection curve against a stated OIS curve checked by hand; refusals; identity the problem's. benchmarks/benchmark_rates.py: a 30-instrument curve in 0.008 CPU s against the plan's 1 s.
 - alphalab.rates.terms (SwapTerms, FraTerms, FixedLeg, FloatingLeg, LegSchedule, the codec) and alphalab.rates.pricing (leg_periods, value_swap, value_fra, swap_accrued, fra_settlement); instrument carries the terms (record validation, the terms codec). tests/unit/rates/test_swaps_and_fras.py (12): parity at inception on one curve for each quoted tenor and against a stated OIS curve; a known fixing read as supplied, a basis point costing one basis point of the period's discounted accrual, and refused when absent; accrual by convention by hand; a receiver's DV01 near its annuity; an FRA at its forward worth nothing and settled by its formula. tests/unit/instrument/test_rates_records.py (4): what a rates record must declare, terms outside the identity key, the registry's round trip, and a split and an exchange passing over a working swap, which failed on the unfixed check with an AttributeError.
 - alphalab.rates.securities and alphalab.rates.credit. tests/unit/rates/test_securities_and_credit.py (14), by hand: a floater at its reset worth par and a spread adding its annuity; a fixed floater worth its coupon and par at the period's end; a coupon paid on the valuation date paid, not valued; a reference index monthly and interpolated by the day of the month in Decimal, a missing print refused; the floor at par; a linker at today's index ratio times its real flows; a repo's repayment, and a forward repo at par worth nothing; hazards to survival; a risky bond's surviving flows and recovery; at zero recovery a hazard pricing as the same spread. Five faults were tried by hand; the boundary of a coupon paid on the valuation date survived until its test was added. tests/unit/instrument/test_rates_records.py gains the repo and the coupon-bond records.
+- alphalab/backtesting/rates_payments.py; settle_contract's _REDEEMED. tests/integration/test_rates_booking.py (6), each through BacktestEngine with the schedule rates_payments builds, cash reconciled to the minor unit by hand: a receiver swap's four netted coupons and its close at nothing; an FRA's settlement at its start; a repo's week; a floater quoted per hundred, redeemed at 100; a missing fixing, a fixing published after its payment and a record trading past its last payment refused; a partial window needing only its own fixings. Four faults tried by hand, each caught: the multiplier's division, the point-in-time read, the floating coupon's sign, the trading check.
 
 ### WS-15: Performance and scale
 

@@ -1717,6 +1717,24 @@ entry below says otherwise.
 
     Default events are not simulated.
   * `Valuation.par_rate` is `None` where an instrument has none.
+* **A rates position's payments on the run's path** [plan WS-14, ADR-0065
+  section 5]. `rates_payments`, in `alphalab.backtesting`, turns a swap's, an
+  FRA's, a repo's, a floater's or a linker's record into the schedule's own
+  entries, which a `RatesPayments` holds.
+  * Each coupon is a per-unit `ScheduledDistribution` at its payment instant,
+    a `PaymentTime` stated. A swap's fixed and floating coupons are netted on
+    a common date.
+  * The final payment is a `ScheduledSettlement`: an FRA's settlement, a
+    repo's repayment, a bond's redemption or indexed principal, and a swap at
+    nothing. `settle_contract` now closes a swap, an FRA and a repo at a final
+    payment, as it closes a bond.
+  * Fixings and index prints arrive as `PublishedFixing` and `PublishedPrint`
+    observations, each with the instant it was published. A payment reads
+    only what was published by then. One not supplied, or published after the
+    payment, is refused when the schedule is built.
+  * A record that trades past its final payment is refused. What a position
+    has accrued is stated by its conventions, and its coupon's cash is booked
+    at payment to its holder (ADR-0065 settled point 28).
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29
