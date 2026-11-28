@@ -111,7 +111,7 @@ def test_a_pack_refuses_what_it_cannot_vouch_for(changed: dict[str, Any], match:
 @pytest.mark.parametrize(
     ("entry", "match"),
     [
-        ({**_entry("a", "ADDITION", 0.0, 0.0), "type": "Holiday"}, "has type 'Holiday'"),
+        ({**_entry("a", "ADDITION", 0.0, 0.0), "type": "FeeSchedule"}, "has type 'FeeSchedule'"),
         ({**_entry("a", "ADDITION", 0.0, 0.0), "note": "x"}, "has exactly"),
         (_entry("a", "MERGER", 0.0, 0.0), "membership kind 'MERGER'"),
         (_entry("a", "ADDITION", float("nan"), 0.0), "finite instant"),

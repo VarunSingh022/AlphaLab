@@ -101,6 +101,11 @@ class MarketCalendar:
         holidays: Dates the market is closed despite being a trading weekday.
         special_sessions: Dates whose windows replace the usual ones -- half
             days, and the shortened sessions around a festival.
+        coverage: The local dates the calendar is stated for, ``[first, last)``,
+            or ``None`` for every date (v4.3, ADR-0059). A calendar read from a
+            reference pack holds the pack's range, and a day outside it is
+            refused rather than answered: a holiday it does not state would
+            otherwise be an extra session.
     """
 
     calendar_id: str
@@ -108,6 +113,7 @@ class MarketCalendar:
     weekly_sessions: Mapping[int, tuple[SessionWindow, ...]]
     holidays: frozenset[date] = frozenset()
     special_sessions: Mapping[date, tuple[SessionWindow, ...]] = field(default_factory=dict)
+    coverage: tuple[date, date] | None = None
 
     def __post_init__(self) -> None:
         if not self.calendar_id.strip():
@@ -118,6 +124,13 @@ class MarketCalendar:
                 raise DataValidationError(
                     f"{self.calendar_id} declares weekday {weekday}; weekdays are 0 (Monday) "
                     "through 6 (Sunday)."
+                )
+        if self.coverage is not None:
+            first, last = self.coverage
+            if not (isinstance(first, date) and isinstance(last, date) and first < last):
+                raise DataValidationError(
+                    f"{self.calendar_id}'s coverage is [first, last) of two dates, the first "
+                    f"before the last; got {self.coverage!r}."
                 )
 
     @classmethod
@@ -154,9 +167,26 @@ class MarketCalendar:
 
         return bool(self.windows_on(day))
 
-    def windows_on(self, day: date) -> tuple[SessionWindow, ...]:
-        """The windows traded on a local date, after holidays and half days."""
+    def covers(self, day: date) -> bool:
+        """Whether the calendar states ``day``: every day, unless it states its coverage."""
 
+        return self.coverage is None or self.coverage[0] <= day < self.coverage[1]
+
+    def windows_on(self, day: date) -> tuple[SessionWindow, ...]:
+        """The windows traded on a local date, after holidays and half days.
+
+        Raises:
+            DataValidationError: If the calendar's coverage does not hold ``day``.
+        """
+
+        if not self.covers(day):
+            assert self.coverage is not None
+            first, last = self.coverage
+            raise DataValidationError(
+                f"{self.calendar_id} is stated for [{first.isoformat()}, {last.isoformat()}) and "
+                f"is asked about {day.isoformat()}: a day it does not state is refused, never "
+                "assumed open or shut -- a holiday it does not state would be an extra session."
+            )
         if day in self.special_sessions:
             return tuple(self.special_sessions[day])
         if day in self.holidays:
@@ -186,12 +216,26 @@ class MarketCalendar:
 
         local = self.local_datetime(timestamp)
         today = local.date()
-        for day in (today - timedelta(days=1), today):
+        for day in self._probed(today):
             for window in self.windows_on(day):
                 start, end = self._span(day, window)
                 if start <= timestamp < end:
                     return True
         return False
+
+    def _probed(self, today: date) -> tuple[date, ...]:
+        """The local days an instant on ``today`` may belong to: the day before as well,
+        for an overnight window -- unless the calendar does not state it and has none."""
+
+        yesterday = today - timedelta(days=1)
+        overnight = any(
+            window.crosses_midnight
+            for windows in (*self.weekly_sessions.values(), *self.special_sessions.values())
+            for window in windows
+        )
+        if not overnight and not self.covers(yesterday):
+            return (today,)
+        return (yesterday, today)
 
     def _span(self, day: date, window: SessionWindow) -> tuple[float, float]:
         """A window's absolute bounds, resolving its local times in this zone."""
@@ -335,7 +379,7 @@ class MarketCalendar:
 
         local = self.local_datetime(timestamp)
         today = local.date()
-        for day in (today - timedelta(days=1), today):
+        for day in self._probed(today):
             for window in self.windows_on(day):
                 start, end = self._span(day, window)
                 if start <= timestamp < end:

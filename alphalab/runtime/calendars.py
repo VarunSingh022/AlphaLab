@@ -161,6 +161,13 @@ def _calendar_payload(calendar: MarketCalendar) -> dict[str, Any]:
             day.isoformat(): _windows_payload(tuple(windows))
             for day, windows in sorted(calendar.special_sessions.items())
         },
+        # v4.3 (ADR-0059): written only for a calendar that states its coverage,
+        # so every other calendar's payload is what it always was.
+        **(
+            {}
+            if calendar.coverage is None
+            else {"coverage": [calendar.coverage[0].isoformat(), calendar.coverage[1].isoformat()]}
+        ),
     }
 
 
@@ -200,6 +207,15 @@ def _weekday(text: str, where: str) -> int:
     return int(text)
 
 
+def _coverage(value: Any, where: str) -> tuple[date, date] | None:
+    if value is None:
+        return None
+    bounds = as_sequence(value, where)
+    if len(bounds) != 2:
+        raise StateDecodeError(f"{where} must be [first, last].")
+    return _date(bounds[0], f"{where}[0]"), _date(bounds[1], f"{where}[1]")
+
+
 def _calendar(value: Any, where: str) -> MarketCalendar:
     payload = as_mapping(value, where)
     weekly = as_mapping(require(payload, "weekly_sessions"), f"{where}.weekly_sessions")
@@ -226,6 +242,7 @@ def _calendar(value: Any, where: str) -> MarketCalendar:
                 )
                 for key, windows in special.items()
             },
+            coverage=_coverage(payload.get("coverage"), f"{where}.coverage"),
         )
     except DataValidationError as exc:
         raise StateDecodeError(f"{where} is not a valid calendar: {exc}") from exc

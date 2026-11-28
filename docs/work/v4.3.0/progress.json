@@ -1380,6 +1380,19 @@
       "compatibility": "Additive: five exports (3,159). Nothing booked, persisted or identified changes.",
       "record": "CHANGELOG; the module's docstring.",
       "tests": "tests/unit/portfolio/test_lot_relief.py (17): one record of six fills relieved by every method, by hand -- average cost 803.59, FIFO 800.00, LIFO 870.00, highest cost 470.00, lowest cost 960.00, Section 104 683.33 -- each with its open cost, and realized less open cost the same under every method; average cost equal to the book's gain at every fill and its open basis; each match's acquisitions, proceeds and cost under FIFO and Section 104, its last sale provisional; a short, a reversal and a split under average cost and FIFO; eight refusals."
+    },
+    {
+      "id": "TD-87",
+      "date": "2026-11-28",
+      "workstream": "WS-13",
+      "title": "A venue's sessions, holidays and settlement cycle in a reference pack, read into a calendar that holds the pack's range as its coverage, and the pack loader (ADR-0059 settled points 6 to 10, GR-1)",
+      "problem": "GR-1 asks for three venues in three zones from versioned packs, settlement per venue, and a missing entry refused. A pack held membership alone and had no loader; a calendar answered any day, so one read from a pack would have assumed a holiday it did not state away -- an extra session -- after the pack's range ended.",
+      "alternatives": "(a) A calendar carries its pack and asks it: the data package's calendar would depend on the pack's format at every question. (b) Readers refuse a run whose data leaves the pack's range up front: a run does not know its range until it ends. (c) A calendar states its coverage, the local dates the pack's range holds whole; every question about a day goes through windows_on, which refuses one outside it, so the refusal holds inside a run wherever a date is asked.",
+      "decision": "(c). data.packs gains VenueSession, Holiday and SettlementCycle entries, each dated twice and held to the pack's range and horizon; calendar_from_pack reads a MarketCalendar with coverage, one zone and one schedule a range; instrument.reference.settlement_from_pack reads a SettlementRule, one cycle a range; pack_to_primitives, pack_from_primitives and load_pack write and read JSON, the digest checked first. MarketCalendar.coverage is persisted only when stated. is_open and trading_day_of skip the day before their first covered day only when no window runs overnight.",
+      "rationale": "A calendar's own refusal is the only place every question about a date passes, the pipeline's included. A schedule or cycle that changes within a range would need dated schedules the calendar does not hold, so it is refused rather than flattened, as section 4 refuses a missing entry.",
+      "compatibility": "Additive: eight exports (3,167); MarketCalendar's binding gains coverage, named in the CHANGELOG. A membership pack's digest, and every calendar payload and configuration_id without coverage, is unchanged. One unit test that used Holiday as an example of an unknown entry type now uses FeeSchedule.",
+      "record": "docs/ADR/0059-historical-universes-and-reference-data-packs.md (settled points 6 to 10); CHANGELOG; the packs module's docstring.",
+      "tests": "tests/integration/test_venues_from_packs.py (5): GR-1 -- New York, London and Tokyo from the synthetic pack, three zones and Tokyo's lunch break; purchases settling T+1 over Labor Day, T+2 over the summer bank holiday and T+2 over Respect for the Aged Day, each at its venue's next open; a closure announced the day before the pack was taken held by it; a venue, a day, and a run outside the pack refused; a tampered pack refused. tests/unit/data/test_venue_packs.py (16): the codec and the loader and their refusals, a calendar's sessions, holidays and coverage, coverage persisted only when stated, an overnight calendar refusing the day before its coverage, and nine readers' refusals."
     }
   ],
   "plan_changes": [
@@ -2568,6 +2581,11 @@
         {
           "milestone": "M10",
           "item": "Lot relief (TD-86, GAP-50): relieve_lots reads an asset's gains and open lots by a stated LotRelief -- average cost as the book relieves it, FIFO, LIFO, highest and lowest cost, Section 104's same-day, 30-day and pool rules -- the book unchanged",
+          "status": "Pushed"
+        },
+        {
+          "milestone": "M10",
+          "item": "A venue from a reference pack, and the loader (TD-87, ADR-0059 settled points 6 to 10, GR-1): VenueSession, Holiday and SettlementCycle entries; calendar_from_pack with coverage refused outside; settlement_from_pack; load_pack; GR-1's three venues in three zones from a synthetic pack",
           "status": "Local validation passed"
         }
       ],
@@ -3787,7 +3805,7 @@
   },
   "state": {
     "updated": "2026-11-28",
-    "remote_head": "5093723",
+    "remote_head": "689a1aa",
     "pull_request": "#22, Draft, mergeable",
     "hosted_ci": [
       {
@@ -5295,6 +5313,24 @@
         "workflow": "Optional Distributions",
         "run": 45400179275,
         "result": "success"
+      },
+      {
+        "sha": "5416d36",
+        "workflow": "Continuous Integration",
+        "run": 46115574139,
+        "result": "success: all six quality-gate cells (NDF settlement)"
+      },
+      {
+        "sha": "5416d36",
+        "workflow": "CodeQL",
+        "run": 46115574165,
+        "result": "success"
+      },
+      {
+        "sha": "5416d36",
+        "workflow": "Optional Distributions",
+        "run": 46115574122,
+        "result": "success"
       }
     ],
     "monitoring": "Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead.",
@@ -5789,6 +5825,10 @@
     {
       "date": "2026-11-28",
       "entry": "5093723 pushed: S-05 end to end and the FX guide. Lot relief (TD-86, GAP-50) is validated locally: relieve_lots reads an asset's gains and open lots from the book's own record by a stated method, average cost reproducing the book's relief to the cent, and Section 104's later matches exact because they are read rather than booked. The book is unchanged."
+    },
+    {
+      "date": "2026-11-28",
+      "entry": "689a1aa pushed: lot relief (TD-86). 5416d36 passed hosted CI. GR-1 is validated locally (TD-87): a reference pack now states a venue's sessions, holidays and settlement cycle; a calendar read from one holds the pack's range as its coverage and refuses a day outside it, inside a run too; and the loader reads a pack's JSON with its digest checked first. Citing a pack in RunProvenance (plan G.1.3, R53-5) needs the stored record's schema step and follows."
     }
   ]
 }

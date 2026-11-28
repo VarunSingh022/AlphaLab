@@ -151,6 +151,47 @@ before, and each is held by a test.
    advantage is the loser's fall it missed plus the winner's rise it caught
    (`tests/integration/test_survivorship_is_caught.py`).
 
+# Settled at M10 (2026-11-28): a venue from a pack, and the loader
+
+6. **Three more entry types, read where they mean something.**
+   - `VenueSession`: one window of a venue's weekly schedule, with its zone.
+   - `Holiday`: a date the venue's calendar is shut.
+   - `SettlementCycle`: a venue's basis and count of days.
+
+   Each is dated twice, as a membership change is, so section 4's range and
+   announcement horizon hold for it. `data.packs.calendar_from_pack` reads a
+   calendar, since a calendar is data's. `instrument.reference.settlement_from_pack`
+   reads a settlement rule, since a rule is a record's. A membership pack's
+   digest is unchanged: its entries are ordered as before.
+7. **A calendar from a pack holds the pack's range.** `MarketCalendar` gains
+   `coverage`, the local dates it is stated for. A calendar read from a pack
+   holds the dates the pack's range covers whole, in its own zone.
+   - A day outside them is refused, inside a run as well, never assumed open
+     or shut.
+   - An instant on its first day is answered without asking the day before,
+     unless a window runs overnight.
+   - Coverage is persisted with the calendar only when stated, so no other
+     calendar's payload, and no `configuration_id`, moves.
+8. **One schedule and one cycle a range.** A calendar's sessions and a venue's
+   cycle are in force across the pack's whole range. One that changes within
+   it is refused rather than flattened. Two zones for one calendar are refused
+   too.
+9. **The loader reads JSON, and nothing in a pack executes.** The codec is
+   `pack_to_primitives` and `pack_from_primitives`, and `load_pack` reads a
+   file. The digest is checked before an entry is read. A field too many, a
+   non-finite number, or text that is not JSON is refused.
+10. **GR-1.** `examples/data/packs/synthetic_venues_2025.json` is a synthetic
+    pack, labelled as such in its source and licence: New York, London and
+    Tokyo, three zones, Tokyo with its lunch break.
+    `tests/integration/test_venues_from_packs.py` holds:
+    - each venue's settlement over its own holiday;
+    - a closure announced after the pack was taken, held by it;
+    - a venue, a day and a run outside the pack, each refused;
+    - a pack whose entries are not its digest's, refused.
+
+    `tests/unit/data/test_venue_packs.py` holds the codec, the readers'
+    refusals, and coverage.
+
 # Departures from the plan's text, and why
 
 - **The query is `members(universe, at)` on the universe view, with `as_of`

@@ -131,6 +131,7 @@ from alphalab.instrument.record import (
     normalize_key_field,
     normalize_sector_label,
 )
+from alphalab.instrument.reference import settlement_from_pack
 from alphalab.instrument.registry import (
     InstrumentRegistry,
     classification_history,
@@ -245,6 +246,7 @@ __all__ = [
     "register_instruments",
     "register_universe",
     "sector_as_of",
+    "settlement_from_pack",
     "universe_from_pack",
     "universe_from_primitives",
     "universe_to_primitives",

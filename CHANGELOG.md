@@ -1576,6 +1576,24 @@ entry below says otherwise.
   refused for a trimmed record, a future, and a holding exchange of or into
   the asset. Under `SECTION_104` it is also refused for a short, a split, and a
   call that states no trade day. A wash-sale rule is out of scope (plan G).
+* **A venue from a reference pack, and the loader** [plan WS-13, GR-1,
+  ADR-0059]. A pack can now state a venue as well as a universe. It holds
+  three more entry types, each dated as a membership change is:
+  `VenueSession`, `Holiday` and `SettlementCycle`.
+  * `calendar_from_pack` reads a calendar. `MarketCalendar` gains `coverage`,
+    the local dates the pack's range holds whole, and refuses a day outside
+    them, inside a run as well: a holiday the pack does not state would
+    otherwise be an extra session.
+  * `settlement_from_pack` reads a venue's `SettlementRule` for its records.
+  * `load_pack`, `pack_to_primitives` and `pack_from_primitives` write and read
+    a pack as JSON, its digest checked before an entry is read. Nothing in a
+    pack executes.
+
+  `examples/data/packs/synthetic_venues_2025.json` is a synthetic pack for New
+  York, London and Tokyo, clearly labelled. GR-1's test runs three venues in
+  three zones from it, each settling by its own cycle over its own holiday,
+  and refuses a missing venue, a day outside the pack and a tampered pack. A
+  calendar that states no coverage writes and answers what it always did.
 * **WS-12's budget, measured** [plan WS-12, ADR-0063 section 7]. A
   construction at 1,000 assets with minimum CVaR at 0.95 over 2,520 scenarios
   took 10,265 seconds in pure Python, alone on the reference machine, over 29

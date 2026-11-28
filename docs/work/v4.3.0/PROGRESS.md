@@ -45,7 +45,7 @@ Never:
 
 | | |
 | --- | --- |
-| Remote head | `5093723` |
+| Remote head | `689a1aa` |
 | Pull request | #22, Draft, mergeable |
 | Monitoring | Auto-fix for PR #22 could not be enabled: the app's permission classifier refused the switch. Checks are read once at each increment boundary instead. |
 | Next | M10: WS-27's records at the close (GR-3, S-05, GAP-23); then WS-13's lot relief (GAP-50), fund and ETF types and GR-1's packs, WS-14's rates (ADR-0065, GR-6, S-06), WS-28's volatility models and futures depth (ADR-0066, S-03, S-04), S-14, M10's mutation series and its close. Hosted CI for 5416d36 and the next push is read at the next boundary. |
@@ -303,6 +303,9 @@ Never:
 | `0315467` | Continuous Integration | 45400179598 | success: all six quality-gate cells (rollover as a swap) |
 | `0315467` | CodeQL | 45400179724 | success |
 | `0315467` | Optional Distributions | 45400179275 | success |
+| `5416d36` | Continuous Integration | 46115574139 | success: all six quality-gate cells (NDF settlement) |
+| `5416d36` | CodeQL | 46115574165 | success |
+| `5416d36` | Optional Distributions | 46115574122 | success |
 
 ## Continuation log
 
@@ -428,6 +431,7 @@ Never:
 - **2026-11-28** Resumed after the usage limit; the scratch had survived, the tree was clean at 0315467, and 8737a71 and 0315467 had passed hosted CI on all six cells with CodeQL and Optional Distributions. NDF settlement (TD-85) is validated locally: the deal recorded at its trade, the fixing a supplied FxRate from the deal's source booked by ExecutionPipeline.fix_ndf or a ScheduledFixing, the difference pending to the value date, and a deal unfixed at its value date stopping the run. An NDF is in the book at nothing before its fixing, recorded as ADR-0067's known limitation 2.
 - **2026-11-28** 5416d36 pushed: NDF settlement (TD-85), after its gate found the schedule-digest pins needed the new fixing kind pinned from v4.3.0, the release that adds it; the digest of every kind's entries together stays v4.2.1's over its twenty kinds. S-05 is validated locally: example 84 carries a book of AUD and NZD forwards rolled as swaps through 2025, and its E2E reconciles cash per currency to the tally of the fills, checks every value date against both calendars -- three holidays by hand -- and adds up what the book earned. docs/FX.md is the FX guide. WS-27's acceptance, GR-3 and S-05, is ready for M10's close.
 - **2026-11-28** 5093723 pushed: S-05 end to end and the FX guide. Lot relief (TD-86, GAP-50) is validated locally: relieve_lots reads an asset's gains and open lots from the book's own record by a stated method, average cost reproducing the book's relief to the cent, and Section 104's later matches exact because they are read rather than booked. The book is unchanged.
+- **2026-11-28** 689a1aa pushed: lot relief (TD-86). 5416d36 passed hosted CI. GR-1 is validated locally (TD-87): a reference pack now states a venue's sessions, holidays and settlement cycle; a calendar read from one holds the pack's range as its coverage and refuses a day outside it, inside a run too; and the loader reads a pack's JSON with its digest checked first. Citing a pack in RunProvenance (plan G.1.3, R53-5) needs the stored record's schema step and follows.
 
 ## Milestones
 
@@ -1356,6 +1360,16 @@ Taken under the authority the owner delegated on 2026-11-10; each is the program
 - **Recorded in:** CHANGELOG; the module's docstring.
 - **Tests:** tests/unit/portfolio/test_lot_relief.py (17): one record of six fills relieved by every method, by hand -- average cost 803.59, FIFO 800.00, LIFO 870.00, highest cost 470.00, lowest cost 960.00, Section 104 683.33 -- each with its open cost, and realized less open cost the same under every method; average cost equal to the book's gain at every fill and its open basis; each match's acquisitions, proceeds and cost under FIFO and Section 104, its last sale provisional; a short, a reversal and a split under average cost and FIFO; eight refusals.
 
+### TD-87: A venue's sessions, holidays and settlement cycle in a reference pack, read into a calendar that holds the pack's range as its coverage, and the pack loader (ADR-0059 settled points 6 to 10, GR-1) (WS-13, 2026-11-28)
+
+- **Problem:** GR-1 asks for three venues in three zones from versioned packs, settlement per venue, and a missing entry refused. A pack held membership alone and had no loader; a calendar answered any day, so one read from a pack would have assumed a holiday it did not state away -- an extra session -- after the pack's range ended.
+- **Alternatives:** (a) A calendar carries its pack and asks it: the data package's calendar would depend on the pack's format at every question. (b) Readers refuse a run whose data leaves the pack's range up front: a run does not know its range until it ends. (c) A calendar states its coverage, the local dates the pack's range holds whole; every question about a day goes through windows_on, which refuses one outside it, so the refusal holds inside a run wherever a date is asked.
+- **Decision:** (c). data.packs gains VenueSession, Holiday and SettlementCycle entries, each dated twice and held to the pack's range and horizon; calendar_from_pack reads a MarketCalendar with coverage, one zone and one schedule a range; instrument.reference.settlement_from_pack reads a SettlementRule, one cycle a range; pack_to_primitives, pack_from_primitives and load_pack write and read JSON, the digest checked first. MarketCalendar.coverage is persisted only when stated. is_open and trading_day_of skip the day before their first covered day only when no window runs overnight.
+- **Rationale:** A calendar's own refusal is the only place every question about a date passes, the pipeline's included. A schedule or cycle that changes within a range would need dated schedules the calendar does not hold, so it is refused rather than flattened, as section 4 refuses a missing entry.
+- **Compatibility:** Additive: eight exports (3,167); MarketCalendar's binding gains coverage, named in the CHANGELOG. A membership pack's digest, and every calendar payload and configuration_id without coverage, is unchanged. One unit test that used Holiday as an example of an unknown entry type now uses FeeSchedule.
+- **Recorded in:** docs/ADR/0059-historical-universes-and-reference-data-packs.md (settled points 6 to 10); CHANGELOG; the packs module's docstring.
+- **Tests:** tests/integration/test_venues_from_packs.py (5): GR-1 -- New York, London and Tokyo from the synthetic pack, three zones and Tokyo's lunch break; purchases settling T+1 over Labor Day, T+2 over the summer bank holiday and T+2 over Respect for the Aged Day, each at its venue's next open; a closure announced the day before the pack was taken held by it; a venue, a day, and a run outside the pack refused; a tampered pack refused. tests/unit/data/test_venue_packs.py (16): the codec and the loader and their refusals, a calendar's sessions, holidays and coverage, coverage persisted only when stated, an overnight calendar refusing the day before its coverage, and nine readers' refusals.
+
 ## Plan changes
 
 | ID | Date | Decision | Change | Reason |
@@ -1608,7 +1622,8 @@ Evidence:
 - [Hosted CI passed] M3: data.packs.ReferencePack: source, coverage, licence, typed entries, content digest; universe_from_pack
 - [Hosted CI passed] M3: Mutation series U (17): dated membership, what a strategy reads, the review, reference packs -- 17 of 17 caught
 - [Hosted CI passed] M10: Business-day conventions, tenors and FX value dates (TD-81, ADR-0067 settled point 1, N21): BusinessDayConvention, adjust and add_business_days over every calendar named; Tenor and add_tenor under a stated end-of-month rule; ValueDateRule with spot and forward value dates, stated by the calendars a day is counted and settled in
-- [Local validation passed] M10: Lot relief (TD-86, GAP-50): relieve_lots reads an asset's gains and open lots by a stated LotRelief -- average cost as the book relieves it, FIFO, LIFO, highest and lowest cost, Section 104's same-day, 30-day and pool rules -- the book unchanged
+- [Pushed] M10: Lot relief (TD-86, GAP-50): relieve_lots reads an asset's gains and open lots by a stated LotRelief -- average cost as the book relieves it, FIFO, LIFO, highest and lowest cost, Section 104's same-day, 30-day and pool rules -- the book unchanged
+- [Local validation passed] M10: A venue from a reference pack, and the loader (TD-87, ADR-0059 settled points 6 to 10, GR-1): VenueSession, Holiday and SettlementCycle entries; calendar_from_pack with coverage refused outside; settlement_from_pack; load_pack; GR-1's three venues in three zones from a synthetic pack
 
 Evidence:
 
